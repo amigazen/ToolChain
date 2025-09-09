@@ -25,4 +25,5 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # Acknowledgements
 
+A68k is a new version of A68k originally by Charlie Gibbs
 alib is a new version of alib originally by Mike Schwartz
