@@ -1,0 +1,6 @@
+*.o
+*.uaem
+*.gst
+*.map
+*.lnk
+output.txt
