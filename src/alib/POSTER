@@ -1,0 +1,88 @@
+Article 1351 of net.micro.amiga:
+Relay-Version: version B 2.10.3 4.3bsd-beta 6/6/85; site well.UUCP
+Posting-Version: version B 2.10.2 9/18/84; site 3comvax.UUCP
+Path: well!ptsfa!qantel!lll-crg!seismo!harvard!talcott!panda!genrad!decvax!decwrl!glacier!oliveb!3comvax!mykes
+From: mykes@3comvax.UUCP (Mike Schwartz)
+Newsgroups: net.micro.amiga
+Subject: ALib.c MS Dos and AmigaDos object module Librarian
+Message-ID: <311@3comvax.UUCP>
+Date: 28 Dec 85 22:49:33 GMT
+Date-Received: 31 Dec 85 09:50:35 GMT
+Distribution: net
+Organization: 3Com Corp; Mountain View, CA
+Lines: 468
+
+*** REPLACE THIS LINE WITH YOUR MESSAGE ***
+Here is a simple utility I wrote a while back for the Amiga, which can
+save a lot of compilation time.  It is a Lattice and AmigaDos compatible
+object module librarian with basic replace/add, delete, and directory
+functions.  ALib is like an archive-type tool for those .o files created
+by the Lattice 'C' compler.  Smaller program modules can be compiled and
+added together into libraries, which can be linked with other object modules.
+ALib is totally portable between the IBM PC and Native Amiga environments.
+
+Theory of Operation:
+   AmigaDos object files have a structure that allows them to be concatonated
+   together and still be valid input to the linker (ALink).  ALink reads in
+   object modules in two ways, although it may seem like there are two types
+   of object modules.  The filenames listed in the from field are considered
+   object modules, and ALL THE OBJECT CODE in the module will be included in
+   the output (executable) file (Note: This last statement may not be true,
+   but for purposes of this librarian, it doesn't matter).  The filenames
+   listed after the library= flag on the linker command line represent
+   library modules from which the linker will only include the code for
+   those objects referenced by the object modules (this appears to be the
+   case from the way my disk drives appear to be seeking thousands of times
+   through lc.lib and amiga.lib during Alink).
+
+   ALib allows you to create both object modules and libraries.  All of the
+   modules (input files to ALink) created by ALib have .lib extensions on
+   them, but may be used as either object modules or libraries, or as both.
+   This allows the programmer the flexibility of including any or all of
+   the linker's options while compiling smaller modules and building 
+   libraries of functions that can be used in multiple programs.
+
+   ALib also creates a .dir file for each .lib file, which contains the
+   information necessary to dynamically substitute, add, or remove
+   any of the individual modules that make up a library.  This information
+   includes the name of the .o files used to build the library, the offset
+   into the .lib file where the object module from the .o can be found,
+   and the size of the object module.
+
+   ALib works "in-place" on a library, which conserves on disk space 
+   tremendously.  This limits the size of output .lib files to the
+   amount of free memory that ALib has available to it (over 300K on
+   my Amiga).  A block of memory is allocated for each object module
+   already existing in the library, as well as for the object modules that
+   are to be added.  These blocks of memory are exactly large enough to 
+   hold the entire .o input file.  Disk access by ALink is extremely
+   efficient, with the minimal amount of head seeks, because it reads
+   the entire .o file with one Lattice read() call.  The final output
+   library is also written in Large chunks of Lattice write() calls.
+
+   The Replace module option is actually a delete module and an add
+   module operation.  The delete module operation is simply "forgetting"
+   about it - freeing up the memory used by the module, and deleting
+   the directory entry for the module.  The add module is simply reading
+   the new module into memory and adding a directory entry for it.
+   When all the new additions or deletions are done, the new library
+   is recorded back on disk.  
+
+Comments and Ideas:
+   I used ALib to make clib.lib, which contains lc.lib, amiga.lib, and
+   debug.lib.  I can use Library=clib.lib instead of 
+   Library=lc.lib+amiga.lib+debug.lib when ALink-ing Lattice 'C' Programs.
+   I use clib.lib all the time, and it works fine.  I think that it even
+   saves some seek time to have one big file instead of 3 separate ones.
+   ALink seems to do a lot of head seeks to clib.lib on disk, but from
+   ramdisk, I imagine ALink might actually run fast???  
+
+   I also am building some libraries, which contain some real useful
+   subroutines and functions to complement the AmigaDos, Intuition, and
+   Rom Kernel functions.  Things like serial port/modem protocols,
+   multiple window management, etc.  I hope to use these in more than one
+   program.
+
+Enjoy!
+
+=============================Cut Here=====================================
