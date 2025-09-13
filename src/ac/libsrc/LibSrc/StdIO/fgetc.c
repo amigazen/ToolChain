@@ -1,0 +1,44 @@
+/*
+ * Libraries and headers for PDC release 3.3 (C) 1989 Lionel Hummel.
+ * PDC Software Distribution (C) 1989 Lionel Hummel and Paul Petersen.
+ * PDC I/O Library (C) 1987 by J.A. Lydiatt.
+ *
+ * This code is freely redistributable upon the conditions that this 
+ * notice remains intact and that modified versions of this file not
+ * be included as part of the PDC Software Distribution without the
+ * express consent of the copyright holders.  No warrantee of any
+ * kind is provided with this code.  For further information, contact:
+ *
+ *  PDC Software Distribution    Internet:                     BIX:
+ *  P.O. Box 4006             or hummel@cs.uiuc.edu            lhummel
+ *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
+ */
+
+/*  getc.c
+ *
+ *      Performs single-character buffered I/O
+ */
+
+#include <stdio.h>
+
+extern int _filebfill();
+
+int fgetc(fp)
+FILE *fp;
+{
+    if ( fp->_filecpos >= fp->_fileend )
+        return _filebfill( fp );
+    return (*fp->_filecpos++ & 0xFF);
+}
+
+
+int ungetc(c, fp )
+char c;
+FILE *fp;
+{
+    if ( c == EOF || fp->_filecpos <= fp->_filebufp )
+        return EOF;
+
+    *--fp->_filecpos = c;
+    return (c);
+}

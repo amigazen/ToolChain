@@ -1,0 +1,25 @@
+Chk_Abort - Check for a break signal
+
+long Chk_Abort()
+
+When called, Chk_Abort determines the state of the current task's
+break signals.  If none of the signals are set, Chk_Abort will return
+zero. 
+
+There is a global int (found in Chk_Abort.o of PDC.lib) called
+Enable_Abort that, if true, indicates that Chk_Abort should abort the
+program (by calling _abort()) when a break signal is detected.  If
+false, Chk_Abort returns with the task's break flags. 
+
+Chk_Abort is called during the following unbuffered program I/O
+operations:
+			open, read, write, lseek
+
+For programs that either go straight to DOS or otherwise do not use
+PDC's I/O functions, it is necessary to call Chk_Abort() directly. 
+
+BUGS
+It should be easier to generate and respond to software traps when a
+program receives a break signal.  This polled approach is useless for
+many situations when abort signals would be useful (e.g., a program
+that has become deadlocked or entered into an infinite loop). 

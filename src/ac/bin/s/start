@@ -1,0 +1,9 @@
+; This script is meant to be run from the top of your PDC directory heirarchy.
+; It will set the necessary environment variables and will assign the logical
+; device "pdc:" to a common point for referencing PDC-related files.
+;
+assign pdc: ""
+path add pdc:bin
+setenv PDCLibs "PDC.Lib; Amiga.lib; Math.lib"
+setenv PDCLibDirs "PDC:lib"
+setenv PDCIncDirs "PDC:include"

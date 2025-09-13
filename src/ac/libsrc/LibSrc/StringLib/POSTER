@@ -1,0 +1,31 @@
+Article 235 of mod.sources:
+Relay-Version: version B 2.10.3 4.3bsd-beta 6/6/85; site unisoft.UUCP
+Path: unisoft!lll-lcc!vecpyr!amd!amdcad!decwrl!decvax!genrad!mit-eddie!mirror!sources-request
+From: sources-request@mirror.UUCP
+Newsgroups: mod.sources
+Subject: v06i043:  X3J11/SVID/4BSD/etc string library (stringlib)
+Message-ID: <125@mirror.UUCP>
+Date: 8 Jul 86 21:35:35 GMT
+Date-Received: 9 Jul 86 14:14:59 GMT
+Sender: rs@mirror.UUCP
+Lines: 1515
+Approved: rs@mirror.UUCP
+
+Submitted by: ihnp4!utzoo!henry (Henry Spencer)
+Mod.sources: Volume 6, Issue 43
+Archive-name: stringlib
+
+[  This is an update of the string library Henry posted to net.sources
+   some time ago.  It is different from a recent library published in
+   volume 4 in these two respects:
+	1. It comes with a fairly exhaustive test program, which it passes.
+	2. It does not invent new functions; it implements the union of those
+	   described in X3J11, the SVID, etc., and nothing else.
+   It would be nice if everyone -- vendors, users -- put the "missing"
+   functions into their C library, and we could all live in harmony,
+   but I suspect that's wishful thinking.  (Yeah, yeah:  efficiency, too.)
+   This is also excempted from my mandatory manpage requirement, for
+   reasons mentioned and alluded to in the second paragraph of the README
+   file.  --r$ ]
+
+------------------

@@ -1,0 +1,62 @@
+#include <stdio.h>
+#include <math.h>
+#include "pml.h"
+
+/*
+ * Frexp returns the significand of a double "value" as a double quanity,
+ * "x", of magnitude less than 1 and stores an integer "n", indirectly
+ * through "eptr", such that "value" = "x" * 2^"n"
+ * 
+ * For the mc68000 using IEEE format the double precision word format is:
+ * 
+ * WORD N   =>    SEEEEEEEEEEEMMMM 
+ * WORD N+1 =>    MMMMMMMMMMMMMMMM 
+ * WORD N+2 =>    MMMMMMMMMMMMMMMM 
+ * WORD N+3 =>    MMMMMMMMMMMMMMMM
+ * 
+ * Where:          S  =>   Sign bit 
+ *                 E  =>   Exponent 
+ *                 X  =>   Ignored (set to 0)
+ *                 M  =>   Mantissa bit
+ * 
+ * NOTE:  Beware of 0.0; on some machines which use excess 128 notation for the
+ * exponent, if the mantissa is zero the exponent is also.
+ * 
+ */
+
+#define MANT_MASK 0x800FFFFF    /* Mantissa extraction mask     */
+#define ZPOS_MASK 0x3FF00000    /* Positive # mask for exp = 0  */
+#define ZNEG_MASK 0x3FF00000    /* Negative # mask for exp = 0  */
+
+#define EXP_MASK 0x7FF00000 /* Mask for exponent            */
+#define EXP_SHIFTS 20       /* Shifts to get into LSB's     */
+#define EXP_BIAS 1022       /* Exponent bias                */
+
+
+union dtol {
+    double          dval;
+    int             ival[2];
+};
+
+double
+frexp(value, eptr)
+    double          value;
+    int            *eptr;
+{
+    union dtol      number;
+    int            *iptr, cexp, exp;
+
+    if (value == 0.0) {
+        *eptr = 0;
+        return (0.0);
+    }
+    else {
+        number.dval = value;
+        iptr = &number.ival[0];
+        *eptr = (((*iptr) & EXP_MASK) >> EXP_SHIFTS) - EXP_BIAS;
+        *iptr &= ~EXP_MASK;
+        exp = EXP_BIAS;
+        *iptr |= (exp << EXP_SHIFTS) & EXP_MASK;
+        return (number.dval);
+    }
+}

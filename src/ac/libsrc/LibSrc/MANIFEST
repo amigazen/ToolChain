@@ -1,0 +1,95 @@
+/*
+ * Libraries and headers for PDC release 3.3 (C) 1989 Lionel Hummel.
+ * PDC Software Distribution (C) 1989 Lionel Hummel and Paul Petersen.
+ * PDC I/O Library (C) 1987 by J.A. Lydiatt.
+ *
+ * This code is freely redistributable upon the conditions that this 
+ * notice remains intact and that modified versions of this file not
+ * be included as part of the PDC Software Distribution without the
+ * express consent of the copyright holders.  No warrantee of any
+ * kind is provided with this code.  For further information, contact:
+ *
+ *  PDC Software Distribution    Internet:                     BIX:
+ *  P.O. Box 4006             or hummel@cs.uiuc.edu            lhummel
+ *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
+ */
+
+/* MANIFEST - List of library functions and their source files 
+ *
+ * This listing is far from complete ... it's hardly even begun.
+ * Presently covers: Misc, StdLib, StdIO, SysIO
+ * Missing: Math, StringLib
+ */
+
+_abort     sysio/_abort.c          prints a ^C to Output() and calls exit()
+access     sysio/access.c          tests accessability of a file/dir
+asctime    misc/time.c             ascii representation of a time structure
+atof       stdlib/atof.c           translates a float from its ascii form
+atoi       stdlib/atoi.c           translates an int from its ascii form
+atol       stdlib/atol.c           translates a long from its ascii form
+calloc     sysio/malloc.c          allocates a cleared array of blocks
+Chk_Abort  sysio/Chk_Abort.c       calls _abort() if a break has been received
+clock      misc/time.c             CLK_TCK's since clock() was first called
+close      sysio/close.c           closes an open file and free's its fd
+creat      sysio/open.c            creates a new file
+ctime      misc/time.c             current calendar time (ascii, cf. time())
+dayofw     misc/time.c             day of week at a given time (non-standard) 
+difftime   misc/time.c             seconds difference between two encoded times
+exit       sysio/exit.c            close files, free memory, and call _exit()
+_exit      startup/acrt0.asm       terminates program
+fclose     stdio/fclose.c          closes an I/O stream
+fdopen     stdio/fdopen.c          applies buffering to an open file desciptor
+fflush     stdio/fclose.c          flushes an I/O stream's buffer
+fgetc      stdio/fgetc.c           reads next char from buffer
+fgets      stdio/fgets.c           read line from a file into a string buffer
+fopen      stdio/fopen.c           opens the given file name for buffered I/O
+format     stdio/format.c          formats a string and outputs characters
+fprintf    stdio/fprintf.c         prints a string to a buffered output stream
+fputc      stdio/fputc.c           writes a char to a buffered output stream
+fputs      stdio/fputs.c           write a null-terminated string to a stream
+fread      stdio/fread.c           read from an input stream
+free       sysio/malloc.c          frees a previously allocated block of memory
+freopen    stdio/fopen.c           changes the mode on a buffered I/O stream 
+fscanf     stdio/fscanf.c          reads a string from a buffered input stream
+fseek      stdio/fseek.c           seeks relative some part of an I/O stream
+ftell      stdio/fseek.c           reports position within an I/O stream
+fwrite     stdio/fwrite.c          writes to an output stream
+getc       stdio.h                 macro version of fgetc
+getenv     stdlib/environment.c    gets an environment variable's value
+getopt     misc/getopt.c           aids parsing of command line arguments
+gets       stdio/gets.c            ** do not use ** see source for more info
+gmtime     misc/time.c             unimplemented at present, returns 0
+isatty     sysio/isatty.c          is an fd is attached to a pokey "user"?
+isdst      misc/time.c             unimplemented at present, returns 0
+jday       misc/time.c             convert time to a julian day (non-standard)
+localtime  misc/time.c             breaks down an encoded calenar time
+lseek      sysio/lseek.c           seeks relative some part of a file
+_main      sysio/_main.c           initiates file/memory tracking, calls main()
+malloc     sysio/malloc.c          allocates a block of memory
+mktime     misc/time.c             converts time structure to an encoded time
+open       sysio/open.c            opens a file
+printf     stdio/fprintf.c         prints a formatted string to stdout
+putc       stdio.h                 macro version of fputc
+putenv     stdlib/environment.c    like setenv() but takes only 1 parm
+puts       stdio/fputs.c           place a null-terminated string on stdout
+read       sysio/read.c            read from a file
+realloc    sysio/malloc.c          alter buffer size; same contents, new ptr 
+rename     sysio/rename.c          renames an existing file
+scanf      stdio/fscanf.c          reads a formatted string from stdin
+setenv     stdlib/environment.c    sets an environment variable's value
+sleep      sysio/sleep.c           Delay()'s an integral number of seconds
+sprintf    stdio/fprintf.c         prints formatted a string into a given buffer
+sscanf     stdio/fscanf.c          reads a formatted string from a given buffer
+strdup     stringlib/strdup.c      duplicates a string in new storage
+strndup    stringlib/strndup.c     strdup()'s into n bytes of new storage
+strdcat    stringlib/strdcat.c     contatenates strings in new storage
+strtod     stdlib/strtod.c         parses a double from an ascii string
+strtosd    stdlib/strtosd.c        parses a scaled double from an ascii string
+strtosud   stdlib/strtosud.c       parses an unsigned scaled double ...
+strtol     stdlib/strtol.c         parses a long from an ascii string
+strtoul    stdlib/strtoul.c        parses an unsigned long from an ascii string
+system     stdlib/system#0.(c|asm) executes program within current context
+time       misc/time.c             current calendar time (encoded)
+ungetc     stdio/fgetc.c           pushes a character back onto stream
+unlink     sysio/unlink.c          deletes a file
+write      sysio/write.c           writes to a file

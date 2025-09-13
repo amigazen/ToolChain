@@ -1,0 +1,122 @@
+Release notes for PDC 3.33:
+
+Name and copyright clarifications
+---------------------------------
+While PDC is an acronym for "Publicly Distributable C", it has been
+frequently equated with "Public Domain C", which this software
+distribution emphatically IS NOT.  Rather, the distribution (which
+includes a compiler, assembler, linker, librarian, and numerous
+utilities, documentation files, libraries, and header files) is as a
+whole freely distributable.  Many pieces of PDC belong to the public
+domain and are expressly labeled so.  Others are copyrighted and have
+messages from the authors describing their terms of distribution.
+
+Development history
+-------------------
+The Fish disks have included a number of compilers and assemblers.
+These have had many bugs and not usable by the uninitiated C-programmer.
+Fish disk #110 gathered together Charlie Gibb's assembler and Jeff Lydiatt's
+port of PDC.  It was usable by those who understand about compilers, but
+generally limited in application because floats and an integrated preprocessor
+were missing.  Paul then took PDC and added these two crucial missing features
+and fixed many bugs.  This provided a more robust implementation for the
+experienced programmer.  The first release of Paul's work was PDC release 3.1
+which I distributed at AmiExpo/Midwest in July '88.  PDC release 3.2 was a
+repackaging and maintenance release which did not see extensive distribution. 
+
+About PDC release 3.3 (August, 1989)
+------------------------------------
+This release presents a programming environment that is even more robust
+and easier to use than before.  This is not to say that PDC will ever
+be considered commercial-grade, rather that it is now accessible to
+programmers at every experience level.  Here is a list of features for
+the PDC Software Distribution release 3.3:
+
+        - PDC Compiler:
+            - Many ANSI features.  Support includes the following:
+                - All ANSI preprocessor directives
+                - Function prototyping
+                - Structure passing and assignment
+            - Supports Lattice-compatible libcall #pragmas, plus a #pragma
+              switch to specify CPU or library based 32-bit integer math.
+            - Can generate and use pre-compiled header files.
+            - Allows inline code generation for __BUILTIN_ functions.
+            - Capable of generating stack-checking code (function wrappers).
+            - Can be compiled and run under UNIX (SunOS), generating DBX
+              debugging info.
+	- General distribution containing executables, header files, 
+          libraries, sample files, and documentation on a single disk.
+        - Many additional tools and utilities
+            - A68k version 2.6
+            - CCX compiler frontend (UNIX cc clone)
+            - BLink version 6.7
+            - Make utility
+            - Bind utility for generating stub-routines
+            - Libr object module librarian
+	- Source included:
+            - Latest version of the PDC Compiler.
+            - Latest release of Charlie Gibb's A68k assembler.
+	    - PDC Libraries and miscellaneous utility programs.
+	- Presents a straightforward baseline for Amiga programming, and
+	  usable as a "turnkey" compiler for source code distributions.
+
+Changes/Fixes for this relese
+-----------------------------
+- Fixed moveq peephole optimization to eliminate needless sign extensions.
+- Fixed sign problem with libcall pragma function offsets.
+- Improved support for unsigned types.
+- Changed acrt0.o so that entry stack pointer is available in _initialSP.
+- Fixed the semantics of multidimensional arrays.
+- Fixed a problem where external libcall names conflict with user-defined 
+  globals of the same name.
+- system() now has a maximum path of 255 char and dynamically-allocates
+  storage for parameters so the parameter list can be of any length.
+- Removed recursion from system()'s path-building function.
+- Fixed system() to release FileLocks correctly.
+- Added checking for 0x80000000 special case to format(). [Fixes a codegen bug]
+- Added missing formatting character in putword().	[Fixes a codegen bug]
+- Fixed a reported bug in the formatting of padded strings.
+- Added to ccx.c support for the PDCTmpArea environment variable, updated docs
+- Corrected default make targets for PDC in rules.c
+- Fixed trailing-newline make bug in reader.c
+- Made getenv return null, in accordance with ANSI spec, when no variable found.
+- Added ability to generate function wrappers (.entry and .exit).  Appropriately
+  written wrappers can be used to perform stack checking, program flow tracing,
+  profiling, etc.
+
+Changes/Fixes for PDC 3.30.2
+----------------------------
+- CCX can now take options interspersed with operands, i.e.: ccx Pi.c -lmath
+- Added PDC-specific default rules to Make utility.
+
+Bug list 
+-------- 
+- PDC cannot correctly take the address of function parameters that are of
+  type char or short.  You can circumvent this bug by assigning the paramter
+  to a dummy variable and taking the address of that.  You might consider
+  declaring the dummy variable as 'static', particularly if you want the
+  address to be valid after returning from the function, just beware of
+  multiple invocations. 
+- The arithmetic assignment and (++/--) operators do not function correctly
+  for floating-point values.
+- PDC cannot generate correct code for addressing automatic variables beyond 
+  32K into the stack frame (a common limitation due to 68000 address modes)
+- Buffer flushing is not being performed as it should be on writes to interactive
+  files (consoles).
+
+Work in progress
+----------------
+	- Better code generation.
+        - Direct generation of object code.
+        - Amiga debugging support.
+        - Integration with editors that support AReXX.
+        - Programmer AReXX support.
+        - A linker to replace BLink.
+
+Directions for future work
+--------------------------
+        - IFF-based object format and resource editor.
+
+
+                                Lionel D. Hummel
+                                4 April 1990

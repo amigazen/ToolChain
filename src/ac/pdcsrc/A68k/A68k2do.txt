@@ -1,0 +1,20 @@
+A68k - things to do as of November 2, 1989
+
+
+*** BUGS ***
+
+(There are no known bugs at this time.)
+
+
+*** ENHANCEMENTS ***
+
+Implement an ARexx interface to an editor (e.g. CED) for debugging.
+
+Improve the small code / small data option - study linker documentation!
+
+Wild optimizations? (e.g. MOVE.W #0,D0 -> CLR.W D0)
+                    (MOVE.L #16,D0 -> MOVE.W #16,D0 -> MOVEQ #16,D0)
+
+Treat (An,Dn) as 0(An,Dn)?  Or just leave for 68020 upgrade?
+
+Add 68010/68020 support.

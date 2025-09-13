@@ -1,0 +1,126 @@
+This file contains a list of BSD functions implemented in PDC, or ones
+that should be implemented to ease porting of UNIX code to the Amiga.
+
+Math functions
+
+double frexp(value, eptr)     
+double value;                 
+int *eptr;
+Returns value's mantissa (x), places exponent in *eptr.  (value = x * 2^n)
+
+double ldexp(value, exp)
+double value;
+Returns value * 2^exp.
+
+double modf(value, lptr)
+double value, *iptr;
+Returns the positive fractional part and places the integer part in *iptr.
+
+double exp(x)
+double x;
+
+double log(x)
+double x;
+
+double log10(x)
+double x;
+
+double pow(x)
+double x;
+
+double sqrt(x)
+double x;
+
+double floor(x)
+double x;
+
+double ceil(x)
+double x;
+
+double fabs(x)
+double x;
+
+double sin(x)
+double x;
+
+double cos(x)
+double x;
+
+double asin(x)
+double x;
+
+double acos(x)
+double x;
+
+double atan(x)
+double x;
+
+double atan2(x)
+double x;
+
+double sinh(x)
+double x;
+
+double cosh(x)
+double x;
+
+double tanh(x)
+double x;
+
+
+----------
+
+Memory
+
+char *malloc(size)
+unsigned size;
+
+void free(ptr)
+char *ptr;
+
+char *calloc(nelem, elsize)
+unsigned nelem, elsize;
+
+char *realloc(ptr,size)
+char *ptr;
+unsigned size;
+
+----------
+
+Environment
+
+char *getenv(name)
+char *name;
+Returns string value of environment variable name, NULL if not found.
+
+
+Unimplemented, but in the queue...
+
+char *getlogin()
+Returns the value of environment variable USERID or "root" if not found.
+
+char *getwd(pathname)
+char *pathname;
+Copies the absolute pathname of the working directory to pathname and returns
+a pointer to the result.
+
+char *mktemp(template)
+char *template;
+Make a unique filename.
+
+
+perror(s)
+char *s;
+
+int sys_nerr;
+char *sys_errlist[];
+
+tty stuff
+
+random functions
+
+UNIX directory functions
+
+system()
+Implemented, but lacks I/O redirection.  Difficult to make 100% compatible.
+

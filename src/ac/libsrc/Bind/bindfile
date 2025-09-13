@@ -1,0 +1,8 @@
+
+# Freely Distributable C Compiler
+FDC:
+	stackoffset = 4
+	saveregs = d3-d7/a2-a6
+	assembler = A68K $A -o$O
+	librarian = Libr -a -x $L $O
+

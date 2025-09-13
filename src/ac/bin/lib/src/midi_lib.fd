@@ -1,0 +1,35 @@
+*  midi_lib.fd - version 1.2
+*
+##base _MidiBase
+##bias 30
+##public
+*-------------- locking
+LockMidiBase()()
+UnlockMidiBase()()
+*-------------- source
+CreateMSource(name,image)(A0/A1)
+DeleteMSource(source)(A0)
+FindMSource(name)(A0)
+*-------------- dest
+CreateMDest(name,image)(A0/A1)
+DeleteMDest(dest)(A0)
+FindMDest(name)(A0)
+*-------------- route
+CreateMRoute(source,dest,routeinfo)(A0/A1/A2)
+ModifyMRoute(route,newrouteinfo)(A0/A1)
+DeleteMRoute(route)(A0)
+MRouteSource(source,destname,routeinfo)(A0/A1/A2)
+MRouteDest(sourcename,dest,routeinfo)(A0/A1/A2)
+MRoutePublic(sourcename,destname,routeinfo)(A0/A1/A2)
+*-------------- msg
+GetMidiMsg(dest)(A0)
+PutMidiMsg(source,msg)(A0/A1)
+FreeMidiMsg(msg)(A0)
+MidiMsgType(msg)(A0)
+MidiMsgLength(msg)(A0)
+PutMidiStream(source,fillbuffer,buf,bufsize,cursize)(A0/A1/A2,D0/D1)
+*-------------- v1.2 routines
+LockMRoutes()()
+UnlockMRoutes()()
+FlushMDest(dest)(A0)
+##end

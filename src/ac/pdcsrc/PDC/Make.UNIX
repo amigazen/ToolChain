@@ -1,0 +1,177 @@
+#
+#	This is the makefile for PDC to use when building it under the UNIX
+#	operating system
+
+#CC		= cc
+CC		= Ccc
+LN		= cc
+#CFLAGS	= -g 
+CFLAGS	=
+LDFLAGS	= -g
+INCFLAGS = -I/usr/include
+
+.SUFFIXES:	.oa .oa2
+
+.c.o:
+	Ccc -A $(INCFLAGS) -P Include.pre $<
+
+.c.oa:
+	ccx -A -I../Include -P Include.pre $<
+
+.c.oa2:
+	ccx2 -A -I../Include $<
+
+.DEFAULT:
+	co $<
+
+CFILES	= Analyze.c Builtins.c CGlbDef.c Cmain.c DBX.c Decl.c Expr.c	\
+		Force.c Func.c GenCode.c GenFloat.c GenStmt.c GetOpt.c	\
+		GetSym.c Include.c Init.c IntExpr.c List.c MemMgt.c	\
+		Optimize.c Outcode.c PeepGen.c PreComp.c PreProc.c Register.c	\
+		SearchKW.c Stmt.c Symbol.c 
+
+AUXSRC	= bcopy.c bzero.c memcpy.c memset.c
+
+OFILES	= Analyze.o Builtins.o CGlbDef.o Cmain.o DBX.o Decl.o Expr.o 	\
+		Force.o Func.o GenCode.o GenFloat.o GenStmt.o GetOpt.o	\
+		GetSym.o Include.o Init.o IntExpr.o List.o MemMgt.o	\
+		Optimize.o Outcode.o PeepGen.o PreComp.o PreProc.o Register.o	\
+		SearchKW.o Stmt.o Symbol.o 
+
+OAFILES	= Analyze.oa Builtins.oa CGlbDef.oa Cmain.oa DBX.oa Decl.oa Expr.oa \
+		Force.oa Func.oa GenCode.oa GenFloat.oa GenStmt.oa GetOpt.oa 	\
+		GetSym.oa Include.oa Init.oa IntExpr.oa List.oa 		\
+		MemMgt.oa Optimize.oa Outcode.oa PeepGen.oa PreComp.oa	\
+		PreProc.oa Register.oa SearchKW.oa Stmt.oa Symbol.oa 
+
+OA2FILES = Analyze.oa2 Builtins.oa2 CGlbDef.oa2 Cmain.oa2 DBX.oa2 Decl.oa2 \
+		Force.oa2 Expr.oa2 Func.oa2 GenCode.oa2 GenFloat.oa2 	   \
+		GenStmt.oa2 GetOpt.oa2 GetSym.oa2 Include.oa2 Init.oa2 	   \
+		IntExpr.oa2 List.oa2 MemMgt.oa2 Optimize.oa2 Outcode.oa2   \
+		PeepGen.oa2 PreComp.oa2 PreProc.oa2 Register.oa2 SearchKW.oa2 \
+		Stmt.oa2 Symbol.oa2 
+
+AUXOBJ	= bcopy.o bzero.o memcpy.o memset.o
+
+LIB		= 
+
+all:	PDC amiga2sun
+
+PDC:	$(OFILES) 
+	$(LN) $(LDFLAGS) -o $@ $(OFILES) $(LIB)
+
+PDC1:	Include.pre $(OAFILES)
+	$(LN) $(LDFLAGS) -o $@ $(OAFILES) ../libpdc.a
+
+PDC2:	$(OA2FILES)
+	$(LN) $(LDFLAGS) -o $@ $(OA2FILES) ../libpdc.a
+
+Include.pre:	Include.c
+	PDC -P0 Include.c
+
+clean_all:	clean
+	rm -r PDC amiga2sun *.o
+clean:
+	rm -f *.oa *.sa *.oa2 *.sa2 *.s PDC1 PDC2
+
+tags: ${CFILES} 
+	ctags ${CFILES} 
+
+depend:
+	cc -M ${CFLAGS} ${CFILES} | \
+	awk ' { if ($$1 != prev) { print rec; rec = $$0; prev = $$1; } \
+		else { if (length(rec $$2) > 78) { print rec; rec = $$0; } \
+			else rec = rec " " $$2 } } \
+		    END { print rec } ' > makedep
+	cc -M ${CFLAGS} | \
+	awk ' { if ($$1 != prev) { print rec; rec = $$0; prev = $$1; } \
+		else { if (length(rec $$2) > 78) { print rec; rec = $$0; } \
+			else rec = rec " " $$2 } } \
+		    END { print rec } ' | sed '/^$$/d'  >> makedep
+	echo '/^# DO NOT DELETE THIS LINE/+1,$$d' > eddep
+	echo '$$r makedep' >> eddep
+	echo 'w' >> eddep
+	cp Makefile Makefile.bak
+	ex - Makefile < eddep
+	rm eddep makedep
+
+# DO NOT DELETE THIS LINE -- make depend uses it
+
+Analyze.c:
+Analyze.o: Analyze.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Analyze.o: ./XternDefs.h /usr/include/stab.h
+Builtins.c:
+Builtins.o: Builtins.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Builtins.o: ./XternDefs.h
+CGlbDef.c:
+CGlbDef.o: CGlbDef.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h
+Cmain.c:
+Cmain.o: Cmain.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Cmain.o: ./XternDefs.h ./Version.h
+DBX.c:
+DBX.o: DBX.c
+Decl.c:
+Decl.o: Decl.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Decl.o: ./XternDefs.h
+Expr.c:
+Expr.o: Expr.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Expr.o: ./XternDefs.h
+Func.c:
+Func.o: Func.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Func.o: ./XternDefs.h
+GenCode.c:
+GenCode.o: GenCode.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+GenCode.o: ./XternDefs.h
+GenFloat.c:
+GenFloat.o: GenFloat.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+GenFloat.o: ./XternDefs.h
+GenStmt.c:
+GenStmt.o: GenStmt.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+GenStmt.o: ./XternDefs.h /usr/include/stab.h
+GetOpt.c:
+GetOpt.o: GetOpt.c /usr/include/stdio.h
+GetSym.c:
+GetSym.o: GetSym.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+GetSym.o: ./XternDefs.h
+Include.c:
+Include.o: Include.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Include.o: ./XternDefs.h
+Init.c:
+Init.o: Init.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Init.o: ./XternDefs.h
+IntExpr.c:
+IntExpr.o: IntExpr.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+IntExpr.o: ./XternDefs.h
+List.c:
+List.o: List.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+List.o: ./XternDefs.h
+MemMgt.c:
+MemMgt.o: MemMgt.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+MemMgt.o: ./XternDefs.h
+Optimize.c:
+Optimize.o: Optimize.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Optimize.o: ./XternDefs.h
+Outcode.c:
+Outcode.o: Outcode.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Outcode.o: ./XternDefs.h
+PeepGen.c:
+PeepGen.o: PeepGen.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+PeepGen.o: ./XternDefs.h
+PreComp.c:
+PreComp.o: PreComp.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+PreComp.o: ./XternDefs.h
+PreProc.c:
+PreProc.o: PreProc.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+PreProc.o: ./XternDefs.h
+Register.c:
+Register.o: Register.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Register.o: ./XternDefs.h
+SearchKW.c:
+SearchKW.o: SearchKW.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+SearchKW.o: ./XternDefs.h
+Stmt.c:
+Stmt.o: Stmt.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Stmt.o: ./XternDefs.h /usr/include/stab.h
+Symbol.c:
+Symbol.o: Symbol.c /usr/include/stdio.h ./C.h ./Expr.h ./Gen.h ./Cglbdec.h
+Symbol.o: ./XternDefs.h

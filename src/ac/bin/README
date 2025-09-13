@@ -1,0 +1,131 @@
+README - Some remarks and words of advice on using PDC
+------------------------------------------------------
+
+The major pieces of this distribution are the compiler (PDC), the assembler
+(A68k), the linker (BLink), and the libraries and header files.  Tying
+everything together is a "front-end" program (CCX), which takes care of a
+lot of the drudgery behind creating an executable program.
+
+Things to do before invoking CCX
+--------------------------------
+
+CCX requires that the following environment variables be set:
+
+        PDCLibs - Lists the libraries with which to link
+        PDCLibDirs - Lists the directories to search for libraries
+        PDCIncDirs - Lists the directories to search for include files
+
+Multiple entries for an environment variable are delimited by
+semicolons.  See the file s/start on this disk and the documentation to
+CCX in the doc directory on this disk for examples of how to use the
+environment variables. 
+
+As for your search path, at the very least you ought to have in it the
+directory containg CCX, PDC, A68k, and BLink.  This is necessary if you
+plan to use CCX. 
+
+Stack size for running PDC should be above the CLI's default of 4K.
+20000 bytes is the lowest recommended size.  32000 bytes is sufficient
+for most things, up to and including recompiling PDC and its libraries.
+To be safe, it is best to set a good large stack size in your startup-sequence,
+because forgetting later on usually results in a visit from the Guru.  Should
+PDC ever guru on you, the first step to take is bump up the stack.  
+  
+In summary:
+
+        - Set the environment variables PDCLibs, PDCLibDirs, and PDCIncDirs.
+	- CCX requires that PDC, A68k, and Blink be in your search path.
+	- PDC needs a MINIMUM of 20K of stack space to run safely.
+
+
+Headers, Libraries, and Startup code
+------------------------------------
+
+Standard C headers can be found in the directory "include" on this disk.
+See below for more information on Amiga-specific headers.
+
+The PDC Software Distribution includes the three library files necessary to
+compile programs written for the Amiga.  Here are some short descriptions of
+them:
+
+* Amiga.lib
+
+     Amiga.lib contains the hundereds of assembly language stubs, or
+     "stub-routines", that allow programs written in C to call the Amiga's
+     standard set of shared libraries.  It also contains a few functions to
+     aid in the construction and destruction of some common entities (eg,
+     CreateTask, DeletePort, NewList, etc.).  The version of Amiga.lib
+     included with PDC can be built automatically by invoking the makefile
+     contained in the "lib/src" directory on this disk and providing a copy
+     of your Workbench 1.3 Extras disk.  For convenience, a pre-made copy
+     of Amiga.lib is now included on this disk.
+
+* PDC.lib:
+
+     PDC.lib contains a large subset of the ANSI C functions, as well as some
+     runtime support functions and other extensions.  A (currently, partial)
+     list of the functions provided in PDC.lib and Math.lib can be found in
+     the file MANIFEST in the LibSrc directory on the Libs and Utils disk. 
+
+* Math.lib:
+
+     Math.lib contains library and runtime support functions for performing
+     floating point math.  Currently, PDC supports only IEEE double precision
+     math via the Amiga's shared libraries, ieeedoubbas.library and
+     ieeedoubtrans.library.  As you may realize, this default requires that
+     Workbench 1.3 be available at runtime in order use the transcendental
+     functions.  The source code for the transcendental functions is
+     provided, though, if you care to use it.
+
+Most programs written specifically for the Amiga, including much source
+code to this distribution, require the Amiga header files in order to
+compile.  Those who also own one of the commercial C compilers can
+generally get away with using the headers that come with those compilers
+[1].  In any case, I recommend that you obtain the Native Developer
+Update (NDU) from Commodore-Amiga Technical Support (CATS).  The NDU
+includes commented and stripped versions of the Amiga C and assembly
+language headers, the fabled Autodocs, a healthy batch of README files,
+and Commodore's standard libraries and utilities.  Altogether, you get
+four disks for US$20; an excellent deal.
+
+To receive your own copy of the Native Developer Update, send to the
+following address a check for $20 (US) made payable to Commodore
+Business Machines:
+
+				CATS - Orders
+				1200 Wilson Drive
+				West Chester, PA  19382
+
+
+[1]  However, beware of conflicts!  You should set up your PDCIncDirs
+     environment variable so that it reads the PDC headers first, lest
+     you wind up with the wrong version of stdio.h or some other such
+     problem.
+
+Although the PDC Software Distribution is freely distributable, and we wish
+it to remain as much so as possible, there is a considerable amount of time
+involved in maintaining and improving the software and documentation.  If
+it proves financially feasible, Paul Petersen and I would like to continue
+improving PDC at a more rapid pace, and still maintain its status as a
+freely distributable package.  The bottom line is, your donation of $10, or
+whatever PDC is worth to you, is an excellent way to reward our work and
+encourage further development.  Furthermore, if you wish to receive the most
+current release of PDC directly from us, just send in a donation of $15 or 
+more and we'll mail out the three-disk set right away.  Please make all
+checks payable to Lionel D. Hummel.
+
+If you have access to Usenet, you can participate in discussion on PDC by
+subscribing to the info-pdc mailing list.  You can do this by sending email
+to pdc-request@cs.uiuc.edu (uunet!uiucdcs!pdc-request).  Or, if you have
+something you wish to discuss with us directly, you can reach us by email:
+
+	lionel%large.UUCP@cs.uiuc.edu         or, on BIX: lhummel
+	petersen@uicsrd.csrd.uiuc.edu
+
+				Enjoy,
+				Lionel Hummel
+				Paul Petersen
+
+                                PDC Software Distribution
+                                P.O. Box 4006
+                                Urbana, IL  61801-8801

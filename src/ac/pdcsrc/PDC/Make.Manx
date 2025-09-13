@@ -1,0 +1,109 @@
+
+# To compile with the debug option, make sure that DEBUG and DEBUGL are
+# uncommented.
+
+DEBUG	= -n
+#DEBUG	=
+DEBUGL	= -g
+#DEBUGL	=
+
+# In its default rule, the version of Make included with PDC assumes 'ccx'
+# as the name of the compiler front-end.  This must be changed when compiling
+# with manx:
+
+CC	= cc
+
+CFLAGS	= +l +C +D $(DEBUG) -Imanx_include +Isymtab.gt +fi +x5
+LIBS	= -lmal32 -lcl32
+
+#CFLAGS	= +l $(DEBUG) -Imanx_include +Isymtab.gt +fi +x5
+#LIBS	= -lma32 -lc32
+
+
+OBJ1	= Analyze.o Expr.o Init.o Optimize.o Register.o Func.o Force.o
+OBJ2	= Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o
+OBJ3	= Peepgen.o Stmt.o Cmain.o GenStmt.o Memmgt.o Precomp.o Preproc.o
+OBJ4	= Decl.o Getsym.o Symbol.o Builtins.o
+OBJX	= Cglbdef.o
+OBJD	= Dbx.o 
+
+OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4)
+
+# The following files, along with 'config.h' are required in order to use Manx
+# to build PDC.  Manx is missing these library functions:
+
+LIBF	= Getopt.o memset.o memcpy.o bcopy.o bzero.o
+
+#	Uncomment if you want DBX code to be generated, and add to CFLAGS:
+#		-DGENERATE_DBX
+#	(DBX code is generated to allow debugging of the compiler's output on
+#	a memory-protected UNIX system.)
+#
+#OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJD)
+
+all:	symtab.gt PDC
+
+symtab.gt:	Include.c C.h Expr.h Gen.h Cglbdec.h
+	cc +l $(DEBUG) -Imanx_include +Hsymtab.gt Include.c
+
+PDC:	$(OBJS) $(LIBF) $(OBJX)
+	ln $(DEBUGL) +SS -o PDC $(OBJS) $(OBJX) $(LIBF) $(LIBS)
+
+Cglbdef.o:	Cglbdef.c
+	cc +l $(DEBUG) -Imanx_include Cglbdef.c
+
+clean:
+	delete #?.o (symtab.gt|PDC|PDC.dbg)
+
+Analyze.o: Analyze.c symtab.gt
+
+Expr.o: Expr.c symtab.gt
+
+Init.o: Init.c symtab.gt
+
+Optimize.o: Optimize.c symtab.gt
+
+Register.o: Register.c symtab.gt
+
+Func.o: Func.c symtab.gt
+
+Force.o: Force.c symtab.gt
+
+Intexpr.o: Intexpr.c symtab.gt
+
+Outcode.o: Outcode.c symtab.gt
+
+Searchkw.o: Searchkw.c symtab.gt
+
+GenCode.o: GenCode.c symtab.gt
+
+GenFloat.o: GenFloat.c symtab.gt
+
+List.o: List.c symtab.gt
+
+Peepgen.o: Peepgen.c symtab.gt
+
+Stmt.o: Stmt.c symtab.gt
+
+Cmain.o: Cmain.c symtab.gt
+
+GenStmt.o: GenStmt.c symtab.gt
+
+Memmgt.o: Memmgt.c symtab.gt
+
+Precomp.o: Precomp.c symtab.gt
+
+Preproc.o: Preproc.c symtab.gt
+
+Decl.o: Decl.c symtab.gt
+
+Getsym.o: Getsym.c symtab.gt
+
+Symbol.o: Symbol.c symtab.gt
+
+Builtins.o: Builtins.c symtab.gt
+
+Cglbdef.o: Cglbdef.c symtab.gt
+
+Dbx.o: Dbx.c symtab.gt
+

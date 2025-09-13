@@ -1,0 +1,33 @@
+#CFLAGS	= -g
+
+OBJ1	= Analyze.o Decl.o Expr.o Init.o Optimize.o Register.o Func.o
+OBJ2	= Force.o Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o
+OBJ3	= Peepgen.o Stmt.o Cmain.o GenStmt.o Memmgt.o Precomp.o PreProc.o
+OBJ4	= Decl.o GetSym.o Symbol.o Builtins.o
+OBJX	= Cglbdef.o
+
+OLDOBJ	= InitAuto.o Pragma.o Getopt.o
+
+OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4)
+
+.c.o:
+	ccx -c $(CFLAGS) -Wc "-P include.pre" $*.c
+
+all:	PDC
+
+include.pre:	Include.c C.h Expr.h Gen.h Cglbdec.h Version.h
+	ccx -S -Wc -P0 Include.c
+
+into_ram:
+	copy Include.pre ram:
+
+Cglbdef.o:	Cglbdef.c
+	ccx $(CFLAGS) -c Cglbdef.c
+
+#PDC:	include.pre into_ram $(OBJS) $(OBJX)
+PDC:	include.pre $(OBJS) $(OBJX)
+	BLink with MakeWith.PDC
+
+clean:
+	delete \#?.o include.(pre|prc) (PDC)
+

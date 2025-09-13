@@ -1,0 +1,12 @@
+
+OBJS = main.o make.o rules.o reader.o input.o macro.o check.o
+
+CFLAGS = -n +l
+LFLAGS = -g
+LIBS   = -lc32
+
+make : $(OBJS)
+	ln $(LFLAGS) -o $@ $(OBJS) $(LIBS)
+
+clean:
+	delete (\#?.o|make)

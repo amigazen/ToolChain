@@ -1,0 +1,28 @@
+# PDC Compiler (Default rule)
+PDC:
+	stackoffset = 4
+	saveregs = d2-d7/a2-a6
+	assembler = A68K $A -o$O
+	librarian = zlib $L $O
+
+# Aztec C small code/data
+Aztec:
+	stackoffset = 4
+	saveregs = d2-d7/a2-a5
+	assembler = as $A -o $O
+	librarian = lb $L $O
+
+# Aztec C large code/data
+AztecL:
+	stackoffset = 4
+	saveregs = d2-d7/a2-a5
+	assembler = as -cd $A -o $O
+	librarian = lb $L $O
+
+# Lattice C
+Lattice:
+	stackoffset = 4
+	saveregs = d2-d7/a2-a6
+	assembler = assem $A -o $O
+	librarian = zlib $L $O
+

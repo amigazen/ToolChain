@@ -1,0 +1,4 @@
+FROM    LC:lib/c.o+disassem.o+convert.o 
+LIBRARY LC:lib/lc.lib+LC:lib/amiga.lib 
+TO       disassem 
+

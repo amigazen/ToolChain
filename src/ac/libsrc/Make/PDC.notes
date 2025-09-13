@@ -1,0 +1,9 @@
+Saturday 9-Dec-89 15:08:07 (LDH)
+
+Rules.c: many of the default program names were turned into symbols and given
+default values.  This allows greater customization of the defaults at runtime.
+I changed the compiled-in defaults to fit with PDC.
+
+Corrected bug in reader.c whereby the last line of a Makefile causes an error
+when the line doesn't end with a '\n'.
+

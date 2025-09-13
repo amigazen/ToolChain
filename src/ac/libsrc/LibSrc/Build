@@ -1,0 +1,15 @@
+CD StringLib
+Make collect
+CD /Startup
+Make collect
+CD /Sysio
+Make collect
+CD /StdIO
+Make collect
+CD /StdLib
+Make collect
+CD /Misc
+Make collect
+CD /Math
+Make collect
+CD /

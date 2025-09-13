@@ -1,0 +1,227 @@
+
+ccx.doc	[latest change - 15 March 89 by LDH]
+
+ABSTRACT
+
+	ccx is a smart front end that recognizes the type of file from
+the suffix, and will invoke the necessary programs for you to produce an
+executable module.  With ccx you can in one command preprocess the source
+code, compile the result to assembler, assemble and link the resulting
+object module with a set of libraries.
+
+
+SYNOPSIS
+
+	ccx is a UNIX-like cc command that makes the usual compile,
+assemble and link stages a little friendlier.  For example, a runnable
+version of the "hello world" program called hello, whose source code is in
+a file called hello.c as shown below:
+
+	/*hello.c*/
+	main()
+	{
+	      printf("Hello World!\n");
+	}
+
+could be made by typing the following at the CLI prompt:
+
+	ccx hello.c
+
+ccx would automatically perform the following for you:
+
+	o invoke the PDC C compiler on the program.
+	o invoke the A68k assembler on the source code put out by PDC.
+	o invoke Blink to link the output of A68k with acrt0.o and
+          the libraries specified in the PDCLibs environment variable.
+	o The executable program will be called hello, and any
+	  intermediate files will be cleaned up.
+
+COMMAND LINE OPTIONS:
+
+  ccx supports several command line options which can modify ccx's
+behavior,  change where certain files are searched for,  and define where
+temporary files are kept during compilation.  Options come in two flavors,
+switches and as parameters that take arguments.
+
+  Switches appear by themselves on the line preceded by a minus sign.  "-S",
+and "-c" are two valid switch options.  It should be noted that upper and
+lower case letters are distinct.  "-A" and "-a" for example represent
+different switch options.  Furthermore, some options can have special
+meanings depending upon whether the flag is "-" or "+".  An example of
+such a "sign dependency" is the I option, which adds a directory to search
+for include files.  "-I vd0:include" indicates to search vd0:include BEFORE
+searching any of the default directories.  "+I vd0:include", conversely,
+searches vd0:include AFTER the default directories.  
+
+  Parameter options are followed by an additional value optionally separated
+by a space.  For example, "-Idf0:include"  and "-I df0:include" are both
+valid parameter options.  Here is the current list of options:
+ 
+        -a      Preserve .s files.  The normal behavior of ccx is to delete
+                these intermediate files after running the assembler.  When
+                this option is specified or implied, the compiler places its
+                output in the current directory (rather than on the "quad
+                device") and it is not deleted after the assembler is
+                finished.
+
+	-A	Instruct the compiler to annotate its assembly language output
+                with the C source to show how each statement was compiled.
+                Obviously, one would expect the annotated source to not be
+                deleted automatically, so the "-A" option implies "-a" as well.
+
+        -c      Suppress the link phase.  All C and assembly programs are 
+                converted to object modules, but not linked together. 
+
+	-D	Used to define a macro variable just as though it had
+		been included in the source file.  For example, the
+		option "-D DEBUG=1" is identical to including the 
+		statement #define DEBUG 1 in your C source code.
+
+		There are three macro variables that are predefined for
+		you:  "amiga", "m68000", and "pdc".  These variables are 
+                useful for writing compiler-specific code in your programs.
+
+        -g      Generate debugging information.  Currently, this is 
+                implemented in the form of A68k's "-d" flag.  This approach
+                will give a symbolic debugger access to the global symbol
+                table that is generated during assembly.  It isn't an
+                especially powerful solution, but is adequate in many
+                situations.
+
+	-I	Defines additional directories where #include'd files should
+	+I	be sought.  For example, "-I dh0:include" would add the 
+                directory include on drive dh0: as the first place to look 
+                for include files.  Additional [+-]I <file> options may be 
+                added, with virtually no limitations.
+
+	-l	Defines additional libraries where Blink should look for
+	+l	library modules to include in the link list.  If "-lmath"
+		were specified, ccx would look for a module math.lib.
+                Note that the ".lib" extension is optional and will be tacked 
+                on if ommitted.
+
+        -m      Instructs the linker to produce a link map named <file>.map
+                where <file> is the name of the executable it generates.
+
+	-o	Use "-o <name>" to choose the name of the output of the
+                final phase.  Usually this is the output of the linker, though
+                it is interpreted for the resulting object file when used
+                in conjunction with the "-c" option or the assembly file when
+                used with the "-S" option.  The "-o" option presupposes that
+                running ccx will, in the end, only produce one file.  
+                Otherwise, the target of the "-o" option would be ambiguous.
+
+        -O      Is swallowed by ccx for compatibility purposes, but is not
+                acted upon in any way.
+
+	-q	By default, intermediate assembly language files will be kept
+                in the directory indicated by the "PDCTmpArea" environment
+                variable (if it is not set, then the default becomes "RAM:").
+                Use the "-q <dir>" option to over-ride this by keeping these 
+                intermediate files in <dir>.  This option is particularly 
+                appropriate when trying to compile on a system with limited 
+                memory.  See also the description of the PDCTmpArea environment
+                variable.
+
+	-S	Only the compiler is invoked.  No files are assembled.
+
+        -s      Used as "-s <object file>" in order to substitute a different
+                startup module during the link phase.  Additionally, "-s 0"
+                will entirely suppress the inclusion of a startup module.
+
+        -U      Undefine symbol after preprocessing has completed.  Currently
+                not supported at PDC's command line level.
+
+	-V	Prints out the command line passed to all programs
+		just before they are invoked.
+
+        -W      Sends a string as a command line argument to the specified
+                phase, as in: "-W<phase> <string>" where phase is a char
+                representing:
+                               p=preprocessor	0|c=compiler
+                               a=assembler	l=linker
+
+                For instance, "-Wc -b" would send a "-b" flag to the compiler,
+                telling it to generate inline assembly for certain select
+                library functions.  Only one "-W" option can be stored for each
+                phase.  The final "-W" for each phase is the one that is used.
+                Quotes can be used to send multiple switches to a phase, as in:
+
+                              PDC -c -W0 "-b -P main.pre -g" main.c
+
+                That would send the compiler its -b and -g flags, and also
+                tell it to read from the precompiled header file "main.pre".
+
+        -w      Tells Blink to link with a particular file.  This could be used
+                as in "-w project.lnk" to utilize a link file that might have
+                been included with the source to a program.
+
+        -Y      This is a quick way to change the name of a program used for
+                one of the phases without recompiling ccx.  "-Yl klink" for
+                instance, would substitute klink for blink as the default
+                linker.  "-Y" without a <phase> specifier implies "-Yp Cpp"
+                and is used to request use of the external preprocessor "Cpp".
+
+DEFAULTS:
+
+The following extensions have special meaning to ccx:
+
+	.c	A C source code file like hello.c above.
+	.s	An assembler source code file.
+	.a	    "         ".
+	.asm	    "         ".
+	.o	An object file, the output of an assembler.
+	.obj	    "       ".
+
+Ccx will obey the search path for the CLI process from which it was run.
+Additionally, it accesses the following environment variables for default
+parameters:
+
+PDCLibs   - Selects a list of standard libraries in the order with which
+          they are to be linked.  A typical arrangement could be set by
+          placing the following line in your Startup-Sequence:
+
+          SetEnv PDCLibs "PDC.lib; Amiga.lib; Math.lib"
+
+          There is one important point to bear in mind:  The order in
+          which you specify the libraries to link can be CRITICAL.  For
+          instance, Math.lib and PDC.lib both contain the function 
+          "printf()".  The PDC.lib printf() will print garbage if you
+          give it a floating point parameter to print, whereas the Math.lib
+          printf() will greatly increase the size of your code because it
+          must bring in a number of additional floating point functions.  The
+          standard configuration (above) will give you garbage if you try
+          printing out a float (try running the fahr.c program after linking
+          with libraries in the above order).  One way to alter the ordering
+          without changing the PDCLibs environment variable is to use the +l
+          and -l options.  "ccx -lmath fahr.c" will make the linker see the
+          floating point printf() first and link with that instead.
+
+PDCLibDirs - Presents the standard path to search for libraries and
+          object modules.  Here's a typical assignment for someone who
+          keeps libraries around in "vd0:":
+
+          SetEnv PDCLibDirs "pdc:lib; vd0:lib"
+
+PDCIncDirs - This is the standard list of places to search for include
+          files.  To this list, additional directories can be pre- or appended
+          using the [+-]I option.  Again, a typical assignment might go like:
+
+          SetEnv PDCIncDirs "pdc:include; vd0:include"
+
+Note that with the three environment variables listed above, the order in
+which their elements are listed is significant.  For instance, placing
+Math.lib before PDC.lib would give you the floating point (read: larger)
+versions of f/s/printf() and f/s/scanf() rather than the default versions
+in PDC.lib.
+
+PDCStartup - Normally "acrt0.o" by default within ccx, you can set this
+          environment variable in order to choose some other startup as
+          the default.
+
+PDCTmpArea - By default, ccx uses "RAM:" as the place to put temporary files.
+          If this environment variable is set to a directory, ccx will direct
+          temporary files to be placed in that directory.  Note that a trailing
+          colon or slash is optional.  Note, however, that assigning PDCTmpArea
+          to "t:PDC" does not mean the directory "t:PDC/", but rather prepends
+          "t:PDC" to the temporary file name, e.g.: "t:PDChello.s".

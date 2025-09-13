@@ -1,0 +1,130 @@
+Compiler.doc
+------------
+
+Here are some short descriptions of the command line options offered in the
+current version of the compiler.  The reader should be aware that these options
+are distinct from the options available with the 'ccx' command.  The 'ccx'
+command presents a command line syntax similar to that found when programming
+under the UNIX operating system, while the compiler itself presents its own 
+unique command line syntax.  All option flags can be in either upper or lower
+case.  All switch-style options are actually toggled when their flag is seen.
+The actual default values can be specified at compile-time in the file
+CGlbDef.c.
+
+-a	Annotate the assembly file created by the compiler with the line of
+	C code that each group of assembly statements represent.  Only the 
+        first line of a multi-line C statement is printed.
+
+-b	Generate inline assembler for builtins rather than treating builtin
+	commands as function calls.  Supported functions can also be specified
+        as builtin by prepending "__BUILTIN_" to the function name, as in:
+
+                         __BUILTIN_strcpy(a, b)
+
+	The following functions are presently provided as builtins:
+
+                    strcat          strcpy          bcopy
+                    strcmp          strlen          bzero
+
+-D %s   Define the preprocessor symbol %s.  As currently implemented, the
+        symbol is merely defined, and not assigned a usable value.
+
+-g	Generate debugging information in DBX-compatible format.  When
+        compiled for the Amiga, it instead names the assembler SECTIONs
+        after the C source file from which they are generated.
+
+-I %s	Add the directory %s to the list of directories to scan when searching
+	for a header file.
+
+-l	Generate a source listing file.
+
+-n	No optimization is to be performed.  The compiler's default behavior
+	is to optimize the code it generates.
+
+-o %s	The assembly language output file should be named %s.  Behavior is
+        unspecified when multiple input files are specified.
+
+-P %s	Pre-compile the program by dumping a symbol table into a file when %s
+	is given as 0 (ie, -P0).  Otherwise, read the pre-compiled header
+	file of name %s.  This can greatly speed compilation if you compile
+	all of your header files into a symbol table file.  From then on,
+	the compiler will no longer have to search for, read, and parse the
+	header files your program uses every time a compile is performed.
+        This option is of highest utility when developing on a floppy-only
+        system.
+
+-q	Run quietly.  Prevents the compiler from printing out information
+	on the functions compiled and their table usage.
+
+-r	Toggles use of a scanned library for integer operations.
+
+-f %s	Use %s as the pointer into the auto variable area of the stack frame
+	(this pointer is also known as a "frame pointer".) '-F' is a synonym
+	for '-f'.
+
+-U %s   Remove symbol %s from the list of preprocessor symbols before use.
+
+-?	Presents a help screen.
+
+
+
+[ What follows is a start at a thorough documentation effort ]
+
+
+PDC's Preprocessor
+------------------
+- The #pragma directive
+    libcall
+    intmath
+- #define, #undef
+- Conditionals: #if, defined(), #ifdef, #ifndef, #else, #endif
+* See H&S for others
+
+--------------------
+
+The #pragma directive:
+
+PDC currently supports two types of #pragma's: libcall and intmath.
+
+libcall pragmas:
+
+Allows inlining of shared library library calls; compatible with Lattice.
+
+
+intmath pragmas:
+
+There is a problem with using the CPU instructions for performing
+integer math: they work on 16-bit quantities.  So for instance, you
+can't multiply 66000 times 3 even though it fits well within the
+limits for 32 bit integers.  For some applications, this doesn't
+matter- and the speed is well worth the cost.  But some people
+nonetheless need real 32-bit math.  So PDC can alternately generate
+code for calling libraries to perform true 32-bit integer math
+(these routines are part of PDC.lib and their source is in the file
+sysio/lib.asm) or use inline 680x0 instructions like MULS and DIVS
+that are plenty fast, but must be used with caution.  
+
+Here is an example of how the intmath #pragma's are used:
+   
+--------------------
+
+#define and #undef (Descriptions taken from H&S)
+Conditionals: #if, defined(), #ifdef, #ifndef, #else, #endif
+
+#define    Defines a preprocessor macro.
+#undef     Removes a macro definition
+#include   Insert text from another file.
+#if        Conditionally include some text, based on the value of a constant
+           expression.
+defined()  Macro is true if specified name is defined.
+#ifdef     Conditionally include some text, based on whether the specified
+           macro name is defined.
+#ifndef    Like #ifdef, but instead works if a macro name is NOT defined.
+#else      Include text if previous #if, #ifdef, or #ifndef test failed.
+#endif     Terminate conditional text.
+
+--------------------
+
+#line supplies a new line number to count from for compiler messages.
+
+--------------------

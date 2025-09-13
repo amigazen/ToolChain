@@ -1,0 +1,48 @@
+
+CFLAGS	= -g
+
+OBJ1	= Analyze.o Decl.o Expr.o Init.o Optimize.o Register.o Func.o
+OBJ2	= Force.o Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o
+OBJ3	= Peepgen.o Stmt.o Cmain.o GenStmt.o Memmgt.o Precomp.o PreProc.o
+OBJ4	= Decl.o GetSym.o Symbol.o Builtins.o
+OBJX	= Cglbdef.o
+
+#OBJD	= Dbx.o 
+OBJD	= EntryExit.o
+
+OLDOBJ	= InitAuto.o Pragma.o Getopt.o
+
+#
+#	Uncomment if you want DBX code to be generated, and add to CFLAGS:
+#		-DGENERATE_DBX
+#	(DBX code is generated to allow debugging of the compiler's output on
+#	a memory-protected UNIX system.)
+#
+OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJD)
+#OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4)
+
+.s.o:
+	ccx -c $*.s
+
+.c.o:
+	ccx -c $(CFLAGS) -Wc "-b -s -P include.pre" $*.c
+#	ccx -c $(CFLAGS) -Wc "-b -P ram:include.pre" $*.c
+
+all:	PDC
+
+include.pre:	Include.c C.h Expr.h Gen.h Cglbdec.h Version.h
+	ccx -S -Wc -P0 Include.c
+
+into_ram:
+	copy Include.pre ram:
+
+Cglbdef.o:	Cglbdef.c
+	ccx -c -Wc -b Cglbdef.c
+
+#PDC:	include.pre into_ram $(OBJS) $(OBJX)
+PDC:	include.pre $(OBJS) $(OBJX)
+	BLink with MakeWith.CHK
+
+clean:
+	delete \#?.o include.(pre|prc) (PDC)
+

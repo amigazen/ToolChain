@@ -1,0 +1,15 @@
+CD StringLib
+Make clean
+CD /Startup
+Make clean
+CD /Sysio
+Make clean
+CD /Stdio
+Make clean
+CD /StdLib
+Make clean
+CD /Misc
+Make clean
+CD /Math
+Make clean
+CD /

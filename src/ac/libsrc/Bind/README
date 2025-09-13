@@ -1,0 +1,20 @@
+
+Archive: uunet!~uucp/amiga-sources/vol1/bind.shar.Z
+
+
+Bind, written by Bill Barton, takes a standard .fd (function definition) 
+file and generates a binding library for the functions defined in the 
+.fd file. The bindings are generated based on a set of rules for a 
+target compiler defined in a file called "bindfile".  These rules 
+specifiy which registers need to be preserved, how the arguments 
+are passed on the stack, and the syntax to call an assembler and 
+a librarian.  It is anticipated that this program will be of great
+use to those hacking on redistributable C compilers such as PD C
+and gcc.
+
+We apologise to everyone who does not have an Amiga for the binary nature
+of this posting, but this program seems so incredibly useful to Amiga
+developers that we feel it's worth making an exception for. 
+
+---------------------- cut here --------------------------
+:

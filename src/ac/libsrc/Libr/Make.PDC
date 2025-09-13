@@ -1,0 +1,13 @@
+
+CFLAGS	=
+AFLAGS	=
+
+OBJS	= main.o topsort.o
+
+.c.o:
+	CCX -c $(CFLAGS) $*.c
+
+Libr : $(OBJS)
+	CCX -o $@ $(OBJS)
+
+

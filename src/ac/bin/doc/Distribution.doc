@@ -1,0 +1,74 @@
+Each program in the PDC Distribution is covered by its own copyright and
+distribution restrictions.  Some material in the collection is freely 
+distributable, other material is public domain.  It is your obligation to
+obey the author's expressed wishes if described so in the source, documentation,
+or when running the program.
+
+Many programs come with their own docuentation.  All except "ccx" and "PDC"
+are available elsewhere and hence if you can't find the docs in this beta
+release, you can always go back to the original source (usually a Fish disk).
+
+----------
+
+CCX -	executable on Program Disk
+	source on Libs/Utils Source disk
+
+A UNIX-like frontend to the compiler/assembler/linker.  Since AmigaDOS scripts
+are...well...not as functional as UNIX shell scripts, this one is written in C.
+
+----------
+
+PDC - 	executable on Program Disk
+	Source on PDC/A68k Source disk.
+
+Dis is da compiler, you lunkhead!  Whaddya think it is, Swiss cheese?  (Please
+don't answer that question;-)
+
+----------
+
+A68k -	executable on Program Disk
+	Source on PDC/A68k Source disk.
+
+This is Charlie Gibbs' assembler version 2.6.  It is distributed in unmodified
+form, without changes or additional documentation.
+
+----------
+
+BLink - executable on Program Disk.  Shareware from The Software Distillery
+
+This is the linker we're currently distributing.  We included version 6.7 from 
+a Fish disk.  Alink compatible.
+
+----------
+
+Bind -	executable on Program Disk
+	source on Libs/Utils Source disk
+
+Bind will take the .fd files that came on the Extras disk with your Amiga and
+generate a stub file that you should link with to access the Amiga's shared
+libraries.
+
+----------
+
+Make -	executable on Program Disk
+	source on Libs/Utils Source disk
+
+A PD Make utiltiy ported from comp.sources.unix
+
+----------
+
+Libr -  executable on Program Disk
+	source on Libs/Utils Source disk
+
+An object-module librarian.
+
+----------
+
+Dasm -	executable on Program Disk
+	source on Libs/Utils Source disk
+
+This is a rather useful little disassembler.  Although the existing source is
+an example of code that can not be compiled by PDC because it is littered with
+bit fields.
+
+---------- (END of Distribution.doc)
