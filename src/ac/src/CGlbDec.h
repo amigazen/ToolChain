@@ -41,6 +41,9 @@ extern struct OptTab {
     int         Stack;
     int         CompileOnly;
     int         PreprocessOnly;
+    int         OutputFormat;  /* 0=GCC, 1=SASC, 2=Classic */
+    int         WarningsAsErrors;
+    int         ShowColumn;
 }       Options;
 
 extern long ival;

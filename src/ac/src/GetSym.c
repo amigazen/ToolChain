@@ -97,9 +97,11 @@ char            in_line[1024];
 int             in_line_used;
 int             in_comment = FALSE;
 int             total_errors = 0;
+int             total_warnings = 0;
 int             join_line = FALSE;
 int             lstackptr = 0;  /* substitution stack pointer   */
 int             dbxlnum = 0;    /* Line number for DBX      */
+int             current_column = 1;  /* Current column position */
 unsigned char  *linstack[LINDEPTH]; /* stack for substitutions      */
 unsigned char   chstack[LINDEPTH];  /* place to save lastch     */
 
@@ -307,6 +309,7 @@ getline(listflag)
 
         numerrs = 0;
         ++lineno;
+        current_column = 1;  /* Reset column position at start of new line */
 
         data = fgets(in_line, sizeof(in_line) - 1, input);
 
@@ -346,6 +349,12 @@ getch()
         if (lstackptr > 0) {
             lptr = linstack[--lstackptr];
             lastch = chstack[lstackptr];
+            /* Update column position */
+            if (lastch == '\n') {
+                current_column = 1;
+            } else if (lastch != '\r') {
+                current_column++;
+            }
             return lastch;
         }
         if (oneline)
@@ -353,6 +362,14 @@ getch()
         if (getline(incldepth == 0))
             return lastch = -1;
     }
+    
+    /* Update column position */
+    if (lastch == '\n') {
+        current_column = 1;
+    } else if (lastch != '\r') {
+        current_column++;
+    }
+    
     return lastch;
 }
 
@@ -403,6 +420,117 @@ error(n, msg)
         errno[numerrs] = n;
         errxx[numerrs] = msg;
         ++numerrs;
+        ++total_errors;
+    }
+    /* Also print the error immediately using the new format */
+    error_at_line(n, msg, NULL, 0, 0);
+}
+
+void
+warning(n, msg)
+    int             n;
+    char           *msg;
+{
+    /* Print warning immediately using the new format */
+    warning_at_line(n, msg, NULL, 0, 0);
+}
+
+void
+error_at_line(n, msg, filename, line, column)
+    int             n;
+    char           *msg;
+    char           *filename;
+    int             line;
+    int             column;
+{
+    /* Print error in selected format */
+    if (filename == NULL) filename = curfile;
+    if (line <= 0) line = lineno;
+    if (column <= 0) column = current_column;
+    
+    switch (Options.OutputFormat) {
+    case 0: /* GCC format */
+        if (Options.ShowColumn) {
+            fprintf(stderr, "%s:%d:%d: error: %s", filename, line, column, msg);
+        } else {
+            fprintf(stderr, "%s:%d: error: %s", filename, line, msg);
+        }
+        if (n <= MAXERR) {
+            fprintf(stderr, " (%s)", errmsg[n]);
+        }
+        fprintf(stderr, "\n");
+        break;
+    case 1: /* SASC format */
+        fprintf(stderr, "%s(%d", filename, line);
+        if (Options.ShowColumn) {
+            fprintf(stderr, ",%d", column);
+        }
+        fprintf(stderr, ") : error: %s", msg);
+        if (n <= MAXERR) {
+            fprintf(stderr, " (%s)", errmsg[n]);
+        }
+        fprintf(stderr, "\n");
+        break;
+    case 2: /* PDC format */
+    default:
+        fprintf(stderr, "Error in %s:%d: %s", filename, line, msg);
+        if (n <= MAXERR) {
+            fprintf(stderr, " (%s)", errmsg[n]);
+        }
+        fprintf(stderr, "\n");
+        break;
+    }
+}
+
+void
+warning_at_line(n, msg, filename, line, column)
+    int             n;
+    char           *msg;
+    char           *filename;
+    int             line;
+    int             column;
+{
+    if (filename == NULL) filename = curfile;
+    if (line <= 0) line = lineno;
+    if (column <= 0) column = current_column;
+    
+    switch (Options.OutputFormat) {
+    case 0: /* GCC format */
+        if (Options.ShowColumn) {
+            fprintf(stderr, "%s:%d:%d: warning: %s", filename, line, column, msg);
+        } else {
+            fprintf(stderr, "%s:%d: warning: %s", filename, line, msg);
+        }
+        if (n <= MAXERR) {
+            fprintf(stderr, " (%s)", errmsg[n]);
+        }
+        fprintf(stderr, "\n");
+        break;
+    case 1: /* SASC format */
+        fprintf(stderr, "%s(%d", filename, line);
+        if (Options.ShowColumn) {
+            fprintf(stderr, ",%d", column);
+        }
+        fprintf(stderr, ") : warning: %s", msg);
+        if (n <= MAXERR) {
+            fprintf(stderr, " (%s)", errmsg[n]);
+        }
+        fprintf(stderr, "\n");
+        break;
+    case 2: /* PDC format */
+    default:
+        fprintf(stderr, "Warning in %s:%d: %s", filename, line, msg);
+        if (n <= MAXERR) {
+            fprintf(stderr, " (%s)", errmsg[n]);
+        }
+        fprintf(stderr, "\n");
+        break;
+    }
+    
+    ++total_warnings;
+    
+    /* Treat warnings as errors if requested */
+    if (Options.WarningsAsErrors) {
         ++total_errors;
     }
 }

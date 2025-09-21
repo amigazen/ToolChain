@@ -148,3 +148,10 @@ struct sym {
 
 #define TRUE    1
 #define FALSE   0
+
+/* Modern error reporting functions */
+extern void error_at_line(int n, char *msg, char *filename, int line, int column);
+extern void warning_at_line(int n, char *msg, char *filename, int line, int column);
+extern void warning(int n, char *msg);
+extern int total_warnings;
+extern int current_column;

@@ -54,16 +54,21 @@ char *HelpMsg[] = {
     "\t-O\t\tOptimize code (default: ON, use -n to turn off)\n",
     "\t-s\t\t(Not Implemented) Strip symbol information from output\n",
     "\t-U name\t\tUndefine a preprocessor symbol\n\n",
-    "PDC-Specific Options:\n",
+    "AC-Specific Options:\n",
     "\t-a\t\tAnnotate the assembler listing with source\n",
     "\t-b\t\tGenerate inline assembler for builtins\n",
     "\t-f reg\t\tUse address register [4|5|6] as the frame pointer\n",
+    "\t-f gcc|sasc|pdc\tSelect error output format\n",
     "\t-l\t\tCreate a source listing file\n",
     "\t-n\t\tTurn off optimization\n",
     "\t-p [0|file]\tCreate or use precompiled header\n",
     "\t-q\t\tRun quietly\n",
     "\t-r\t\tUse library for integer math\n",
     "\t-S\t\tEnable stack checking\n",
+    "\t-W error\t\tTreat warnings as errors\n",
+    "\t-W no-error\t\tDon't treat warnings as errors\n",
+    "\t-W column\t\tShow column numbers in error messages\n",
+    "\t-W no-column\t\tDon't show column numbers in error messages\n",
     "\t-?\t\tThis help information\n",
     NULL
 };
@@ -208,9 +213,19 @@ main(int argc, char **argv)
             break;
         case 'f':
         case 'F':
-            i = atoi(optarg);
-            if (i >= 4 || i >= 6)
-                Options.Frame = i;
+            /* Check if it's a format option first */
+            if (strcmp(optarg, "gcc") == 0) {
+                Options.OutputFormat = 0;
+            } else if (strcmp(optarg, "sasc") == 0) {
+                Options.OutputFormat = 1;
+            } else if (strcmp(optarg, "pdc") == 0) {
+                Options.OutputFormat = 2;
+            } else {
+                /* Otherwise treat as frame pointer option */
+                i = atoi(optarg);
+                if (i >= 4 || i >= 6)
+                    Options.Frame = i;
+            }
             break;
         case 'c':
             Options.CompileOnly = 1;
@@ -221,6 +236,18 @@ main(int argc, char **argv)
         case 'L':
             /* Library directory - not implemented yet */
             fprintf(stderr, "%s: -L option not implemented\n", progname);
+            break;
+        case 'W':
+            /* Warning options */
+            if (strcmp(optarg, "error") == 0) {
+                Options.WarningsAsErrors = 1;
+            } else if (strcmp(optarg, "no-error") == 0) {
+                Options.WarningsAsErrors = 0;
+            } else if (strcmp(optarg, "no-column") == 0) {
+                Options.ShowColumn = 0;
+            } else if (strcmp(optarg, "column") == 0) {
+                Options.ShowColumn = 1;
+            }
             break;
         case '?':
             usage();
@@ -279,7 +306,11 @@ main(int argc, char **argv)
 #ifdef _unix_
     close_stdio();
 #endif
-    exit(fatal || (total_errors != 0));
+    /* POSIX exit codes: 0=success, 1=error, 2=usage error */
+    if (fatal || total_errors > 0)
+        exit(1);
+    else
+        exit(0);
 }
 
 void
@@ -404,15 +435,25 @@ void
 summary(void)
 {
     if (!Options.Quiet) {
-
-        fprintf( stderr, "\n -- " );
-        if (total_errors == 0)
-            fprintf( stderr, "no errors found." );
-        else {
-            if (total_errors == 1)
-                fprintf( stderr, "1 error found." );
-            else
-                fprintf( stderr, "%d errors found.", total_errors );
+        /* Print summary in modern format */
+        if (total_errors == 0 && total_warnings == 0) {
+            fprintf(stderr, "Compilation successful.\n");
+        } else {
+            if (total_errors > 0) {
+                if (total_errors == 1)
+                    fprintf(stderr, "1 error");
+                else
+                    fprintf(stderr, "%d errors", total_errors);
+            }
+            if (total_warnings > 0) {
+                if (total_errors > 0)
+                    fprintf(stderr, ", ");
+                if (total_warnings == 1)
+                    fprintf(stderr, "1 warning");
+                else
+                    fprintf(stderr, "%d warnings", total_warnings);
+            }
+            fprintf(stderr, " generated.\n");
         }
     }
 

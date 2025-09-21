@@ -16,16 +16,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Token pasting operator** - `##` operator support for concatenating macro tokens
 - **Macro redefinition** - Allow redefinition of identical macros (ANSI C compliant)
 - **Standard predefined macros** - Added `__STDC__` and `__STDC_VERSION__` macros for ANSI C compliance
+- **Modern error reporting** - GCC-style error format: `filename:line:column: error: message`
+- **Column tracking** - Accurate column position tracking for better error reporting
+- **Multiple output formats** - Support for GCC, SASC, and PDC output formats
+- **Warning system** - Comprehensive warning reporting with `-W` options
+- **POSIX exit codes** - Proper exit codes following POSIX specifications
+- **Warning function** - New `warning()` function for non-fatal compiler messages
+- **Error vs Warning separation** - Clear distinction between fatal errors and recoverable warnings
 
 ### Changed
 - **Error message formatting** - Fixed format string in #error directive to use proper %s instead of %1024s
 - **Macro system architecture** - Enhanced macro parameter handling and expansion logic
 - **Preprocessor compliance** - Improved ANSI C standard compliance for macro definitions
+- **Console output** - Modernized to match standard C compiler and POSIX specifications
+- **Error reporting** - Replaced old format with modern GCC/Clang-style error messages
+- **Summary output** - Improved compilation summary with error and warning counts
+- **Command-line interface** - Added new options for output format and warning control
+- **Output format names** - Updated format names from MSVC/Classic to SASC/PDC for better Amiga compatibility
+- **Error handling architecture** - Enhanced `error()` function to use modern formatting while maintaining backward compatibility
 
 ### Fixed
 - **Preprocessor directive handling** - Improved robustness of preprocessor directive parsing
 - **Macro redefinition errors** - Fixed handling of identical macro redefinitions
 - **Stringification escaping** - Proper handling of quotes and backslashes in stringified parameters
+- **Duplicate case values** - Fixed duplicate `case 'f':` in command-line argument parsing
+- **Structure member definitions** - Synchronized structure definitions between header and implementation files
 
 ## [3.33] - 1989-08-01
 

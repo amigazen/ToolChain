@@ -35,4 +35,6 @@
 #define VERSION "AC Compiler version 4.0 (21/9/25)"
 #else
 #define VERSION "AC version 4.0 ("__DATE__")"
+static const char *version_tag = "$VER: AC 4.0 ("__DATE__")";
+static const char *stack_cookie = "$STACK: 65536";
 #endif

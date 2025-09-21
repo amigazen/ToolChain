@@ -48,6 +48,9 @@ struct OptTab {
     int             Stack;
     int             CompileOnly;
     int             PreprocessOnly;
+    int             OutputFormat;  /* 0=GCC, 1=SASC, 2=PDC */
+    int             WarningsAsErrors;
+    int             ShowColumn;
 };
 
 /*
@@ -63,7 +66,7 @@ struct OptTab {
  *  Stack       OFF
  */
 
-struct OptTab   Options = {1, 0, 0, 0, 5, 0, 1, 0, 0, 0, 0, 0};
+struct OptTab   Options = {1, 0, 0, 0, 5, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1};
 
 int             lineno = 0;
 int             nextlabel = 0;

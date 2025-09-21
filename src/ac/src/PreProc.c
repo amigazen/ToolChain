@@ -1000,9 +1000,29 @@ doerror()
             *cp++ = lastch;
         getch();
     }
-    *cp++ = '\n';
-    *cp = '\0';
-    fprintf(stderr, "USER ERROR: %s", buffer);
+    *cp++ = '\0';
+    
+    /* Use selected error format */
+    switch (Options.OutputFormat) {
+    case 0: /* GCC format */
+        if (Options.ShowColumn) {
+            fprintf(stderr, "%s:%d:%d: error: %s\n", curfile, lineno, current_column, buffer);
+        } else {
+            fprintf(stderr, "%s:%d: error: %s\n", curfile, lineno, buffer);
+        }
+        break;
+    case 1: /* SASC format */
+        fprintf(stderr, "%s(%d", curfile, lineno);
+        if (Options.ShowColumn) {
+            fprintf(stderr, ",%d", current_column);
+        }
+        fprintf(stderr, ") : error: %s\n", buffer);
+        break;
+    case 2: /* PDC format */
+    default:
+        fprintf(stderr, "Error in %s:%d: %s\n", curfile, lineno, buffer);
+        break;
+    }
     oneline = FALSE;
 
     getline(incldepth == 0);
@@ -1027,9 +1047,29 @@ dowarning()
             *cp++ = lastch;
         getch();
     }
-    *cp++ = '\n';
-    *cp = '\0';
-    fprintf(stderr, "WARNING: %s", buffer);
+    *cp++ = '\0';
+    
+    /* Use selected warning format */
+    switch (Options.OutputFormat) {
+    case 0: /* GCC format */
+        if (Options.ShowColumn) {
+            fprintf(stderr, "%s:%d:%d: warning: %s\n", curfile, lineno, current_column, buffer);
+        } else {
+            fprintf(stderr, "%s:%d: warning: %s\n", curfile, lineno, buffer);
+        }
+        break;
+    case 1: /* SASC format */
+        fprintf(stderr, "%s(%d", curfile, lineno);
+        if (Options.ShowColumn) {
+            fprintf(stderr, ",%d", current_column);
+        }
+        fprintf(stderr, ") : warning: %s\n", buffer);
+        break;
+    case 2: /* PDC format */
+    default:
+        fprintf(stderr, "Warning in %s:%d: %s\n", curfile, lineno, buffer);
+        break;
+    }
     oneline = FALSE;
 
     getline(incldepth == 0);
