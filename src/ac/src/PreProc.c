@@ -53,7 +53,7 @@ extern char    *itoa(int x);
 #ifdef unix
 #define INCLUDE "/usr/include/"
 #else
-#define INCLUDE "PDC:include/"
+#define INCLUDE "AC:include/"
 #endif
 #endif
 

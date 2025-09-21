@@ -40,9 +40,9 @@ Cglbdef.o:	Cglbdef.c
 	ccx -c -Wc -b Cglbdef.c
 
 #PDC:	include.pre into_ram $(OBJS) $(OBJX)
-PDC:	include.pre $(OBJS) $(OBJX)
+AC:	include.pre $(OBJS) $(OBJX)
 	BLink with MakeWith.CHK
 
 clean:
-	delete \#?.o include.(pre|prc) (PDC)
+	delete \#?.o include.(pre|prc) (AC)
 

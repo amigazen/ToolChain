@@ -55,9 +55,9 @@ AUXOBJ	=
 
 LIB		= 
 
-all:	PDC amiga2sun
+all:	AC amiga2sun
 
-PDC:	$(OFILES) 
+AC:	$(OFILES) 
 	$(LN) $(LDFLAGS) -o $@ $(OFILES) $(LIB)
 
 PDC1:	Include.pre $(OAFILES)

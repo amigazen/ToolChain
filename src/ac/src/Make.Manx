@@ -41,13 +41,13 @@ LIBF	= Getopt.o
 #
 #OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJD)
 
-all:	symtab.gt PDC
+all:	symtab.gt AC
 
 symtab.gt:	Include.c C.h Expr.h Gen.h Cglbdec.h
 	cc +l $(DEBUG) -Imanx_include +Hsymtab.gt Include.c
 
-PDC:	$(OBJS) $(LIBF) $(OBJX)
-	ln $(DEBUGL) +SS -o PDC $(OBJS) $(OBJX) $(LIBF) $(LIBS)
+AC:	$(OBJS) $(LIBF) $(OBJX)
+	ln $(DEBUGL) +SS -o AC $(OBJS) $(OBJX) $(LIBF) $(LIBS)
 
 Cglbdef.o:	Cglbdef.c
 	cc +l $(DEBUG) -Imanx_include Cglbdef.c

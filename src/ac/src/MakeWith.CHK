@@ -1,8 +1,8 @@
-from PDC:lib/acrt0.o + Analyze.o Expr.o Init.o Optimize.o + Register.o
+from AC:lib/acrt0.o + Analyze.o Expr.o Init.o Optimize.o + Register.o
 + Force.o + Func.o + Intexpr.o + Outcode.o + Searchkw.o + GenCode.o
 + GenFloat.o + List.o + Peepgen.o + Stmt.o + Cmain.o + GenStmt.o
 + Memmgt.o + Precomp.o + Preproc.o + Decl.o + Getsym.o + Symbol.o
 + Builtins.o + Cglbdef.o + EntryExit.o
-to PDC
-library PDC:lib/PDC.lib + PDC:lib/Amiga.lib + PDC:lib/Math.lib
+to AC
+library AC:lib/AC.lib + AC:lib/Amiga.lib + AC:lib/Math.lib
 map nil:

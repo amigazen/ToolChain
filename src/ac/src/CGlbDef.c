@@ -31,8 +31,6 @@
 #include    "Expr.h"
 #include    "Gen.h"
 
-static char *RCSid = "$Header: work:PDC/src/PDC/RCS/CGlbDef.c,v 3.33 90/04/04 02:30:03 lionel Exp Locker: lionel $";
-
 FILE *input = NULL;
 FILE *list = NULL;
 FILE *output = NULL;

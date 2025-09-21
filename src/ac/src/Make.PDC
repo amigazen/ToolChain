@@ -1,4 +1,4 @@
-CFLAGS	= -g
+#CFLAGS	= -g
 
 OBJ1	= Analyze.o Decl.o Expr.o Init.o Optimize.o Register.o Func.o
 OBJ2	= Force.o Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o
@@ -25,9 +25,9 @@ Cglbdef.o:	Cglbdef.c
 	ccx $(CFLAGS) -c Cglbdef.c
 
 #PDC:	include.pre into_ram $(OBJS) $(OBJX)
-PDC:	include.pre $(OBJS) $(OBJX)
+AC:	include.pre $(OBJS) $(OBJX)
 	BLink with MakeWith.PDC
 
 clean:
-	delete \#?.o include.(pre|prc) (PDC)
+	delete \#?.o include.(pre|prc) (AC)
 
