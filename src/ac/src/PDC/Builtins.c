@@ -29,6 +29,8 @@
  */
 
 #include        <stdio.h>
+#include        <stdlib.h>
+#include        <string.h>
 #include        "C.h"
 #include        "Expr.h"
 #include        "Gen.h"
@@ -46,7 +48,7 @@ extern struct amode *make_mask();
 extern struct amode push[], pop[];
 
 void            gen_strlen(), gen_strcmp(), gen_strcpy(), gen_strcat();
-void            gen_bzero(), gen_bcopy();
+void            gen_memset(), gen_memcpy();
 
 struct bfuncs {
     int             args;
@@ -59,14 +61,13 @@ struct bfuncs   bfuncs_table[] = {
     {8, "__BUILTIN_strcmp", gen_strcmp},
     {8, "__BUILTIN_strcat", gen_strcat},
     {8, "__BUILTIN_strcpy", gen_strcpy},
-    {8, "__BUILTIN_bzero", gen_bzero},
-    {12, "__BUILTIN_bcopy", gen_bcopy},
+    {8, "__BUILTIN_bzero", gen_memset},
+    {12, "__BUILTIN_bcopy", gen_memcpy},
     {0, NULL, NULL}
 };
 
 void
-gen_strcat(arg)
-    int             arg;
+gen_strcat(int arg)
 {
     int             looplab1, looplab2;
     struct amode   *ap1, *ap2, *ap3;
@@ -103,8 +104,7 @@ gen_strcat(arg)
 }
 
 void
-gen_strlen(arg)
-    int             arg;
+gen_strlen(int arg)
 {
     int             looplab;
     struct amode   *ap1, *ap2, *ap3;
@@ -132,8 +132,7 @@ gen_strlen(arg)
 }
 
 void
-gen_strcmp(arg)
-    int             arg;
+gen_strcmp(int arg)
 {
     int             looplab1, looplab2, looplab3;
     struct amode   *ap1, *ap2, *ap3, *ap4;
@@ -190,8 +189,7 @@ gen_strcmp(arg)
 }
 
 void
-gen_strcpy(arg)
-    int             arg;
+gen_strcpy(int arg)
 {
     int             looplab;
     struct amode   *ap1, *ap2, *ap3;
@@ -220,95 +218,24 @@ gen_strcpy(arg)
 }
 
 void
-gen_bzero(arg)
-    int             arg;
+gen_memset(int arg)
 {
-    int             looplab1, looplab2;
-    struct amode   *ap1, *ap2;
-
-    looplab1 = nextlabel++;
-    looplab2 = nextlabel++;
-
-    ap1 = request_data(0);
-    ap2 = temp_addr();
-
-    gen_code(op_move, 4, pop, ap2); /* src               */
-    gen_code(op_move, 4, pop, ap1); /* # of bytes        */
-
-    gen_code(op_beq, 0, make_label(looplab2), NULL);
-
-    gen_label(looplab1);
-
-    ap2->mode = am_ainc;
-
-    gen_code(op_clr, 1, ap2, NULL); /* clr the byte      */
-    gen_code(op_dbra, 0, ap1, make_label(looplab1));
-
-    gen_label(looplab2);
-
-    freeop(ap2);
-    freeop(ap1);
+    /* Use standard memset library function instead of custom implementation */
+    gen_libcall("memset", 3);
 }
 
 void
-gen_bcopy(arg)
-    int             arg;
+gen_memcpy(int arg)
 {
-    int             looplab1, looplab2, looplab3;
-    struct amode   *ap1, *ap2, *ap3;
-
-    looplab1 = nextlabel++;
-    looplab2 = nextlabel++;
-    looplab3 = nextlabel++;
-
-    ap1 = request_data(0);
-    ap2 = temp_addr();
-    ap3 = temp_addr();
-
-    gen_code(op_move, 4, pop, ap3); /* src                       */
-    gen_code(op_move, 4, pop, ap2); /* dest                      */
-    gen_code(op_move, 4, pop, ap1); /* length                    */
-
-    gen_code(op_beq, 0, make_label(looplab3), NULL);
-
-    gen_code(op_cmp, 4, ap2, ap3);  /* A1 ? A0 */
-    gen_code(op_beq, 0, make_label(looplab3), NULL);
-    gen_code(op_ble, 0, make_label(looplab2), NULL);
-
-    gen_code(op_add, 4, ap1, ap2);  /* dest > src, copy reverse  */
-    gen_code(op_add, 4, ap1, ap3);
-
-    gen_label(looplab1);
-
-    ap2->mode = am_adec;
-    ap3->mode = am_adec;
-
-    gen_code(op_move, 1, ap3, ap2);
-    gen_code(op_dbra, 0, ap1, make_label(looplab1));
-    gen_code(op_bra, 0, make_label(looplab3), NULL);
-
-    gen_label(looplab2);
-
-    ap2->mode = am_ainc;
-    ap3->mode = am_ainc;
-
-    gen_code(op_move, 1, ap3, ap2);
-    gen_code(op_dbra, 0, ap1, make_label(looplab1));
-
-    gen_label(looplab3);
-
-    freeop(ap3);
-    freeop(ap2);
-    freeop(ap1);
+    /* Use standard memcpy library function instead of custom implementation */
+    gen_libcall("memcpy", 3);
 }
 
 int
-gen_builtins(node, argbytes)
-    struct enode   *node;
-    int             argbytes;
+gen_builtins(struct enode *node, int argbytes)
 {
     char           *fname;
-    void            (*xfunc) ();
+    void            (*xfunc)(int);
     struct bfuncs  *ptr;
 
     if (node->v.p[0]->nodetype == en_nacon) {
@@ -327,8 +254,7 @@ gen_builtins(node, argbytes)
 }
 
 static int
-hexval( ch )
-    int ch;
+hexval(int ch)
 {
     if ((ch >= '0') && (ch <= '9'))
         return( ch - '0' );
@@ -340,8 +266,7 @@ hexval( ch )
 }
 
 void
-ref_base(base_name)
-    char           *base_name;
+ref_base(char *base_name)
 {
     SYM            *sp;
 
@@ -360,10 +285,7 @@ ref_base(base_name)
 }
 
 void
-gen_libcall2( node, argbytes, ptr )
-    struct enode    *node;
-    int             argbytes;
-    struct libcall  *ptr;
+gen_libcall2(struct enode *node, int argbytes, struct libcall *ptr)
 {
     struct amode    *ap1, *ap2;
     char            *cp;
@@ -440,9 +362,7 @@ gen_libcall2( node, argbytes, ptr )
 }
 
 int
-gen_libcall(node, argbytes)
-    struct enode   *node;
-    int             argbytes;
+gen_libcall(struct enode *node, int argbytes)
 {
     char           *fname;
     struct libcall  *ptr = libpragma;

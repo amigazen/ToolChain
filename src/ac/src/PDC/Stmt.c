@@ -33,6 +33,8 @@
  */
 
 #include        <stdio.h>
+#include        <stdlib.h>
+#include        <string.h>
 #include        <ctype.h>
 #include        "C.h"
 #include        "Expr.h"
@@ -692,7 +694,7 @@ compound(look_ahead)
  * block.
  */
 {
-    struct snode   *head, *tail, *ptr;
+    struct snode   *head, *tail;
     struct snode   *ahead, *atail;
     TABLE           nsyms;
     SYM            *curr, *last;

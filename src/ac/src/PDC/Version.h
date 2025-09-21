@@ -32,7 +32,7 @@
  */
 
 #ifdef AZTEC_C
-#define VERSION "PDC Compiler version 3.33 (4/5/90)"
+#define VERSION "AC Compiler version 4.0 (21/9/25)"
 #else
-#define VERSION "PDC Compiler version 3.33 ("__DATE__")"
+#define VERSION "AC version 4.0 ("__DATE__")"
 #endif

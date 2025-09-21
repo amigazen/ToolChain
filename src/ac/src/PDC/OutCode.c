@@ -29,6 +29,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -886,10 +888,10 @@ stringconcat(index, s)
         length = strlen(s);
         ++global_flag;  /* Allocate from the global space   */
         buf = (char *) xalloc(lp->len + length + 1);
-        bcopy(lp->str, buf, lp->len);
+        memcpy(buf, lp->str, lp->len);
         lp->str = buf;
         buf += lp->len;
-        bcopy(s, buf, length + 1);
+        memcpy(buf, s, length + 1);
         lp->len += length;
         --global_flag;
         return (index);

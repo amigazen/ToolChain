@@ -29,6 +29,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -131,9 +133,7 @@ insert(sp, table)
 /* Remove the string sp from table */
 
 void
-remove(s, table)
-    char           *s;
-    TABLE          *table;
+remove_symbol(char *s, TABLE *table)
 {
     register int    newkey;
     register SYM   *ptr, *last;

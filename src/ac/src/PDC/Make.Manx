@@ -32,7 +32,7 @@ OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4)
 # The following files, along with 'config.h' are required in order to use Manx
 # to build PDC.  Manx is missing these library functions:
 
-LIBF	= Getopt.o memset.o memcpy.o bcopy.o bzero.o
+LIBF	= Getopt.o
 
 #	Uncomment if you want DBX code to be generated, and add to CFLAGS:
 #		-DGENERATE_DBX

@@ -14,8 +14,29 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/* ctype.h - very efficient macros for classifying characters */
+/* ctype.h - ANSI C character classification and conversion functions */
 
+#ifndef CTYPE_H
+#define CTYPE_H
+
+/* Character classification functions */
+int isalnum(int c);
+int isalpha(int c);
+int iscntrl(int c);
+int isdigit(int c);
+int isgraph(int c);
+int islower(int c);
+int isprint(int c);
+int ispunct(int c);
+int isspace(int c);
+int isupper(int c);
+int isxdigit(int c);
+
+/* Character conversion functions */
+int tolower(int c);
+int toupper(int c);
+
+/* Non-ANSI extensions (for compatibility) */
 extern char _ctype[256];
 
 #define _UPPER       (1)
@@ -27,26 +48,31 @@ extern char _ctype[256];
 #define _PUNCT       (1 << 6)
 #define _OCTIT       (1 << 7)
 
+/* Macro implementations for efficiency */
 #define isupper(x)   (_ctype[(x)&0xff] & _UPPER)
-#define islower(x)   (_ctype[(x)&0xff & _LOWER)
-#define	isxdigit(x)  (_ctype[(x)&0xff] & _HEXIT)
-#define	isdigit(x)   (_ctype[(x)&0xff] & _DIGIT)
+#define islower(x)   (_ctype[(x)&0xff] & _LOWER)
+#define isxdigit(x)  (_ctype[(x)&0xff] & _HEXIT)
+#define isdigit(x)   (_ctype[(x)&0xff] & _DIGIT)
 #define isspace(x)   (_ctype[(x)&0xff] & _SPACE)
-#define iswhite(x)   (_ctype[(x)&0xff] & _SPACE)
 #define iscntrl(x)   (_ctype[(x)&0xff] & _CNTRL)
 #define ispunct(x)   (_ctype[(x)&0xff] & _PUNCT)
-#define isodigit(x)  (_ctype[(x)&0xff] & _OCTIT)
 
 #define isalpha(x)   (_ctype[(x)&0xff] & (_UPPER | _LOWER))
 #define isalnum(x)   (_ctype[(x)&0xff] & (_UPPER | _LOWER | _DIGIT))
 
 #define isprint(x)   (!(_ctype[(x)&0xff] & _CNTRL))
-#define isgraph(x)   ((!(_ctype[(x)&0xff] & _CNTRL)) & ((x) != ' '))
+#define isgraph(x)   ((!(_ctype[(x)&0xff] & _CNTRL)) && ((x) != ' '))
+
+/* Non-ANSI extensions */
+#define iswhite(x)   (_ctype[(x)&0xff] & _SPACE)
 #define isascii(x)   ((x) >= 0 && (x) < 128)
 #define iscsym(x)    ((_ctype[(x)&0xff] & (_UPPER | _LOWER | _DIGIT)) || ((x) == '_') || ((x) == '$'))
+#define isodigit(x)  (_ctype[(x)&0xff] & _OCTIT)
 
 #define tolower(x)  ((x) | 32)
 #define toupper(x)  ((x) & ~32)
 #define tocntrl(x)  (((((x)+1)&~96)-1)&127)
 #define toascii(x)  ((x) & 127)
 #define toint(x)    ((int)((_ctype[(x)&0xff]&_DIGIT)?((x)-'0'):(((x)|32)-'a'+10)))
+
+#endif /* CTYPE_H */

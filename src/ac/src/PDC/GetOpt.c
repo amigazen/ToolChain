@@ -30,16 +30,14 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 
 #define ERR(spat, cpat)   \
     if (opterr) {   errbuf[0] = cpat; errbuf[1] = '\n';     \
     (void) fwrite( argv[0], 1, strlen(argv[0]), stderr);    \
     (void) fwrite( spat, 1, strlen(spat), stderr);              \
     (void) fwrite( errbuf, 1, 2, stderr); }
-
-extern int      strcmp();
-extern char    *index();
-extern int      strlen();
 
 int             opterr = 1;
 int             optind = 1;
@@ -48,9 +46,7 @@ char            optsign;
 char           *optarg;
 
 int
-getopt(argc, argv, opts)
-    int             argc;
-    char          **argv, *opts;
+getopt(int argc, char **argv, char *opts)
 {
     static int      sp = 1;
     register int    c;
@@ -63,13 +59,13 @@ getopt(argc, argv, opts)
         optsign = *argv[optind];
         if ( (optsign != '-' && optsign != '+') || argv[optind][1] == '\0')
             return (EOF);
-        else if (strcmp(argv[optind], "--") == NULL) {
+        else if (strcmp(argv[optind], "--") == 0) {
             optind++;
             return (EOF);
         }
     }
     optopt = c = argv[optind][sp];
-    if (c == ':' || (cp = index(opts, c)) == NULL) {
+    if (c == ':' || (cp = strchr(opts, c)) == NULL) {
         ERR(": illegal option -- ", c);
         if (argv[optind][++sp] == '\0') {
             optind++;

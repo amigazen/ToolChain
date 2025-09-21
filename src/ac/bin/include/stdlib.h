@@ -14,38 +14,62 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/* stdlib.h - Declarations for functions in the standard C library
- */
+/* stdlib.h - ANSI C general utilities */
 
-extern void          abort(void);
-extern float         atof(char *);
-extern int           atoi(char *);
-extern long          atol(char *);
-extern void         *calloc(int, int);
-extern void          exit(int);
-extern void          free(void *);
-extern char         *getenv(char *);
-extern void         *malloc(int);
-extern double        strtod(char *, char **);
-extern long          strtol(char *, char **, int);
-extern unsigned long strtoul(char *, char **, int);
-extern int           system(char *);
+#ifndef STDLIB_H
+#define STDLIB_H
 
-#if 0                    /* Not yet implemented */
+#include <stddef.h>
+
+/* ANSI C required types */
 typedef struct {
     int quot;
     int rem;
-    } div_t;
+} div_t;
 
 typedef struct {
     long quot;
     long rem;
-    } ldiv_t;
+} ldiv_t;
 
-extern int           abs(int);
-extern char         *bsearch(char *, char *, unsigned, int, int (*compar)());
-extern div_t         div(int, int);
-extern long          labs(long);
-extern ldiv_t        ldiv(long, long);
-extern void          qsort(char *, unsigned, int, int (*compar)());
-#endif
+/* ANSI C required constants */
+#define EXIT_FAILURE 1
+#define EXIT_SUCCESS 0
+#define RAND_MAX 32767
+
+/* ANSI C required functions */
+void abort(void);
+int abs(int j);
+int atexit(void (*func)(void));
+double atof(const char *nptr);
+int atoi(const char *nptr);
+long atol(const char *nptr);
+void *bsearch(const void *key, const void *base, size_t nmemb, size_t size,
+              int (*compar)(const void *, const void *));
+void *calloc(size_t nmemb, size_t size);
+div_t div(int numer, int denom);
+void exit(int status);
+void free(void *ptr);
+char *getenv(const char *name);
+long labs(long j);
+ldiv_t ldiv(long numer, long denom);
+void *malloc(size_t size);
+int mblen(const char *s, size_t n);
+size_t mbstowcs(wchar_t *pwcs, const char *s, size_t n);
+int mbtowc(wchar_t *pwc, const char *s, size_t n);
+void qsort(void *base, size_t nmemb, size_t size,
+           int (*compar)(const void *, const void *));
+int rand(void);
+void *realloc(void *ptr, size_t size);
+void srand(unsigned int seed);
+double strtod(const char *nptr, char **endptr);
+long strtol(const char *nptr, char **endptr, int base);
+unsigned long strtoul(const char *nptr, char **endptr, int base);
+int system(const char *string);
+size_t wcstombs(char *s, const wchar_t *pwcs, size_t n);
+int wctomb(char *s, wchar_t wchar);
+
+/* Non-ANSI extensions for compatibility */
+void _abort(void);
+
+#endif /* STDLIB_H */

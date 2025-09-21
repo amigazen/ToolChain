@@ -46,6 +46,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -1170,7 +1172,7 @@ binop(node, xfunc, nt, sy)
  * for bitand, bitor, bitxor, andop, and orop.
  */
 struct enode  **node;
-TYP            *(*xfunc) ();
+TYP            *(*xfunc)(struct enode **);
 enum e_node     nt;
 enum e_sym      sy;
 

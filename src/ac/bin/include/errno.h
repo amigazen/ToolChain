@@ -14,23 +14,30 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/*	errno.h	
- *	Symbolic names for system error conditions
- */
+/* errno.h - ANSI C error numbers */
 
+#ifndef ERRNO_H
+#define ERRNO_H
+
+/* ANSI C required error numbers */
+#define EDOM    1       /* Domain error */
+#define ERANGE  2       /* Range error */
+
+/* Additional error numbers for compatibility */
 #define EOK     0       /* No error */
-#define ENOMEM	1	/* Terminated due to failed AllocMem() */
-#define EINVAL	2	/* Invalid argument */
-#define EBADF	3	/* Bad file descriptor given */
-#define EEXIST	4	/* File exists */
-#define EMFILE	5       /* Too many open files */
-#define ENOENT  6       /* No such file or directory */
-#define EIO     7       /* I/O error */
+#define ENOMEM  3       /* Out of memory */
+#define EINVAL  4       /* Invalid argument */
+#define EBADF   5       /* Bad file descriptor */
+#define EEXIST  6       /* File exists */
+#define EMFILE  7       /* Too many open files */
+#define ENOENT  8       /* No such file or directory */
+#define EIO     9       /* I/O error */
 
-/* math library */
-#define EDOM    8
-#define ERANGE  9
+/* External error indicator */
+extern int errno;
 
-extern int	errno;
-extern char    *sys_errlist[];
-extern int      sys_nerr;
+/* Non-ANSI extensions */
+extern char *sys_errlist[];
+extern int sys_nerr;
+
+#endif /* ERRNO_H */

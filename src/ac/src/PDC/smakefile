@@ -1,0 +1,129 @@
+
+# To compile with the debug option, make sure that DEBUG and DEBUGL are
+# uncommented.
+
+#DEBUG	= -n
+#DEBUG	=
+#DEBUGL	= -g
+#DEBUGL	=
+
+# In its default rule, the version of Make included with PDC assumes 'ccx'
+# as the name of the compiler front-end.  This must be changed when compiling
+# with manx:
+
+CC	= sc
+
+CFLAGS	= $(DEBUG) 
+#LIBS	= lib:amiga.lib sc:lib/sc.lib sc:lib/scm.lib  //bin/lib/math.lib 
+LIBS	= sc:lib/sc.lib sc:lib/scm.lib lib:amiga.lib 
+
+
+#CFLAGS	= +l $(DEBUG) -Imanx_include +I +fi +x5
+#LIBS	= -lma32 -lc32
+
+
+OBJS=	Analyze.o Expr.o Init.o Optimize.o Register.o Func.o Force.o \
+		Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o \
+		Peepgen.o Stmt.o Cmain.o GenStmt.o Memmgt.o Precomp.o Preproc.o \
+		Decl.o Getsym.o Symbol.o Builtins.o
+OBJSS=  Cglbdef.o
+
+# The following files, along with 'config.h' are required in order to use Manx
+# to build PDC.  Manx is missing these library functions:
+
+LIBF	= Getopt.o
+
+#	Uncomment if you want DBX code to be generated, and add to CFLAGS:
+#		-DGENERATE_DBX
+#	(DBX code is generated to allow debugging of the compiler's output on
+#	a memory-protected UNIX system.)
+#
+#OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJD)
+
+all:	ac
+
+ac:	$(OBJS) $(LIBF) $(OBJSS)
+	slink $(DEBUGL) TO ac FROM sc:lib/c.o $(OBJS) $(OBJSS) $(LIBF) LIB $(LIBS)
+
+# Individual object file rules
+Analyze.o: Analyze.c 
+	sc $(DEBUG) Analyze.c
+
+Expr.o: Expr.c 
+	sc $(DEBUG) Expr.c
+
+Init.o: Init.c 
+	sc $(DEBUG) Init.c
+
+Optimize.o: Optimize.c 
+	sc $(DEBUG) Optimize.c
+
+Register.o: Register.c 
+	sc $(DEBUG) Register.c
+
+Func.o: Func.c 
+	sc $(DEBUG) Func.c
+
+Force.o: Force.c 
+	sc $(DEBUG) Force.c
+
+Intexpr.o: Intexpr.c 
+	sc $(DEBUG) Intexpr.c
+
+Outcode.o: Outcode.c 
+	sc $(DEBUG) Outcode.c
+
+Searchkw.o: Searchkw.c 
+	sc $(DEBUG) Searchkw.c
+
+GenCode.o: GenCode.c 
+	sc $(DEBUG) GenCode.c
+
+GenFloat.o: GenFloat.c 
+	sc $(DEBUG) GenFloat.c
+
+List.o: List.c 
+	sc $(DEBUG) List.c
+
+Peepgen.o: Peepgen.c 
+	sc $(DEBUG) Peepgen.c
+
+Stmt.o: Stmt.c 
+	sc $(DEBUG) Stmt.c
+
+Cmain.o: Cmain.c 
+	sc $(DEBUG) Cmain.c
+
+GenStmt.o: GenStmt.c 
+	sc $(DEBUG) GenStmt.c
+
+Memmgt.o: Memmgt.c 
+	sc $(DEBUG) Memmgt.c
+
+Precomp.o: Precomp.c 
+	sc $(DEBUG) Precomp.c
+
+Preproc.o: Preproc.c 
+	sc $(DEBUG) Preproc.c
+
+Decl.o: Decl.c 
+	sc $(DEBUG) Decl.c
+
+Getsym.o: Getsym.c 
+	sc $(DEBUG) Getsym.c
+
+Symbol.o: Symbol.c 
+	sc $(DEBUG) Symbol.c
+
+Builtins.o: Builtins.c 
+	sc $(DEBUG) Builtins.c
+
+Cglbdef.o: Cglbdef.c 
+	sc $(DEBUG) Cglbdef.c
+
+Getopt.o: Getopt.c 
+	sc $(DEBUG) Getopt.c
+
+
+clean:
+	delete #?.o (ac|ac.dbg)

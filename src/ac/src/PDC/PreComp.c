@@ -27,6 +27,8 @@
  */
 
 #include        <stdio.h>
+#include        <stdlib.h>
+#include        <string.h>
 #include        "C.h"
 #include        "Expr.h"
 #include        "Gen.h"
@@ -36,12 +38,11 @@
 #define GENERATE_FMT
 #endif
 
-extern FILE    *fopen();
-extern void     fclose(), exit(), fwrite();
-extern void     bzero();
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 extern char    *litlate(), *itoa();
-extern void    *xalloc();
-extern int      strlen();
+extern char    *xalloc();
 
 extern char     prepbuffer[];
 
@@ -110,7 +111,7 @@ getcomp2()
     short           val;
 
     fread(&val, 1, sizeof(short), fp);
-    return ((long) val);
+    return (val);
 }
 
 static void
@@ -204,11 +205,11 @@ put_recur(ptr)
 
     if (ctail == NULL) {
         chead = ctail = (struct chain *) xalloc(sizeof(struct chain));
-        bzero(ctail, sizeof(struct chain));
+        memset((char *)ctail, 0, sizeof(struct chain));
     }
     else if (ctail->entries >= MAXCHAIN) {
         link = (struct chain *) xalloc(sizeof(struct chain));
-        bzero(link, sizeof(struct chain));
+        memset((char *)link, 0, sizeof(struct chain));
         ctail->next = link;
         ctail = link;
     }
@@ -393,7 +394,7 @@ read_type(tp)
         ++global_flag;
         tp->btp = (TYP *) xalloc(sizeof(TYP));
         --global_flag;
-        bzero(tp->btp, sizeof(TYP));
+        memset((char *)tp->btp, 0, sizeof(TYP));
         read_type(tp->btp);
         ctype = getcomp1();
     }
@@ -440,7 +441,7 @@ read_symbol(sp)
         ++global_flag;
         sp->tp = (TYP *) xalloc(sizeof(TYP));
         --global_flag;
-        bzero(sp->tp, sizeof(TYP));
+        memset((char *)sp->tp, 0, sizeof(TYP));
         read_type(sp->tp);
         ctype = getcomp1();
     }
@@ -492,7 +493,7 @@ read_libcall()
             lb = (struct libcall *) xalloc(sizeof(struct libcall));
             --global_flag;
 
-            bzero(lb, sizeof(struct libcall));
+            memset((char *)lb, 0, sizeof(struct libcall));
             read_libentry(lb);
 
             lb->next = libpragma;
@@ -521,7 +522,7 @@ read_tbl(tbl)
         exit(1);
     }
 
-    bzero(tbl, sizeof(TABLE));
+    memset((char *)tbl, 0, sizeof(TABLE));
 
     for (;;) {
         switch (ctype = getcomp1()) {
@@ -540,7 +541,7 @@ read_tbl(tbl)
             ++global_flag;
             sp = (SYM *) xalloc(sizeof(SYM));
             --global_flag;
-            bzero(sp, sizeof(SYM));
+            memset((char *)sp, 0, sizeof(SYM));
             read_symbol(sp);
             if (tbl->head == NULL)
                 tbl->head = tbl->tail = sp;

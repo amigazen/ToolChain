@@ -30,7 +30,7 @@ CFILES	= Analyze.c Builtins.c CGlbDef.c Cmain.c DBX.c Decl.c Expr.c	\
 		Optimize.c Outcode.c PeepGen.c PreComp.c PreProc.c Register.c	\
 		SearchKW.c Stmt.c Symbol.c 
 
-AUXSRC	= bcopy.c bzero.c memcpy.c memset.c
+AUXSRC	= 
 
 OFILES	= Analyze.o Builtins.o CGlbDef.o Cmain.o DBX.o Decl.o Expr.o 	\
 		Force.o Func.o GenCode.o GenFloat.o GenStmt.o GetOpt.o	\
@@ -51,7 +51,7 @@ OA2FILES = Analyze.oa2 Builtins.oa2 CGlbDef.oa2 Cmain.oa2 DBX.oa2 Decl.oa2 \
 		PeepGen.oa2 PreComp.oa2 PreProc.oa2 Register.oa2 SearchKW.oa2 \
 		Stmt.oa2 Symbol.oa2 
 
-AUXOBJ	= bcopy.o bzero.o memcpy.o memset.o
+AUXOBJ	= 
 
 LIB		= 
 

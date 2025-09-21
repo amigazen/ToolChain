@@ -28,6 +28,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -464,7 +466,7 @@ genswitch(stmt)
     defcase = NULL;
     initstack();
     ap = gen_expr(stmt->exp, F_DREG | F_VOL, 4);
-    if ((int) ap->preg != NULL)
+    if (ap->preg != am_none)
         gen_code(op_move, 4, ap, makedreg(am_dreg));
     stmt = stmt->s1;
 
@@ -722,7 +724,7 @@ genreturn(stmt)
             ap = gen_expr(ep, F_ALL, 4);
             if (ap->mode == am_immed && ap->offset->nodetype != en_icon)
                 make_legal(ap, F_AREG, 4);
-            if (ap->mode != am_dreg || (int) ap->preg != NULL)
+            if (ap->mode != am_dreg || ap->preg != am_none)
                 gen_code(op_move, 4, ap, makedreg(am_dreg));
         }
     }

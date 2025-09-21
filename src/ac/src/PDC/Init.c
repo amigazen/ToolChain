@@ -30,6 +30,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -75,7 +77,6 @@ initarray(tp)
     TYP            *tp;
 {
     int             nbytes, num;
-    char           *p;
 
     nbytes = 0;
     if (lastst == begin) {

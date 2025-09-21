@@ -4,7 +4,10 @@
  *  Fred Fish, 20-Jul-86
  */
 
-#define SIZET       int
-#define VOIDSTAR    char *
-#define CONST
+#include <stddef.h>
+#include <string.h>
+
+#define SIZET       size_t
+#define VOIDSTAR    void *
+#define CONST       const
 #define UNIXERR

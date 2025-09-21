@@ -14,24 +14,23 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/* stddef.h - ANSI C common definitions */
+/* setjmp.h - ANSI C non-local jumps */
 
-#ifndef STDDEF_H
-#define STDDEF_H
+#ifndef SETJMP_H
+#define SETJMP_H
 
-#ifndef NULL
-#define NULL ((void *)0)
-#endif
+#include <stddef.h>
 
-#ifndef offsetof
-#define offsetof(type, member) ((size_t)&((type *)0)->member)
-#endif
+/* Jump buffer type - contains enough information to restore calling environment */
+typedef struct {
+    unsigned long regs[16];  /* General purpose registers */
+    unsigned long sp;        /* Stack pointer */
+    unsigned long pc;        /* Program counter */
+    unsigned long flags;     /* Status flags */
+} jmp_buf;
 
-typedef int ptrdiff_t;
-typedef unsigned int size_t;
+/* ANSI C required functions */
+int setjmp(jmp_buf env);
+void longjmp(jmp_buf env, int val);
 
-#ifndef wchar_t
-typedef char wchar_t;
-#endif
-
-#endif /* STDDEF_H */
+#endif /* SETJMP_H */

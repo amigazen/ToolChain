@@ -30,6 +30,9 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
+#include    <unistd.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -111,9 +114,7 @@ extern void     read_precomp(), dump_precomp(), fmt_precomp();
 void  usage(), makename(), summary(), closefiles();
 
 void
-add_option( tbl, cmd )
-    TABLE   *tbl;
-    char    *cmd;
+add_option(TABLE *tbl, char *cmd)
 {
     char    *ptr;
     SYM     *sp;
@@ -149,14 +150,13 @@ add_option( tbl, cmd )
     --global_flag;
 }
 
-main(argc, argv)
-    int             argc;
-    char          **argv;
+int
+main(int argc, char **argv)
 {
+    extern char     optsign;
     extern int      optind;
     extern int      opterr;
     extern char    *optarg;
-    extern char     optsign;
     int             used_stdin;
     int             i, c;
 
@@ -301,7 +301,7 @@ main(argc, argv)
 }
 
 void
-usage()
+usage(void)
 {
 /* #ifdef AZTEC_C */
 #if 1
@@ -317,8 +317,7 @@ usage()
 }
 
 void
-formsection( buffer, name, ext )
-    char    *buffer, *name, *ext;
+formsection(char *buffer, char *name, char *ext)
 {
     while (*name && *name != '.')
         *buffer++ = *name++;
@@ -330,8 +329,7 @@ formsection( buffer, name, ext )
 }
 
 int
-openfiles(s)
-    char           *s;
+openfiles(char *s)
 {
     if (!Options.Quiet) {
 #ifdef AZTEC_C
@@ -403,8 +401,7 @@ openfiles(s)
 }
 
 void
-makename(s, e)
-    char           *s, *e;
+makename(char *s, char *e)
 {
     char    *p = NULL;
 
@@ -422,7 +419,7 @@ makename(s, e)
 }
 
 void
-summary()
+summary(void)
 {
     if (!Options.Quiet) {
 #ifdef JOKE
@@ -453,7 +450,7 @@ summary()
 
 
 void
-closefiles()
+closefiles(void)
 {
     fclose(input);
     fclose(output);

@@ -29,6 +29,8 @@
  */
 
 #include        <stdio.h>
+#include        <stdlib.h>
+#include        <string.h>
 #include        "C.h"
 #include        "Expr.h"
 #include        "Gen.h"

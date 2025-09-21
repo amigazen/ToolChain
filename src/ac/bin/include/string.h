@@ -1,38 +1,43 @@
 
 /*
- * String functions.
+ * String functions - ANSI C string handling functions
  */
 
-char *memcpy(char *, char *, int );
-char *memccpy(char *, char *, int , int );
-char *strcpy(char *, char *);
-char *strncpy(char *, char *, int );
-char *strcat(char *, char *);
-char *strncat(char *, char *, int );
-int memcmp(char *, char *, int );
-int strcmp(char *, char *);
-int strncmp(char *, char *, int );
-char *memchr(char *, int , int );
-char *strchr(char *, int );
-int strcspn(char *, char *);
-char *strpbrk(char *, char *);
-char *strrchr(char *, int );
-int strspn(char *, char *);
-char *strstr(char *, char *);
-char *strtok(char *, char *);
-char *memset(char *, int , int );
-int strlen(char *);
+#ifndef STRING_H
+#define STRING_H
 
-/*
- * V7 and Berklix compatibility.
- */
-char *index(char *, int );
-char *rindex(char *, int );
-int bcopy(char *, char *, int );
-int bcmp(char *, char *, int );
-int bzero(char *, int );
+#include <stddef.h>
 
-/*
- * Putting this in here is really silly, but who am I to argue with X3J11?
- */
-char *strerror(int );
+/* ANSI C string functions */
+void *memcpy(void *s1, const void *s2, size_t n);
+void *memmove(void *s1, const void *s2, size_t n);
+char *strcpy(char *s1, const char *s2);
+char *strncpy(char *s1, const char *s2, size_t n);
+char *strcat(char *s1, const char *s2);
+char *strncat(char *s1, const char *s2, size_t n);
+int memcmp(const void *s1, const void *s2, size_t n);
+int strcmp(const char *s1, const char *s2);
+int strncmp(const char *s1, const char *s2, size_t n);
+int strcoll(const char *s1, const char *s2);
+size_t strxfrm(char *s1, const char *s2, size_t n);
+void *memchr(const void *s, int c, size_t n);
+char *strchr(const char *s, int c);
+size_t strcspn(const char *s1, const char *s2);
+char *strpbrk(const char *s1, const char *s2);
+char *strrchr(const char *s, int c);
+size_t strspn(const char *s1, const char *s2);
+char *strstr(const char *s1, const char *s2);
+char *strtok(char *s1, const char *s2);
+void *memset(void *s, int c, size_t n);
+size_t strlen(const char *s);
+
+/* Non-ANSI extensions for compatibility */
+char *memccpy(void *s1, const void *s2, int c, size_t n);
+char *index(const char *s, int c);
+char *rindex(const char *s, int c);
+void bcopy(const void *s1, void *s2, size_t n);
+int bcmp(const void *s1, const void *s2, size_t n);
+void bzero(void *s, size_t n);
+char *strerror(int errnum);
+
+#endif /* STRING_H */

@@ -28,6 +28,8 @@
  */
 
 #include        <stdio.h>
+#include        <stdlib.h>
+#include        <string.h>
 #include        "C.h"
 #include        "Expr.h"
 #include        "Gen.h"
@@ -41,8 +43,6 @@
 #endif
 
 extern char    *itoa();
-extern char    *calloc();
-extern char    *malloc();
 
 struct blk {
     struct blk     *next;
@@ -69,7 +69,6 @@ xalloc(siz)
 {
     struct blk     *bp;
     char           *rv, *mem;
-    extern char    *calloc();
 
     if (siz & 1)        /* if odd size */
         siz += 1;   /* make it even */
@@ -98,7 +97,7 @@ for (bp = glbblk; bp; bp = bp->next);
                 fprintf( stderr, " not enough memory.\n" );
                 exit(1);
             }
-            bzero( bp, sizeof(struct blk) + 2047 );
+            memset( (char *)bp, 0, sizeof(struct blk) + 2047 );
             bp->next = glbblk;
             glbblk = bp;
             glbsize = 2048 - siz;
@@ -123,7 +122,7 @@ for (bp = glbblk; bp; bp = bp->next);
                 fprintf( stderr, " not enough local memory.\n" );
                 exit(1);
             }
-            bzero( bp, sizeof(struct blk) + 2047 );
+            memset( (char *)bp, 0, sizeof(struct blk) + 2047 );
             bp->next = locblk;
             locblk = bp;
             locsize = 2048 - siz;

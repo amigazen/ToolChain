@@ -30,8 +30,11 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    <ctype.h>
 #include    <assert.h>
+#include    <time.h>
 
 #ifndef unix
 #define GENERATE_TIME
@@ -43,7 +46,7 @@
 
 #else
 #ifdef GENERATE_TIME
-#include    <sys/time.h>
+/* Removed sys/time.h include - conflicts with ANSI C time.h */
 #endif
 #endif
 
@@ -216,14 +219,14 @@ install_defines()
     }
     for (sp = cmd_defsyms.head; sp != NULL; sp = sp->next) {
         if (search(sp->name, defsyms.head) != NULL) 
-            remove( sp->name, &defsyms );
+            remove_symbol( sp->name, &defsyms );
         if (sp->value.s != NULL)
             setdefine( sp->name, sp->value.s );
         else
             setdefine( sp->name, " 1 " );
     }
     for (sp = cmd_undefsyms.head; sp != NULL; sp = sp->next) 
-        remove( sp->name, &defsyms );
+        remove_symbol( sp->name, &defsyms );
 }
 
 void
@@ -478,7 +481,7 @@ getoct_ch()
 int
 getsch()
 {               /* return an in-quote character */
-    register int    i, j;
+    register int    i;
 
     if (lastch == '\n')
         return -1;

@@ -1,6 +1,6 @@
 
 /*
- * amiga2sun.c - Converts Metacompco format assembly to Sun format
+ * amiga2sun.c - Converts Metacomco format assembly to Sun format
  */
 
 #include "/usr/include/stdio.h"

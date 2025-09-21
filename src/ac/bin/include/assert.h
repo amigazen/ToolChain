@@ -14,16 +14,24 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/* assert.h
- *
- *  Tests a given conditional and program aborts with a diagnostic message
- *  if false.
- */
+/* assert.h - ANSI C assertion facility */
 
-#ifndef NDEBUG
-#define assert(x) if (!(x)) { fprintf(stderr, \
-		"Assertion failed: x, file %s, line %d\n", __FILE__, __LINE__); \
-		_abort(); }
+#ifndef ASSERT_H
+#define ASSERT_H
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#undef assert
+
+#ifdef NDEBUG
+#define assert(ignore) ((void)0)
 #else
-#define assert(x)
+void _Assert(char *);
+#define _STR(x) _VAL(x)
+#define _VAL(x) #x
+#define assert(expr) \
+    ((expr) ? (void)0 : _Assert(__FILE__ ":" _STR(__LINE__) " " #expr))
 #endif
+
+#endif /* ASSERT_H */

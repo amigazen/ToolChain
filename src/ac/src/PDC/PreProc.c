@@ -27,6 +27,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    <ctype.h>
 
 #ifdef AZTEC_C
@@ -37,6 +39,8 @@
 #include    "Expr.h"
 #include    "Gen.h"
 #include    "Cglbdec.h"
+
+extern char    *itoa(int x);
 
 #define LPAR    '('
 #define RPAR    ')'
@@ -355,7 +359,7 @@ doundef()
         getline(incldepth == 0);
         return;
     }
-    remove(lastid, &defsyms);
+    remove_symbol(lastid, &defsyms);
     getline(incldepth == 0);
 }
 

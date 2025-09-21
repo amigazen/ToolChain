@@ -14,14 +14,18 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/* Macros enabling functions to portably handle variable numbers of
- * arguments.
- */
+/* stdarg.h - ANSI C variable argument macros */
 
-typedef         char *va_list;
+#ifndef STDARG_H
+#define STDARG_H
 
-#define         va_decl         int va_alist;
-#define         va_start(X)     (X = (char *) va_alist)
-#define         va_arg(X,T)     ((T *)(X += sizeof(T)))[-1]
-#define         va_end(X)
+#include <stddef.h>
+
+typedef char *va_list;
+
+#define va_start(ap, parmN) ((ap) = (char *)&(parmN) + sizeof(parmN))
+#define va_arg(ap, type)    (*(type *)((ap) += sizeof(type), (ap) - sizeof(type)))
+#define va_end(ap)          ((void)0)
+
+#endif /* STDARG_H */
 

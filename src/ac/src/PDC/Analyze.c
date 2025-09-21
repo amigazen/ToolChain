@@ -41,6 +41,8 @@
  */
 
 #include        <stdio.h>
+#include        <stdlib.h>
+#include        <string.h>
 #include        "C.h"
 #include        "Expr.h"
 #include        "Gen.h"
@@ -59,13 +61,12 @@ extern char    *xalloc();
 static struct cse *olist;   /* list of optimizable expressions */
 
 int
-equalnode(node1, node2)
+equalnode(register struct enode *node1, register struct enode *node2)
 
 /*
  * equalnode will return 1 if the expressions pointed to by node1 and node2
  * are equivalent.
  */
-    register struct enode *node1, *node2;
 {
     if (node1 == NULL || node2 == NULL)
         return FALSE;
@@ -86,13 +87,12 @@ equalnode(node1, node2)
 }
 
 struct cse     *
-searchnode(node)
+searchnode(register struct enode *node)
 
 /*
  * searchnode will search the common expression table for an entry that
  * matches the node passed and return a pointer to it.
  */
-    register struct enode *node;
 {
     register struct cse *csp;
 
@@ -104,13 +104,12 @@ searchnode(node)
 }
 
 struct enode   *
-copynode(node)
+copynode(struct enode *node)
 
 /*
  * copy the node passed into a new enode so it wont get corrupted during
  * substitution.
  */
-    struct enode   *node;
 {
     struct enode   *temp;
 
@@ -124,15 +123,13 @@ copynode(node)
 }
 
 struct cse     *
-enternode(node, duse)
+enternode(struct enode *node, int duse)
 
 /*
  * enternode will enter a reference to an expression node into the common
  * expression table. duse is a flag indicating whether or not this reference
  * will be dereferenced.
  */
-    struct enode   *node;
-    int             duse;
 {
     struct cse     *csp;
 
@@ -153,13 +150,12 @@ enternode(node, duse)
 }
 
 struct cse     *
-voidauto(node)
+voidauto(struct enode *node)
 
 /*
  * voidauto will void an auto dereference node which points to the same auto
  * constant as node.
  */
-    struct enode   *node;
 {
     struct cse     *csp;
 
@@ -177,7 +173,7 @@ voidauto(node)
 }
 
 void
-scanexpr(node, duse)
+scanexpr(struct enode *node, int duse)
 
 /*
  * scanexpr will scan the expression pointed to by node for optimizable
@@ -186,7 +182,6 @@ scanexpr(node, duse)
  * auto dereferenced node will be voided. duse should be set if the
  * expression will be dereferenced.
  */
-    struct enode   *node;
 {
     struct cse     *csp, *csp1;
 
@@ -331,13 +326,12 @@ scanexpr(node, duse)
 }
 
 void
-scan(block)
+scan(struct snode *block)
 
 /*
  * scan will gather all optimizable expressions into the expression list for
  * a block of statements.
  */
-    struct snode   *block;
 {
     while (block != NULL) {
         switch (block->stype) {
@@ -354,12 +348,12 @@ scan(block)
             break;
         case st_for:
             opt4(&block->label);
-            scanexpr(block->label, 0);
+            scanexpr((struct enode *)block->label, 0);
             opt4(&block->exp);
             scanexpr(block->exp, 0);
             scan(block->s1);
             opt4(&block->s2);
-            scanexpr(block->s2, 0);
+            scanexpr((struct enode *)block->s2, 0);
             break;
         case st_if:
             opt4(&block->exp);
@@ -387,13 +381,12 @@ scan(block)
 }
 
 void
-exchange(c1)
+exchange(struct cse **c1)
 
 /*
  * exchange will exchange the order of two expression entries following c1 in
  * the linked list.
  */
-    struct cse    **c1;
 {
     struct cse     *csp1, *csp2;
 
@@ -405,12 +398,11 @@ exchange(c1)
 }
 
 int
-desire(csp)
+desire(struct cse *csp)
 
 /*
  * returns the desirability of optimization for a subexpression.
  */
-    struct cse     *csp;
 {
     struct enode   *ep1;
 
@@ -429,12 +421,11 @@ desire(csp)
 }
 
 int
-bsort(list)
+bsort(struct cse **list)
 
 /*
  * bsort implements a bubble sort on the expression list.
  */
-    struct cse    **list;
 {
     int             rc;
     struct cse     *csp1, *csp2;
@@ -452,7 +443,7 @@ bsort(list)
 }
 
 void
-allocate()
+allocate(void)
 
 /*
  * allocate will allocate registers for the expressions that have a high
@@ -512,13 +503,12 @@ allocate()
 }
 
 void
-repexpr(node)
+repexpr(struct enode *node)
 
 /*
  * repexpr will replace all allocated references within an expression with
  * tempref nodes.
  */
-    struct enode   *node;
 {
     struct cse     *csp;
 
@@ -665,13 +655,12 @@ repexpr(node)
 }
 
 void
-repcse(block)
+repcse(struct snode *block)
 
 /*
  * repcse will scan through a block of statements replacing the optimized
  * expressions with their temporary references.
  */
-    struct snode   *block;
 {
     while (block != NULL) {
         switch (block->stype) {
@@ -689,10 +678,10 @@ repcse(block)
             repcse(block->s1);
             break;
         case st_for:
-            repexpr(block->label);
+            repexpr((struct enode *)block->label);
             repexpr(block->exp);
             repcse(block->s1);
-            repexpr(block->s2);
+            repexpr((struct enode *)block->s2);
             break;
         case st_if:
             repexpr(block->exp);
@@ -718,7 +707,7 @@ repcse(block)
 }
 
 void
-opt1(block)
+opt1(struct snode *block)
 
 /*
  * opt1 is the externally callable optimization routine. it will collect and
@@ -726,7 +715,6 @@ opt1(block)
  * occurrances of the expression within the block.
  * 
  */
-    struct snode   *block;
 {
     if (Options.Optimize) {
         olist = NULL;

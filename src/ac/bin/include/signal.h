@@ -14,24 +14,31 @@
  *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
  */
 
-/* stddef.h - ANSI C common definitions */
+/* signal.h - ANSI C signal handling */
 
-#ifndef STDDEF_H
-#define STDDEF_H
+#ifndef SIGNAL_H
+#define SIGNAL_H
 
-#ifndef NULL
-#define NULL ((void *)0)
-#endif
+#include <stddef.h>
 
-#ifndef offsetof
-#define offsetof(type, member) ((size_t)&((type *)0)->member)
-#endif
+/* ANSI C required signal types */
+typedef int sig_atomic_t;
 
-typedef int ptrdiff_t;
-typedef unsigned int size_t;
+/* ANSI C required signal numbers */
+#define SIGABRT 1
+#define SIGFPE  2
+#define SIGILL  3
+#define SIGINT  4
+#define SIGSEGV 5
+#define SIGTERM 6
 
-#ifndef wchar_t
-typedef char wchar_t;
-#endif
+/* ANSI C required signal values */
+#define SIG_DFL ((void (*)(int))0)
+#define SIG_ERR ((void (*)(int))-1)
+#define SIG_IGN ((void (*)(int))1)
 
-#endif /* STDDEF_H */
+/* ANSI C required functions */
+int raise(int sig);
+void (*signal(int sig, void (*func)(int)))(int);
+
+#endif /* SIGNAL_H */

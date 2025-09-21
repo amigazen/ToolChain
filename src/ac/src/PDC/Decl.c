@@ -29,6 +29,8 @@
  */
 
 #include    <stdio.h>
+#include    <stdlib.h>
+#include    <string.h>
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -54,15 +56,13 @@ extern struct snode *asmstmt();
 extern char    *xalloc();
 
 int
-imax(i, j)
-    int             i, j;
+imax(int i, int j)
 {
     return (i > j) ? i : j;
 }
 
 char           *
-litlate(s)
-    char           *s;
+litlate(char *s)
 {
     char           *p;
 
@@ -72,8 +72,7 @@ litlate(s)
 }
 
 SYM            *
-copysym(sp)
-    SYM            *sp;
+copysym(SYM *sp)
 {
     SYM            *esp;
     int             siz;
@@ -92,9 +91,7 @@ copysym(sp)
 
 
 TYP            *
-maketype(bt, siz)
-    enum e_bt       bt;
-    int             siz;
+maketype(enum e_bt bt, int siz)
 {
     TYP            *tp;
 
@@ -109,8 +106,7 @@ maketype(bt, siz)
 }
 
 TYP            *
-istypedef(table)
-    TABLE          *table;
+istypedef(TABLE *table)
 {
     SYM            *sp;
 
@@ -131,7 +127,7 @@ istypedef(table)
 }
 
 int
-is_class_error()
+is_class_error(void)
 {
     if (lastst == kw_auto) {
         error( ERR_SYNTAX, "auto keyword in wrong position" );
@@ -149,11 +145,11 @@ is_class_error()
         error( ERR_SYNTAX, "register keyword in wrong position" );
         getsym();
     }
+    return (0);
 }
 
 void
-decl(table)
-    TABLE          *table;
+decl(TABLE *table)
 {
     TYP            *tp;
 
@@ -277,7 +273,7 @@ decl(table)
 }
 
 void
-decl1()
+decl1(void)
 {
     TYP            *temp1, *temp2, *temp3, *temp4;
 
@@ -323,7 +319,7 @@ decl1()
 }
 
 void
-decl2()
+decl2(void)
 {
     TYP            *temp1;
 
@@ -368,8 +364,7 @@ decl2()
 }
 
 int
-alignment(tp)
-    TYP            *tp;
+alignment(TYP *tp)
 {
     if (tp == NULL) {
         fprintf( stderr, "DIAG -- NULL argument to alignment.\n" );
@@ -405,7 +400,7 @@ alignment(tp)
 }
 
 int
-declare(table, al, ilc, ztype, ral)
+declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
 
 /*
  * process declarations of the form:
@@ -421,11 +416,6 @@ declare(table, al, ilc, ztype, ral)
  * If al == sc_auto && ral == sc_member then we are processing parameters
  * 
  */
-    TABLE          *table;
-    enum e_sc       al;
-    int             ilc;
-    enum e_bt       ztype;
-    enum e_sc       ral;
 {
     SYM            *sp, *sp1;
     TYP            *dhead, *tp2;
@@ -590,9 +580,7 @@ declare(table, al, ilc, ztype, ral)
 }
 
 int
-declbegin(table, st)
-    TABLE          *table;
-    enum e_sym      st;
+declbegin(TABLE *table, enum e_sym st)
 {
     TYP            *tp;
 
@@ -605,8 +593,7 @@ declbegin(table, st)
 }
 
 void
-declenum(table)
-    TABLE          *table;
+declenum(TABLE *table)
 {
     SYM            *sp;
 
@@ -615,7 +602,7 @@ declenum(table)
     if (lastst == id) {
         if ((sp = search(lastid, tagtable.head)) == NULL) {
             sp = (SYM *) xalloc(sizeof(SYM));
-            bzero( sp, sizeof(SYM));
+            memset( (char *)sp, 0, sizeof(SYM));
             sp->storage_class = sc_type;
             sp->name = litlate(lastid);
             sp->tp = (TYP *) xalloc(sizeof(TYP));
@@ -643,7 +630,7 @@ declenum(table)
     }
     else {
         sp = (SYM *) xalloc(sizeof(SYM));
-        bzero( sp, sizeof(SYM) );
+        memset( (char *)sp, 0, sizeof(SYM) );
         sp->storage_class = sc_type;
         sp->name = NULL;
         sp->tp = (TYP *) xalloc(sizeof(TYP));
@@ -669,9 +656,7 @@ declenum(table)
 }
 
 void
-enumbody(sym_sp, table)
-    SYM            *sym_sp;
-    TABLE          *table;
+enumbody(SYM *sym_sp, TABLE *table)
 {
     int             evalue;
     SYM            *sp, *sp2;
@@ -701,13 +686,12 @@ enumbody(sym_sp, table)
 }
 
 void
-declstruct(ztype)
+declstruct(enum e_bt ztype)
 
 /*
  * declare a structure or union type. ztype should be either bt_struct or
  * bt_union.
  */
-    enum e_bt       ztype;
 {
     SYM            *sp;
 
@@ -716,7 +700,7 @@ declstruct(ztype)
     if (lastst == id) {
         if ((sp = search(lastid, tagtable.head)) == NULL) {
             sp = (SYM *) xalloc(sizeof(SYM));
-            bzero(sp, sizeof(SYM));
+            memset((char *)sp, 0, sizeof(SYM));
             sp->name = litlate(lastid);
             sp->storage_class = sc_type;
             sp->next = NULL;
@@ -790,9 +774,7 @@ declstruct(ztype)
 }
 
 void
-structbody(tp, ztype)
-    TYP            *tp;
-    enum e_bt       ztype;
+structbody(TYP *tp, enum e_bt ztype)
 {
     int             slc;
 
@@ -819,8 +801,7 @@ structbody(tp, ztype)
 }
 
 void
-dodecl(defclass)
-    enum e_sc       defclass;
+dodecl(enum e_sc defclass)
 {
     TYP            *tp;
 
@@ -915,7 +896,7 @@ dodecl(defclass)
 }
 
 void
-compile()
+compile(void)
 
 /*
  * main compiler routine. this routine parses all of the declarations using
@@ -949,8 +930,7 @@ compile()
 }
 
 int
-declproto(table)
-    TABLE          *table;  /* table is the argument table for the function */
+declproto(TABLE *table)  /* table is the argument table for the function */
 
 /*
  * process declarations of the form:
