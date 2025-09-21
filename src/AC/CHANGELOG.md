@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **POSIX exit codes** - Proper exit codes following POSIX specifications
 - **Warning function** - New `warning()` function for non-fatal compiler messages
 - **Error vs Warning separation** - Clear distinction between fatal errors and recoverable warnings
+- **No input files error** - Proper error message when compiler is run without input files
 
 ### Changed
 - **Error message formatting** - Fixed format string in #error directive to use proper %s instead of %1024s
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stringification escaping** - Proper handling of quotes and backslashes in stringified parameters
 - **Duplicate case values** - Fixed duplicate `case 'f':` in command-line argument parsing
 - **Structure member definitions** - Synchronized structure definitions between header and implementation files
+- **Input file validation** - Fixed logic to properly detect when no input files are provided (handles options-only command lines)
 
 ## [3.33] - 1989-08-01
 

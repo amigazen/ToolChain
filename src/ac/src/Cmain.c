@@ -136,7 +136,7 @@ main(int argc, char **argv)
     extern int      opterr;
     extern char    *optarg;
     int             used_stdin;
-    int             i, c;
+    int             i, c, files_processed;
 
     opterr = 1;
     used_stdin = FALSE;
@@ -273,8 +273,12 @@ main(int argc, char **argv)
 #endif
     }
 
+    /* Track if any files were successfully processed */
+    files_processed = 0;
+
     for (i = 0; i < argc; i++) {
         if (openfiles(argv[i])) {
+            files_processed++;
             lineno = 0;
             initsym();
 
@@ -301,6 +305,12 @@ main(int argc, char **argv)
             release_global();
             closefiles();
         }
+    }
+
+    /* Check if no files were successfully processed */
+    if (files_processed == 0) {
+        fprintf(stderr, "%s: error: no input files\n", progname);
+        exit(1);
     }
 
 #ifdef _unix_
