@@ -1,0 +1,15 @@
+This material was submitted to me on disk by Jeff Lydiatt.  Thanks Jeff!
+
+This directory contains an lharc format archive of the A68k assembler
+binary and sources.  To unpack the archive create a destination directory
+somewhere other than the distribution disk, change directory to this
+new directory, and execute a command of the form:
+
+	AmigaLibDisk314:c/lharc -x -a -m x AmigaLibDisk314:A68k/A68k.lzh
+
+The lharc program is included in the :c directory of this disk for those
+who may not yet have a copy.  It is important to use the -x and -a switches
+to ensure that the directory structure and file attributes are maintained.
+
+-Fred  ><>
+ 05-Feb-90

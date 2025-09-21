@@ -1,5 +1,5 @@
-# PDC Compiler (Default rule)
-PDC:
+# AC Compiler (Default rule)
+AC:
 	stackoffset = 4
 	saveregs = d2-d7/a2-a6
 	assembler = A68K $A -o$O

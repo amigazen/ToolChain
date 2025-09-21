@@ -1,8 +1,8 @@
 # The following commands need to be in your path: 
 #    join cd bind make append
 
-# Note: This makefile assumes your PDC Program disk has been assigned the
-# logical name of "PDC:" and that the .fd files are to be taken from your
+# Note: This makefile assumes your AC Program disk has been assigned the
+# logical name of "AC:" and that the .fd files are to be taken from your
 # 1.3 Extras disk.
 #
 # If you have Amiga C language header files (such as those in the
@@ -11,10 +11,10 @@
 # support functions whose source is contained in this directory.
 
 # What we're building:
-TARGETLIB = PDC:lib/amiga.lib
+TARGETLIB = AC:lib/amiga.lib
 
 # The location of this directory:
-BINDDIR	  = PDC:lib/src/
+BINDDIR	  = AC:lib/src/
 
 # The directory containing your .fd files:
 FDDIR	  = "Extras 1.3:FD1.3"

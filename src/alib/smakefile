@@ -5,7 +5,7 @@
 
 OBJS= alib.o
 
-SCOPTIONS = INCLUDEDIR=include:
+SCOPTIONS = INCLUDEDIR=include: NOICONS
 
 alib: $(OBJS)
    sc $(SCOPTIONS) link to alib with <<

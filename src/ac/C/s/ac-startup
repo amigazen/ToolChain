@@ -1,9 +1,9 @@
-; This script is meant to be run from the top of your PDC directory heirarchy.
+; This script is meant to be run from the top of your AC directory heirarchy.
 ; It will set the necessary environment variables and will assign the logical
-; device "pdc:" to a common point for referencing PDC-related files.
+; device "ac:" to a common point for referencing AC-related files.
 ;
-assign pdc: ""
-path add pdc:bin
-setenv PDCLibs "PDC.Lib; Amiga.lib; Math.lib"
-setenv PDCLibDirs "PDC:lib"
-setenv PDCIncDirs "PDC:include"
+assign ac: ""
+path add ac:C
+setenv ACLibs "ac.Lib; amiga.lib; math.lib"
+setenv ACLibDirs "AC:lib; LIB:"
+setenv ACIncDirs "AC:include; INCLUDE:"
