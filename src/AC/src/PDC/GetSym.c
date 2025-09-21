@@ -202,8 +202,6 @@ install_defines()
     setdefine("__DATE__", __datebuf);
     setdefine("__TIME__", __timebuf);
     setdefine("__FUNC__", __funcbuf);
-    setdefine("__STDC__", " 1 ");
-    setdefine("__STDC_VERSION__", " 199409L ");
     setdefine("__PDC__", " 1 ");
     setdefine("pdc", " 1 ");
     setdefine("amiga", " 1 ");

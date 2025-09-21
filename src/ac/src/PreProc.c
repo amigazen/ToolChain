@@ -246,9 +246,20 @@ dodefine()
     }
 
     if (search(lastid, defsyms.head) != NULL) {
-        error(ERR_DEFINE, "already defined");
-        getline(incldepth == 0);
-        return;
+        /* Check if it's an identical redefinition */
+        SYM *existing = search(lastid, defsyms.head);
+        if (existing->tp != NULL && lastch == '(') {
+            /* Function macro - check if parameters match */
+            /* For now, allow redefinition and update the value */
+            existing->value.s = NULL; /* Will be set later */
+        } else if (existing->tp == NULL && lastch != '(') {
+            /* Object macro - allow redefinition */
+            existing->value.s = NULL; /* Will be set later */
+        } else {
+            error(ERR_DEFINE, "already defined");
+            getline(incldepth == 0);
+            return;
+        }
     }
 
     ++global_flag;      /* always do #define as globals */
@@ -285,7 +296,17 @@ dodefine()
                 getid();    /* Get the parameter        */
                 if (!*lastid)
                     break;
-                else {  /* If we have a parameter    */
+                else if (strcmp(lastid, "...") == 0) {
+                    /* Handle variadic macro parameter */
+                    sp1 = (SYM *) xalloc(sizeof(SYM));
+                    sp1->name = litlate("__VA_ARGS__");
+                    sp1->storage_class = sc_define;
+                    sp1->storage_type = sc_define;
+                    sp1->value.i = 1; /* Mark as variadic */
+                    sp->tp->lst.tail->next = sp1;
+                    sp->tp->lst.tail = sp1;
+                    break;
+                } else {  /* If we have a parameter    */
                     sp1 = (SYM *) xalloc(sizeof(SYM));
                     sp1->name = litlate(lastid);
                     sp1->storage_class = sc_define;
@@ -553,6 +574,109 @@ done:
     return(litlate(buffer));
 }
 
+char    *
+getvarargs(buffer)
+    char    *buffer;
+{
+    char    *ptr;
+    int     paren, state;
+
+    ptr = buffer;
+    state = paren = 0;
+
+    /* Collect all remaining arguments until closing parenthesis */
+    for (;;) {
+        switch (state) {
+        case 0:
+            if (lastch == EOF)
+                goto done;
+            else if (lastch == QUOT)
+                state = 1;
+            else if (lastch == SQUOT)
+                state = 2;
+            else if (lastch == LPAR)
+                ++paren;
+            else if (lastch == RPAR) {
+                if (paren <= 0)
+                    goto done;
+                --paren;
+            }
+            else if (lastch == BSLASH) {
+                *ptr++ = lastch;
+                getch();
+            }
+            break;
+        case 1:
+            if (lastch == EOF)
+                goto done;
+            else if (lastch == QUOT)
+                state = 0;
+            else if (lastch == BSLASH) {
+                *ptr++ = lastch;
+                getch();
+            }
+            break;
+        case 2:
+            if (lastch == EOF)
+                goto done;
+            else if (lastch == SQUOT)
+                state = 0;
+            else if (lastch == BSLASH) {
+                *ptr++ = lastch;
+                getch();
+            }
+            break;
+        }
+        if (lastch != EOF) {
+            *ptr++ = lastch;
+            getch();
+        }
+    }
+done:
+    *ptr = '\0';
+    return(litlate(buffer));
+}
+
+char           *
+stringify_param(param)
+    char           *param;
+{
+    char           *result, *ptr;
+    int             len;
+    
+    /* Calculate length needed for stringified parameter */
+    len = strlen(param) + 2; /* +2 for quotes */
+    result = (char *)xalloc(len + 1);
+    ptr = result;
+    *ptr++ = '"';
+    
+    while (*param) {
+        if (*param == '"' || *param == '\\') {
+            *ptr++ = '\\';
+        }
+        *ptr++ = *param++;
+    }
+    *ptr++ = '"';
+    *ptr = '\0';
+    
+    return result;
+}
+
+char           *
+paste_tokens(token1, token2)
+    char           *token1, *token2;
+{
+    char           *result;
+    int             len;
+    
+    len = strlen(token1) + strlen(token2) + 1;
+    result = (char *)xalloc(len);
+    strcpy(result, token1);
+    strcat(result, token2);
+    
+    return result;
+}
+
 char           *
 prepdefine(sp)
     SYM            *sp;
@@ -585,7 +709,12 @@ prepdefine(sp)
     getch();
 
     while (sp1 != NULL) {
-        sp1->value.s = getparm(buffer);
+        if (sp1->value.i == 1) {
+            /* Handle __VA_ARGS__ - collect all remaining arguments */
+            sp1->value.s = getvarargs(buffer);
+        } else {
+            sp1->value.s = getparm(buffer);
+        }
         sp1 = sp1->next;
     }
 
@@ -623,6 +752,49 @@ prepdefine(sp)
                     *ptr++ = *pattern++;
                 else
                     break;
+            }
+        }
+        else if (*pattern == '#') {
+            /* Stringification operator */
+            pattern++; /* Skip the # */
+            if (isidch(*pattern)) {
+                loc = laststr;
+                while (isidch(*pattern))
+                    *loc++ = *pattern++;
+                *loc = '\0';
+                loc = laststr;
+                for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
+                    if (strcmp(loc, sp1->name) == 0) {
+                        loc = stringify_param(sp1->value.s);
+                        break;
+                    }
+                }
+                while (*loc)
+                    *ptr++ = *loc++;
+            }
+        }
+        else if (*pattern == '#' && *(pattern + 1) == '#') {
+            /* Token pasting operator */
+            pattern += 2; /* Skip the ## */
+            if (isidch(*pattern)) {
+                char *token1 = laststr;
+                char *token2 = laststr + 64; /* Use different part of buffer */
+                while (isidch(*pattern))
+                    *token1++ = *pattern++;
+                *token1 = '\0';
+                
+                /* Find the second token */
+                while (isspace(*pattern))
+                    pattern++;
+                if (isidch(*pattern)) {
+                    while (isidch(*pattern))
+                        *token2++ = *pattern++;
+                    *token2 = '\0';
+                    
+                    loc = paste_tokens(laststr, laststr + 64);
+                    while (*loc)
+                        *ptr++ = *loc++;
+                }
             }
         }
         else if (isidch(*pattern)) {
@@ -820,6 +992,32 @@ doerror()
         return;
     }
 
+    oneline = TRUE;
+    cp = &buffer[0];
+    endp = &buffer[1022];
+    while (lastch != EOF && lastch != '\n') {
+        if (cp < endp)
+            *cp++ = lastch;
+        getch();
+    }
+    *cp++ = '\n';
+    *cp = '\0';
+    fprintf(stderr, "USER ERROR: %s", buffer);
+    oneline = FALSE;
+
+    getline(incldepth == 0);
+}
+
+void
+dowarning()
+{
+    char buffer[1024];
+    char *cp, *endp;
+
+    if (prestat == ps_ignore) {
+        getline(incldepth == 0);
+        return;
+    }
 
     oneline = TRUE;
     cp = &buffer[0];
@@ -831,9 +1029,46 @@ doerror()
     }
     *cp++ = '\n';
     *cp = '\0';
-    fprintf(stderr, "USER ERROR: %1024s", buffer);
+    fprintf(stderr, "WARNING: %s", buffer);
     oneline = FALSE;
 
+    getline(incldepth == 0);
+}
+
+void
+dopragma_once()
+{
+    static char **included_files = NULL;
+    static int num_included = 0;
+    int i;
+    
+    if (prestat == ps_ignore) {
+        getline(incldepth == 0);
+        return;
+    }
+
+    /* Check if current file already included */
+    for (i = 0; i < num_included; i++) {
+        if (strcmp(included_files[i], curfile) == 0) {
+            /* File already included, skip to end of file */
+            while (getline(incldepth == 0) == 0) {
+                /* Skip lines until end of file */
+            }
+            return;
+        }
+    }
+    
+    /* Add current file to included list */
+    if (included_files == NULL) {
+        included_files = (char **)xalloc(10 * sizeof(char *));
+    } else if (num_included % 10 == 0) {
+        included_files = (char **)xalloc((num_included + 10) * sizeof(char *));
+    }
+    
+    included_files[num_included] = (char *)xalloc(strlen(curfile) + 1);
+    strcpy(included_files[num_included], curfile);
+    num_included++;
+    
     getline(incldepth == 0);
 }
 
@@ -899,6 +1134,10 @@ dopragma()
             ;   /*  IEEE format */
         else if ( strcmp( laststr, "fpp" ) == 0)
             ;   /*  FPP format */
+    }
+    else if (strcmp( laststr, "once" ) == 0) {
+        dopragma_once();
+        return;
     }
 
     oneline = FALSE;
@@ -1030,6 +1269,8 @@ preprocess()
             doline();
         else if (strcmp(lastid, "error") == 0) 
             doerror();
+        else if (strcmp(lastid, "warning") == 0) 
+            dowarning();
         else if (strcmp(lastid, "pragma") == 0) 
             dopragma();
         else {

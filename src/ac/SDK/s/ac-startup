@@ -2,8 +2,10 @@
 ; It will set the necessary environment variables and will assign the logical
 ; device "ac:" to a common point for referencing AC-related files.
 ;
+;BEGIN AC
 assign ac: ""
 path add ac:C
-setenv ACLibs "ac.Lib; amiga.lib; math.lib"
+setenv ACLibs "ac.lib; amiga.lib; math.lib"
 setenv ACLibDirs "AC:lib; LIB:"
 setenv ACIncDirs "AC:include; INCLUDE:"
+;END AC
