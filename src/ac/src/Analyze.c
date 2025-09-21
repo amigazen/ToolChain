@@ -47,7 +47,6 @@
 #include        "Expr.h"
 #include        "Gen.h"
 #include        "Cglbdec.h"
-#include        <stab.h>
 
 extern struct amode push[], pop[];
 extern struct amode *gen_expr(), *makedreg(), *makeareg(), *make_mask();
@@ -524,21 +523,6 @@ repexpr(struct enode *node)
                 node->nodetype = en_tempref;
                 node->v.i = csp->reg;
             }
-        break;
-    case en_stabs:
-    case en_stabn:
-        if (node->v.dp != NULL && node->v.dp->ref != NULL) {
-            if ((csp = searchnode(node->v.dp->ref)) != NULL) {
-                if (csp->reg > 0) {
-                    node->v.dp->tag = N_RSYM;
-#ifdef  GENERATE_DBX
-                    node->v.dp->sp = dbx_addreg(node->v.dp->sp);
-#endif
-                    node->v.dp->ref->nodetype = en_tempref;
-                    node->v.dp->ref->v.i = csp->reg;
-                }
-            }
-        }
         break;
     case en_b_ref:
     case en_ub_ref:

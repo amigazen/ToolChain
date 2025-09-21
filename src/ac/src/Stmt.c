@@ -40,16 +40,11 @@
 #include        "Expr.h"
 #include        "Gen.h"
 #include        "Cglbdec.h"
-#include        <stab.h>
 
 extern char     in_line[];
 extern char     infile[];
 extern int      in_line_used;
 
-#ifdef  GENERATE_DBX
-extern int      dbx_name();
-
-#endif
 extern int      dbxlnum;
 extern long     intexpr();
 extern SYM     *search();
@@ -165,32 +160,7 @@ declarestmt(sp)
  */
 
 {
-#ifdef  GENERATE_DBX
-    struct snode   *snp = NULL;
-    struct dnode   *dp = NULL;
-
-    if (!Options.Debug)
-        return (NULL);
-    else {
-        if (sp->name == NULL)
-            return (NULL);
-
-        snp = makesnode(st_stabs);
-        dp = makednode(N_LSYM);
-
-        dp->sp = NULL;
-        dp->label = dp->nest = 0;
-
-        if (sp != NULL)
-            if (!dbx_name(sp, dp))
-                return (NULL);
-
-        snp->exp = makenode(en_stabs, dp, NULL);
-        return snp;
-    }
-#else
     return (NULL);
-#endif
 }
 
 struct snode   *
@@ -201,28 +171,7 @@ entrystmt()
  */
 
 {
-#ifdef  GENERATE_DBX
-    struct snode   *snp, *spt;
-    struct dnode   *dp;
-
-    if (!Options.Debug)
-        return (NULL);
-    else {
-        snp = makesnode(st_stabn);
-        dp = makednode(N_LBRAC);
-        dp->label = nextlabel++;
-        dp->nest = nest_level;
-        dp->ref = makenode(en_labcon, dp->label, NULL);
-        snp->exp = makenode(en_stabn, dp, NULL);
-        spt = makesnode(st_label);
-        spt->label = (long *) dp->label;
-        spt->next = NULL;
-        snp = joinsnode(snp, spt);
-        return snp;
-    }
-#else
     return (NULL);
-#endif
 }
 
 struct snode   *
@@ -233,28 +182,7 @@ exitstmt()
  */
 
 {
-#ifdef  GENERATE_DBX
-    struct snode   *snp, *spt;
-    struct dnode   *dp;
-
-    if (!Options.Debug)
-        return (NULL);
-    else {
-        snp = makesnode(st_stabn);
-        dp = makednode(N_RBRAC);
-        dp->label = nextlabel++;
-        dp->nest = nest_level;
-        dp->ref = makenode(en_labcon, dp->label, NULL);
-        snp->exp = makenode(en_stabn, dp, NULL);
-        spt = makesnode(st_label);
-        spt->label = (long *) dp->label;
-        spt->next = NULL;
-        snp = joinsnode(snp, spt);
-        return snp;
-    }
-#else
     return (NULL);
-#endif
 }
 
 struct snode   *
@@ -265,24 +193,7 @@ includestmt()
  */
 
 {
-#ifdef  GENERATE_DBX
-    struct snode   *snp;
-    struct dnode   *dp;
-
-    if (!Options.Debug)
-        return (NULL);
-    else {
-        snp = makesnode(st_stabn);
-        dp = makednode(N_EINCL);
-        dp->label = dp->nest = 0;
-        dp->ref = makenode(en_icon, 0, NULL);
-        snp->exp = makenode(en_stabn, dp, NULL);
-        --dbxincl;
-        return snp;
-    }
-#else
     return (NULL);
-#endif
 }
 
 struct snode   *
@@ -293,47 +204,7 @@ filestmt()
  */
 
 {
-#ifdef  GENERATE_DBX
-    struct snode   *snp, *spt, *scl;
-    struct dnode   *dp;
-
-    if (!Options.Debug)
-        return (NULL);
-    else {
-        snp = makesnode(st_stabs);
-        spt = scl = NULL;
-        if (strcmp(infile, curfile) == 0 || dbxfile == FALSE) {
-            strcpy(infile, curfile);
-            if (dbxfile) {
-                scl = includestmt();
-                return (scl);
-            }
-            dp = makednode(N_SO);
-            dp->label = nextlabel++;
-            dp->ref = makenode(en_labcon, dp->label, NULL);
-            dbxfile = TRUE;
-            spt = makesnode(st_label);
-            spt->label = (long *) dp->label;
-            spt->next = NULL;
-        }
-        else {
-            if (dbxincl > 0)
-                scl = includestmt();
-            dp = makednode(N_BINCL);
-            dp->label = 0;
-            dp->ref = makenode(en_icon, 0, NULL);
-            ++dbxincl;
-        }
-        dp->sp = curfile;
-        dp->nest = 0;
-        snp->exp = makenode(en_stabs, dp, NULL);
-        snp = joinsnode(scl, snp);
-        snp = joinsnode(snp, spt);
-        return snp;
-    }
-#else
     return (NULL);
-#endif
 }
 
 struct snode   *
@@ -344,28 +215,7 @@ linestmt()
  */
 
 {
-#ifdef  GENERATE_DBX
-    struct snode   *snp, *spt;
-    struct dnode   *dp;
-
-    if (!Options.Debug)
-        return (NULL);
-    else {
-        snp = makesnode(st_stabn);
-        dp = makednode(N_SLINE);
-        dp->label = nextlabel++;
-        dp->nest = dbxlnum;
-        dp->ref = makenode(en_labcon, dp->label, NULL);
-        snp->exp = makenode(en_stabn, dp, NULL);
-        spt = makesnode(st_label);
-        spt->label = (long *) dp->label;
-        spt->next = NULL;
-        snp = joinsnode(snp, spt);
-        return snp;
-    }
-#else
     return (NULL);
-#endif
 }
 
 struct snode   *
@@ -711,9 +561,6 @@ compound(look_ahead)
 
     autohead = autotail = NULL;
     dodecl(sc_auto);
-#ifdef  GENERATE_DBX
-    dbx_line();
-#endif
 
     nest_level++;
 
@@ -722,13 +569,6 @@ compound(look_ahead)
 
     head = tail = NULL;
 
-#ifdef GENERATE_DBX
-    if (Options.Debug) {
-        head = tail = entrystmt();
-        while (tail != NULL && tail->next != NULL)
-            tail = tail->next;
-    }
-#endif
 
     while (lastst != end && lastst != eof) {
         if (head == NULL)
@@ -772,18 +612,6 @@ compound(look_ahead)
 
     lc_auto = local_auto;
     lc_base = local_base;
-
-#ifdef GENERATE_DBX
-    if (Options.Debug) {
-        ptr = head;
-        while (ptr != NULL && ptr->next != NULL)
-            ptr = ptr->next;
-        ptr->next = exitstmt();
-        while (ptr != NULL && ptr->next != NULL)
-            ptr = ptr->next;
-        ptr->next = linestmt();
-    }
-#endif
 
     nest_level--;
 
@@ -879,16 +707,6 @@ statement2()
 
     if (Options.Annote)
         snc = commentstmt();
-
-#ifdef GENERATE_DBX
-    if (Options.Debug) {
-        ptr = linestmt();
-        if (snc == NULL)
-            snc = ptr;
-        else
-            snc->next = ptr;
-    }
-#endif
 
     switch (lastst) {
     case semicolon:
