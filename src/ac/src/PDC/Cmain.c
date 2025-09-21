@@ -39,63 +39,36 @@
 #include    "Cglbdec.h"
 #include    "Version.h"
 
-/* #ifdef AZTEC_C */
-#if 1
 char *HelpMsg[] = {
     VERSION,
-    "\nProduced by Paul Petersen and Lionel Hummel.\n",
-    "Based upon prior work by Matthew Brandt and Jeff Lydiatt.\n\n",
-    "Usage: PDC [ -ABGILNQRP? ] [ -D/U symbol ] [ -F reg ] [ -o file ]\n",
-    "           [ -p 0|file ] [ file ... ]\n",
-    "\t-a\tAnnotate the assembler listing with source.\n",
-    "\t-b\tGenerate inline assembler for builtins.\n",
-    "\t-D\tDefine a preprocessor symbol.\n",
-    "\t-f\tUse address register [4|5|6] as the frame pointer.\n",
-    "\t-g\tGenerate debugging info.\n",
-    "\t-I\tDirectory for include files.\n",
-    "\t-l\tCreate a source listing file.\n",
-    "\t-n\tTurn off optimization.\n",
-    "\t-o\tSpecify name for output.\n",
-    "\t-p\tCreate or use precompiled header.\n",
-    "\t-q\tRun quietly.\n",
-    "\t-r\tUse library for integer math.\n",
-    "\t-U\tUndefine a preprocessor symbol.\n",
-    "\t-?\tThis help information.\n",
+    " by amigazen project\n",
+    "Based upon prior work by Paul Petersen, Lionel Hummel, Matthew Brandt and Jeff Lydiatt.\n\n",
+    "Usage: AC [options] file...\n\n",
+    "\t-c\t\tCompile source files without linking\n",
+    "\t-D name[=value]\tDefine a preprocessor symbol\n",
+    "\t-E\t\tPreprocess only; do not compile, assemble or link\n",
+    "\t-g\t\tGenerate debugging information\n",
+    "\t-I directory\tAdd directory to include search path\n",
+    "\t-L directory\t(Not Implemented) Add directory to library search path\n",
+    "\t-o outfile\tSpecify output file name\n",
+    "\t-O\t\tOptimize code (default: ON, use -n to turn off)\n",
+    "\t-s\t\t(Not Implemented) Strip symbol information from output\n",
+    "\t-U name\t\tUndefine a preprocessor symbol\n\n",
+    "PDC-Specific Options:\n",
+    "\t-a\t\tAnnotate the assembler listing with source\n",
+    "\t-b\t\tGenerate inline assembler for builtins\n",
+    "\t-f reg\t\tUse address register [4|5|6] as the frame pointer\n",
+    "\t-l\t\tCreate a source listing file\n",
+    "\t-n\t\tTurn off optimization\n",
+    "\t-p [0|file]\tCreate or use precompiled header\n",
+    "\t-q\t\tRun quietly\n",
+    "\t-r\t\tUse library for integer math\n",
+    "\t-S\t\tEnable stack checking\n",
+    "\t-?\t\tThis help information\n",
     NULL
 };
-#else
-char *HelpMsg =
-    VERSION
-    "\nProduced by Paul Petersen and Lionel Hummel.\n"
-    "Based upon prior work by Matthew Brandt and Jeff Lydiatt.\n\n"
-    "Usage: PDC [ -ABGILNQRP? ] [ -D/U symbol ] [ -F reg ] [ -o file ]\n"
-    "           [ -p 0|file ] [ file ... ]\n"
-    "\t-a\tAnnotate the assembler listing with source.\n"
-    "\t-b\tGenerate inline assembler for builtins.\n"
-    "\t-D\tDefine a preprocessor symbol.\n"
-    "\t-f\tUse address register [4|5|6] as the frame pointer.\n"
-    "\t-g\tGenerate debugging info.\n"
-    "\t-I\tDirectory for include files.\n"
-    "\t-l\tCreate a source listing file.\n"
-    "\t-n\tTurn off optimization.\n"
-    "\t-o\tSpecify name for output.\n"
-    "\t-p\tCreate or use precompiled header.\n"
-    "\t-q\tRun quietly.\n"
-    "\t-r\tUse library for integer math.\n"
-    "\t-U\tUndefine a preprocessor symbol.\n"
-    "\t-?\tThis help information.\n";
-#endif
 
-/*
- * There are one or two HARMLESS jokes in this beta version of the compiler.
- * Do not worry: there is no effect on code generation or on overall
- * performance.  To the easily affronted: remove this line and please forgive
- * me.  It is very late and my linear thinking mode is shot. (LDH)
- */
 
-#if 0
-#define JOKE    1
-#endif
 
 char            infile[40], listfile[40], outfile[40], prefile[40];
 char           *progname;
@@ -168,7 +141,7 @@ main(int argc, char **argv)
     open_stdio();
 #endif
 
-    while ((c = getopt(argc, argv, "ABGLNQRSabglnqrsd:D:F:f:I:o:P:u:U:?")) != EOF)
+    while ((c = getopt(argc, argv, "ABGLNQRSabglnqrsd:D:F:f:I:L:o:P:u:U:cE?")) != EOF)
         switch (c) {
         case 'a':
         case 'A':
@@ -203,7 +176,6 @@ main(int argc, char **argv)
             --global_flag;
             break;
         case 'l':
-        case 'L':
             Options.List = !Options.List;
             break;
         case 'n':
@@ -239,6 +211,16 @@ main(int argc, char **argv)
             i = atoi(optarg);
             if (i >= 4 || i >= 6)
                 Options.Frame = i;
+            break;
+        case 'c':
+            Options.CompileOnly = 1;
+            break;
+        case 'E':
+            Options.PreprocessOnly = 1;
+            break;
+        case 'L':
+            /* Library directory - not implemented yet */
+            fprintf(stderr, "%s: -L option not implemented\n", progname);
             break;
         case '?':
             usage();
@@ -422,12 +404,7 @@ void
 summary(void)
 {
     if (!Options.Quiet) {
-#ifdef JOKE
-        if (total_errors == 1) {
-            fputs("\n *** error 65536 Illegal Number of Errors: 1\n", stderr);
-            total_errors++;
-        }
-#endif
+
         fprintf( stderr, "\n -- " );
         if (total_errors == 0)
             fprintf( stderr, "no errors found." );

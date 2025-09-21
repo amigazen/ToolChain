@@ -39,6 +39,8 @@ extern struct OptTab {
     int         Builtin;
     int         PreComp;
     int         Stack;
+    int         CompileOnly;
+    int         PreprocessOnly;
 }       Options;
 
 extern long ival;

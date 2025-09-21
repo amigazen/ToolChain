@@ -48,6 +48,8 @@ struct OptTab {
     int             Builtin;
     int             PreComp;
     int             Stack;
+    int             CompileOnly;
+    int             PreprocessOnly;
 };
 
 /*
@@ -63,7 +65,7 @@ struct OptTab {
  *  Stack       OFF
  */
 
-struct OptTab   Options = {1, 0, 0, 0, 5, 0, 1, 0, 0, 0};
+struct OptTab   Options = {1, 0, 0, 0, 5, 0, 1, 0, 0, 0, 0, 0};
 
 int             lineno = 0;
 int             nextlabel = 0;
