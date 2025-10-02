@@ -105,6 +105,7 @@ maketype(enum e_bt bt, int siz)
     tp->lst.tail = NULL;
     tp->btp = NULL;
     tp->qualifiers = 0;  /* Initialize qualifiers to none */
+    tp->mem_section = 0; /* Initialize memory section to none */
     return tp;
 }
 
@@ -176,6 +177,36 @@ decl(TABLE *table)
         decl(table);
         if (head != NULL)
             head->qualifiers |= QUAL_VOLATILE;
+        break;
+    case kw_chip:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_CHIP;
+        break;
+    case kw_far:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_FAR;
+        break;
+    case kw_near:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_NEAR;
+        break;
+    case kw_fast:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_FAST;
+        break;
+    case kw_interrupt:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_INTERRUPT;
         break;
     case kw_char:
         head = tail = maketype(bt_char, 1);

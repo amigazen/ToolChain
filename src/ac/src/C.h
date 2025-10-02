@@ -93,6 +93,7 @@ struct sym {
     struct typ     *btp;
     char           *sname;
     char        qualifiers; /* type qualifiers: const=1, volatile=2 */
+    char        mem_section; /* memory section: chip=1, far=2, near=3, fast=4 */
     }          *tp;
 };
 
@@ -103,6 +104,13 @@ struct sym {
 /* Type qualifier constants */
 #define QUAL_CONST     1
 #define QUAL_VOLATILE  2
+#define QUAL_INTERRUPT 8
+
+/* Memory section constants */
+#define MEM_CHIP       1
+#define MEM_FAR        2
+#define MEM_NEAR       3
+#define MEM_FAST       4
 
 /* Type system function declarations */
 extern TYP *integer_promote(TYP *tp, struct enode **node);

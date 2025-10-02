@@ -224,7 +224,7 @@ nameref(node)
             (*node)->constflag = 1;
         }
         else {
-            if (oneline) {      /* Preprocessor kludge */
+            if (oneline) {      /* Preprocessor mode - undefined identifiers are 0 */
                 tp = &stdint;
                 *node = makenode(en_icon, 0, NULL );
                 (*node)->constflag = 1;
