@@ -53,6 +53,12 @@ TYP *integer_promote(TYP *tp, struct enode **node)
             (*node)->signedflag = 1;
         }
         return &stdint;
+    case bt_bool:
+        if (node != NULL) {
+            *node = makenode(en_cbl, *node, NULL);
+            (*node)->signedflag = 1;
+        }
+        return &stdint;
     case bt_uchar:
         if (node != NULL) {
             *node = makenode(en_cbl, *node, NULL);
@@ -269,6 +275,7 @@ asforcefit(node1, tp1, node2, tp2)
     case bt_ushort:
         switch (tp2->type) {
         case bt_char:
+        case bt_bool:
             conv_signed( node2, en_cbl );
             return( tp1 );
         case bt_uchar:
@@ -279,7 +286,6 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_enum:
         case bt_long:
         case bt_unsigned:
-        case bt_bool:
             return( tp1 );
         case bt_float:
             conv_unsigned( node2, en_cfl );
@@ -293,6 +299,7 @@ asforcefit(node1, tp1, node2, tp2)
     case bt_enum:
         switch (tp2->type) {
         case bt_char:
+        case bt_bool:
             conv_signed( node2, en_cbl );
             return( tp1 );
         case bt_uchar:
@@ -319,6 +326,7 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_long:
             return( tp1 );
         case bt_char:
+        case bt_bool:
             conv_signed( node2, en_cbl );
             return( tp1 );
         case bt_uchar:

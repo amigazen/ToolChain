@@ -142,6 +142,10 @@ deref(node, tp)
         *node = makenode(en_b_ref, *node, NULL);
         tp = &stdchar;
         break;
+    case bt_bool:
+        *node = makenode(en_b_ref, *node, NULL);
+        tp = &stdbool;
+        break;
     case bt_uchar:
         (*node)->signedflag = 0;
         *node = makenode(en_ub_ref, *node, NULL);
