@@ -690,6 +690,9 @@ fmt_type(tp, prev)
     case bt_char:
         prepend("char ");
         break;
+    case bt_bool:
+        prepend("_Bool ");
+        break;
     case bt_uchar:
         prepend("unsigned char ");
         break;

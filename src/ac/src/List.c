@@ -110,6 +110,9 @@ put_ty(tp)
     case bt_char:
         type = "Char";
         break;
+    case bt_bool:
+        type = "Bool";
+        break;
     case bt_uchar:
         type = "unsigned Char";
         break;

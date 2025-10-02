@@ -44,6 +44,7 @@ struct kwblk {
 };
 
 struct kwblk    keywords[] = {
+    {"_Bool", kw_bool},
     {"auto", kw_auto},
     {"break", kw_break},
     {"case", kw_case},

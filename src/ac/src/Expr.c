@@ -58,6 +58,7 @@ TYP             stdunsigned = {bt_unsigned, 0, 4, {0, 0}, 0, "unsigned", 0};
 TYP             stdchar = {bt_char, 0, 1, {0, 0}, 0, "char", 0};
 TYP             stdlonglong = {bt_longlong, 0, 8, {0, 0}, 0, "long long", 0};
 TYP             stdulonglong = {bt_ulonglong, 0, 8, {0, 0}, 0, "unsigned long long", 0};
+TYP             stdbool = {bt_bool, 0, 1, {0, 0}, 0, "_Bool", 0};
 TYP             stdshort = {bt_short, 0, 2, {0, 0}, 0, "short", 0};
 TYP             stdstring = {bt_pointer, 1, 4, {0, 0}, &stdchar, "string", 0};
 TYP             stdfunc = {bt_func, 1, 0, {0, 0}, &stdint, "func", 0};
@@ -407,7 +408,7 @@ castbegin(st)
         st == kw_char || st == kw_short || st == kw_int ||
         st == kw_long || st == kw_float || st == kw_double ||
         st == kw_enum || st == kw_struct || st == kw_union ||
-        st == kw_void || st == kw_unsigned;
+        st == kw_void || st == kw_unsigned || st == kw_bool;
 }
 
 TYP            *
@@ -875,7 +876,8 @@ isscalar(tp)
         (tp->type == bt_char || tp->type == bt_uchar ||
          tp->type == bt_short || tp->type == bt_ushort ||
          tp->type == bt_long || tp->type == bt_longlong ||
-         tp->type == bt_unsigned || tp->type == bt_ulonglong);
+         tp->type == bt_unsigned || tp->type == bt_ulonglong ||
+         tp->type == bt_bool);
 }
 
 TYP            *

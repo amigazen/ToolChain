@@ -238,6 +238,11 @@ decl(TABLE *table)
         getsym();
         is_class_error();
         break;
+    case kw_bool:
+        head = tail = maketype(bt_bool, 1);
+        getsym();
+        is_class_error();
+        break;
     case kw_signed:
         getsym();
         switch (lastst) {
@@ -421,6 +426,7 @@ alignment(TYP *tp)
     switch (tp->type) {
     case bt_char:
     case bt_uchar:
+    case bt_bool:
         return AL_CHAR;
     case bt_short:
     case bt_ushort:

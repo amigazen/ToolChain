@@ -231,6 +231,7 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_enum:
         case bt_long:
         case bt_longlong:
+        case bt_bool:
             return( tp1 );
         case bt_uchar:
         case bt_ushort:
@@ -251,6 +252,7 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_short:
         case bt_enum:
         case bt_long:
+        case bt_bool:
             return( tp1 );
         case bt_uchar:
         case bt_ushort:
@@ -277,6 +279,7 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_enum:
         case bt_long:
         case bt_unsigned:
+        case bt_bool:
             return( tp1 );
         case bt_float:
             conv_unsigned( node2, en_cfl );

@@ -38,6 +38,7 @@ enum e_sym {
     kw_for, kw_goto, kw_if, kw_int, kw_long, kw_register, kw_return,
     kw_short, kw_signed, kw_sizeof, kw_static, kw_struct, kw_switch,
     kw_typedef, kw_union, kw_unsigned, kw_void, kw_volatile, kw_while,
+    kw_bool,  /* C99 _Bool keyword */
     /* SAS/C keywords */
     kw_asm, kw_regargs, kw_stdargs, kw_saveds, kw_far, kw_near, kw_chip, 
     kw_fast, kw_interrupt, kw_aligned, eof
@@ -52,7 +53,7 @@ enum e_sc {
 enum e_bt {
     bt_char, bt_short, bt_long, bt_longlong, bt_float, bt_double, bt_pointer,
     bt_unsigned, bt_struct, bt_union, bt_enum, bt_func, bt_ifunc,
-    bt_uchar, bt_ushort, bt_ulong, bt_ulonglong, bt_typedef, bt_void, bt_unknown
+    bt_uchar, bt_ushort, bt_ulong, bt_ulonglong, bt_bool, bt_typedef, bt_void, bt_unknown
 };
 
 enum e_pm {

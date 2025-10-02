@@ -308,6 +308,7 @@ inittype(tp)
 
     case bt_char:
     case bt_uchar:
+    case bt_bool:
         nbytes = initchar();
         break;
     case bt_short:
