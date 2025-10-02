@@ -56,6 +56,8 @@
 TYP             stdint = {bt_long, 0, 4, {0, 0}, 0, "int", 0};
 TYP             stdunsigned = {bt_unsigned, 0, 4, {0, 0}, 0, "unsigned", 0};
 TYP             stdchar = {bt_char, 0, 1, {0, 0}, 0, "char", 0};
+TYP             stdlonglong = {bt_longlong, 0, 8, {0, 0}, 0, "long long", 0};
+TYP             stdulonglong = {bt_ulonglong, 0, 8, {0, 0}, 0, "unsigned long long", 0};
 TYP             stdshort = {bt_short, 0, 2, {0, 0}, 0, "short", 0};
 TYP             stdstring = {bt_pointer, 1, 4, {0, 0}, &stdchar, "string", 0};
 TYP             stdfunc = {bt_func, 1, 0, {0, 0}, &stdint, "func", 0};
@@ -158,11 +160,20 @@ deref(node, tp)
     case bt_pointer:
         *node = makenode(en_l_ref, *node, NULL);
         break;
+    case bt_longlong:
+        *node = makenode(en_ll_ref, *node, NULL);
+        break;
     case bt_unsigned:
         (*node)->signedflag = 0;
         *node = makenode(en_ul_ref, *node, NULL);
         (*node)->signedflag = 0;
         tp = &stdunsigned;
+        break;
+    case bt_ulonglong:
+        (*node)->signedflag = 0;
+        *node = makenode(en_ull_ref, *node, NULL);
+        (*node)->signedflag = 0;
+        tp = &stdulonglong;
         break;
     case bt_struct:
     case bt_union:
@@ -421,6 +432,18 @@ primary(node)
         break;
     case iconst:
         tptr = &stdint;
+        pnode = makenode(en_icon, (long) ival, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case lconst:
+        tptr = &stdint;
+        pnode = makenode(en_icon, (long) ival, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case llconst:
+        tptr = &stdlonglong;
         pnode = makenode(en_icon, (long) ival, NULL);
         pnode->constflag = 1;
         getsym();
@@ -851,8 +874,8 @@ isscalar(tp)
     return
         (tp->type == bt_char || tp->type == bt_uchar ||
          tp->type == bt_short || tp->type == bt_ushort ||
-         tp->type == bt_long ||
-         tp->type == bt_unsigned);
+         tp->type == bt_long || tp->type == bt_longlong ||
+         tp->type == bt_unsigned || tp->type == bt_ulonglong);
 }
 
 TYP            *

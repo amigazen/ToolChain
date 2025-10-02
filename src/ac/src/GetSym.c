@@ -776,8 +776,15 @@ getnumber()
     }
 
     if (lastst == iconst && (lastch == 'l' || lastch == 'L')) {
-        lastst = iconst;
         getch();
+        if (lastch == 'l' || lastch == 'L') {
+            /* long long constant */
+            lastst = llconst;
+            getch();
+        } else {
+            /* long constant */
+            lastst = lconst;
+        }
     }
 }
 

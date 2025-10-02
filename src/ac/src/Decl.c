@@ -225,6 +225,11 @@ decl(TABLE *table)
         getsym();
         if (lastst == kw_int)
             getsym();
+        else if (lastst == kw_long) {
+            /* long long - 64-bit integer */
+            head = tail = maketype(bt_longlong, 8);
+            getsym();
+        }
         is_class_error();
         break;
     case kw_int:
@@ -267,6 +272,11 @@ decl(TABLE *table)
         case kw_long:
             head = tail = maketype(bt_unsigned, 4);
             getsym();
+            if (lastst == kw_long) {
+                /* unsigned long long - 64-bit unsigned integer */
+                head = tail = maketype(bt_ulonglong, 8);
+                getsym();
+            }
             break;
         default:
             head = tail = maketype(bt_unsigned, 4);
@@ -418,6 +428,9 @@ alignment(TYP *tp)
     case bt_long:
     case bt_unsigned:
         return AL_LONG;
+    case bt_longlong:
+    case bt_ulonglong:
+        return AL_LONG;  /* 8-byte alignment on 68000 */
     case bt_enum:
         return AL_SHORT;
     case bt_pointer:

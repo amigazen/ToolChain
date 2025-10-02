@@ -33,14 +33,15 @@ enum e_node {
     en_asm,             /* Inline-assembler         */
     en_stabs, en_stabn, /* source level debugging   */
     en_cbw, en_cbl, en_cwl, en_clf, en_cld, en_cfd, en_cdf, en_cfl, en_cdl,
+    en_cbll, en_cwll, en_clll, en_cull,  /* long long conversions */
     en_icon, en_fcon, en_labcon, en_nacon, en_autocon, en_intrlab,
     en_b_ref, en_w_ref, en_l_ref, en_ub_ref, en_uw_ref,
-    en_ul_ref, en_m_ref, en_f_ref, en_d_ref, en_fcall, en_tempref, 
-    en_add, en_uadd,
-    en_sub, en_usub,
-    en_mul, en_umul,
-    en_mod, en_umod,
-    en_div, en_udiv,
+    en_ul_ref, en_ll_ref, en_ull_ref, en_m_ref, en_f_ref, en_d_ref, en_fcall, en_tempref, 
+    en_add, en_uadd, en_lladd, en_ulladd,
+    en_sub, en_usub, en_llsub, en_ullsub,
+    en_mul, en_umul, en_llmul, en_ullmul,
+    en_mod, en_umod, en_llmod, en_ullmod,
+    en_div, en_udiv, en_lldiv, en_ulldiv,
     en_asadd, en_asuadd,
     en_assub, en_asusub,
     en_asmul, en_asumul,

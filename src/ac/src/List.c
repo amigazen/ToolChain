@@ -125,6 +125,12 @@ put_ty(tp)
     case bt_long:
         type = "Long";
         break;
+    case bt_longlong:
+        type = "LongLong";
+        break;
+    case bt_ulonglong:
+        type = "ULongLong";
+        break;
     case bt_unsigned:
         type = "unsigned long";
         break;

@@ -333,6 +333,8 @@ inittype(tp)
         break;
     case bt_long:
     case bt_unsigned:
+    case bt_longlong:
+    case bt_ulonglong:
 #ifdef OLD_tfunc
         nbytes = initlong();
 #else

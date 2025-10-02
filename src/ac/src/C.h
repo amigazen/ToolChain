@@ -30,7 +30,7 @@ enum e_sym {
     and, asand, asdivide, aseor, aslshift, asmconst, asminus, asmodop,
     asor, asplus, asrshift, assign, astimes, autodec, autoinc, begin,
     cconst, closebr, closepa, colon, comma, compl, divide, dot, end,
-    ellipsis, eq, geq, gt, hook, iconst, id, land, lconst, leq, lor,
+    ellipsis, eq, geq, gt, hook, iconst, id, land, lconst, llconst, leq, lor,
     lshift, lt, lxor, minus, modop, neq, not, openbr, openpa, or, plus,
     pointsto, rconst, rshift, sconst, semicolon, star, uparrow,
     kw_auto, kw_break, kw_case, kw_char, kw_const, kw_continue, kw_default,
@@ -50,9 +50,9 @@ enum e_sc {
 };
 
 enum e_bt {
-    bt_char, bt_short, bt_long, bt_float, bt_double, bt_pointer,
+    bt_char, bt_short, bt_long, bt_longlong, bt_float, bt_double, bt_pointer,
     bt_unsigned, bt_struct, bt_union, bt_enum, bt_func, bt_ifunc,
-    bt_uchar, bt_ushort, bt_ulong, bt_typedef, bt_void, bt_unknown
+    bt_uchar, bt_ushort, bt_ulong, bt_ulonglong, bt_typedef, bt_void, bt_unknown
 };
 
 enum e_pm {

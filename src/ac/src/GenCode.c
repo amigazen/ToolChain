@@ -602,6 +602,11 @@ gen_deref(node, flags, size)
     case en_f_ref:
         siz1 = 4;
         break;
+    case en_ull_ref:
+        is_signed = 0;  /* Fall through */
+    case en_ll_ref:
+        siz1 = 8;  /* 64-bit long long */
+        break;
     case en_d_ref:
         siz1 = 8;
         break;
@@ -1589,9 +1594,13 @@ gen_assign(node, flags, size)
     case en_ul_ref:
         is_signed = 0; 
 		break;
+    case en_ull_ref:
+        is_signed = 0; 
+		break;
     case en_b_ref:
     case en_w_ref:
     case en_l_ref:
+    case en_ll_ref:
     case en_f_ref:
     case en_tempref:
     case en_d_ref:
@@ -1742,6 +1751,8 @@ getsize(node)
     case en_autocon:
     case en_l_ref:
     case en_ul_ref:
+    case en_ll_ref:
+    case en_ull_ref:
     case en_tempref:
     case en_cbl:
     case en_cwl:
@@ -2002,6 +2013,8 @@ gen_expr(node, flags, size)
     case en_uw_ref:
     case en_l_ref:
     case en_ul_ref:
+    case en_ll_ref:
+    case en_ull_ref:
     case en_m_ref:
     case en_f_ref:
     case en_d_ref:
@@ -2225,6 +2238,8 @@ natural_size(node)
     case en_autocon:
     case en_l_ref:
     case en_ul_ref:
+    case en_ll_ref:
+    case en_ull_ref:
     case en_tempref:
     case en_cbl:
     case en_cwl:

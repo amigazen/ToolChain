@@ -705,6 +705,12 @@ fmt_type(tp, prev)
     case bt_long:
         prepend("long ");
         break;
+    case bt_longlong:
+        prepend("long long ");
+        break;
+    case bt_ulonglong:
+        prepend("unsigned long long ");
+        break;
     case bt_float:
         prepend("float ");
         break;

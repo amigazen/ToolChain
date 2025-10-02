@@ -34,6 +34,8 @@
 
 extern TYP stdint;
 extern TYP stdunsigned;
+extern TYP stdlonglong;
+extern TYP stdulonglong;
 extern TYP stdchar;
 extern TYP stdshort;
 extern TYP stdstring;
@@ -131,17 +133,26 @@ TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node1, stru
     
     /* Both operands are now integer types after promotion */
     /* If both are unsigned, result is unsigned */
-    if ((tp1->type == bt_unsigned || tp1->type == bt_ulong) && 
-        (tp2->type == bt_unsigned || tp2->type == bt_ulong)) {
+    if ((tp1->type == bt_unsigned || tp1->type == bt_ulong || tp1->type == bt_ulonglong) && 
+        (tp2->type == bt_unsigned || tp2->type == bt_ulong || tp2->type == bt_ulonglong)) {
+        if (tp1->type == bt_ulonglong || tp2->type == bt_ulonglong) {
+            return &stdulonglong;
+        }
         return &stdunsigned;
     }
     
     /* If one is unsigned and the other is signed, convert to unsigned */
-    if ((tp1->type == bt_unsigned || tp1->type == bt_ulong) || 
-        (tp2->type == bt_unsigned || tp2->type == bt_ulong)) {
+    if ((tp1->type == bt_unsigned || tp1->type == bt_ulong || tp1->type == bt_ulonglong) || 
+        (tp2->type == bt_unsigned || tp2->type == bt_ulong || tp2->type == bt_ulonglong)) {
         if (tp1->type == bt_long) {
             if (node1 != NULL) {
                 *node1 = makenode(en_cld, *node1, NULL);
+                (*node1)->signedflag = 0;
+            }
+        }
+        if (tp1->type == bt_longlong) {
+            if (node1 != NULL) {
+                *node1 = makenode(en_clll, *node1, NULL);
                 (*node1)->signedflag = 0;
             }
         }
@@ -151,10 +162,22 @@ TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node1, stru
                 (*node2)->signedflag = 0;
             }
         }
+        if (tp2->type == bt_longlong) {
+            if (node2 != NULL) {
+                *node2 = makenode(en_clll, *node2, NULL);
+                (*node2)->signedflag = 0;
+            }
+        }
+        if (tp1->type == bt_ulonglong || tp2->type == bt_ulonglong) {
+            return &stdulonglong;
+        }
         return &stdunsigned;
     }
     
     /* Both are signed, result is signed */
+    if (tp1->type == bt_longlong || tp2->type == bt_longlong) {
+        return &stdlonglong;
+    }
     return &stdint;
 }
 
@@ -207,10 +230,12 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_short:
         case bt_enum:
         case bt_long:
+        case bt_longlong:
             return( tp1 );
         case bt_uchar:
         case bt_ushort:
         case bt_unsigned:
+        case bt_ulonglong:
             return( tp1 );
         case bt_float:
             conv_signed( node2, en_cfl );
