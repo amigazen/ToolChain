@@ -208,6 +208,18 @@ decl(TABLE *table)
         if (head != NULL)
             head->qualifiers |= QUAL_INTERRUPT;
         break;
+    case kw_regargs:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_REGARGS;
+        break;
+    case kw_stdargs:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_STDARGS;
+        break;
     case kw_char:
         head = tail = maketype(bt_char, 1);
         getsym();

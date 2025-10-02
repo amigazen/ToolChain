@@ -106,6 +106,8 @@ struct sym {
 #define QUAL_CONST     1
 #define QUAL_VOLATILE  2
 #define QUAL_INTERRUPT 8
+#define QUAL_REGARGS   16
+#define QUAL_STDARGS   32
 
 /* Memory section constants */
 #define MEM_CHIP       1

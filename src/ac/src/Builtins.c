@@ -217,6 +217,14 @@ gen_strcpy(int arg)
     freeop(ap1);
 }
 
+/* Function declarations */
+extern int gen_flibcall(struct enode *node, int argbytes);
+extern void gen_flibcall2(struct enode *node, int argbytes, struct flibcall *ptr);
+extern int gen_syscall(struct enode *node, int argbytes);
+extern void gen_syscall2(struct enode *node, int argbytes, struct syscall *ptr);
+extern int gen_tagcall(struct enode *node, int argbytes);
+extern void gen_tagcall2(struct enode *node, int argbytes, struct tagcall *ptr);
+
 void
 gen_memset(int arg)
 {
@@ -361,6 +369,165 @@ gen_libcall2(struct enode *node, int argbytes, struct libcall *ptr)
         gen_code( op_add, 2, make_immed(num*4), makeareg(7));
 }
 
+void
+gen_tagcall2(struct enode *node, int argbytes, struct tagcall *ptr)
+{
+    struct amode    *ap1, *ap2;
+    char            *cp;
+    int             i, len;
+    int             count, mask, reg, liboffset, num, ret;
+
+    len = strlen( ptr->args );
+
+    num = hexval( ptr->args[len-1] );
+    ret = hexval( ptr->args[len-2] );
+
+    num &= 0x7;
+
+    cp = ptr->args;
+    mask = count = 0;
+    for (i = 0; i < num; ++i) {
+        reg = hexval( *cp++ );
+        if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
+            ++count;
+            mask |= 1 << reg;
+        }
+    }
+
+    liboffset = hexval( ptr->offset );
+
+    if (count > 0) {
+        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code( op_sub, 2, make_immed(count*4), makeareg(7));
+    }
+
+    ap1 = gen_expr( node->v.p[1], F_DREG, 4 );
+    make_legal( ap1, F_DREG, 4 );
+    gen_code( op_move, 4, ap1, makedreg(0) );
+    freeop( ap1 );
+
+    ap2 = gen_expr( node->v.p[2], F_DREG, 4 );
+    make_legal( ap2, F_DREG, 4 );
+    gen_code( op_move, 4, ap2, makedreg(1) );
+    freeop( ap2 );
+
+    gen_code( op_jsr, 0, make_offset(ptr->basename), NULL );
+
+    if (count > 0) {
+        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code( op_add, 2, make_immed(count*4), makeareg(7));
+    }
+
+    if (num > 0)
+        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+}
+
+void
+gen_flibcall2(struct enode *node, int argbytes, struct flibcall *ptr)
+{
+    struct amode    *ap1, *ap2;
+    char            *cp;
+    int             i, len;
+    int             count, mask, reg, liboffset, num, ret;
+
+    len = strlen( ptr->args );
+
+    num = hexval( ptr->args[len-1] );
+    ret = hexval( ptr->args[len-2] );
+
+    num &= 0x7;
+
+    cp = ptr->args;
+    mask = count = 0;
+    for (i = 0; i < num; ++i) {
+        reg = hexval( *cp++ );
+        if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
+            ++count;
+            mask |= 1 << reg;
+        }
+    }
+
+    liboffset = hexval( ptr->offset );
+
+    if (count > 0) {
+        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code( op_sub, 2, make_immed(count*4), makeareg(7));
+    }
+
+    ap1 = gen_expr( node->v.p[1], F_DREG, 4 );
+    make_legal( ap1, F_DREG, 4 );
+    gen_code( op_move, 4, ap1, makedreg(0) );
+    freeop( ap1 );
+
+    ap2 = gen_expr( node->v.p[2], F_DREG, 4 );
+    make_legal( ap2, F_DREG, 4 );
+    gen_code( op_move, 4, ap2, makedreg(1) );
+    freeop( ap2 );
+
+    gen_code( op_jsr, 0, make_offset(ptr->basename), NULL );
+
+    if (count > 0) {
+        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code( op_add, 2, make_immed(count*4), makeareg(7));
+    }
+
+    if (num > 0)
+        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+}
+
+void
+gen_syscall2(struct enode *node, int argbytes, struct syscall *ptr)
+{
+    struct amode    *ap1, *ap2;
+    char            *cp;
+    int             i, len;
+    int             count, mask, reg, liboffset, num, ret;
+
+    len = strlen( ptr->args );
+
+    num = hexval( ptr->args[len-1] );
+    ret = hexval( ptr->args[len-2] );
+
+    num &= 0x7;
+
+    cp = ptr->args;
+    mask = count = 0;
+    for (i = 0; i < num; ++i) {
+        reg = hexval( *cp++ );
+        if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
+            ++count;
+            mask |= 1 << reg;
+        }
+    }
+
+    liboffset = hexval( ptr->offset );
+
+    if (count > 0) {
+        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code( op_sub, 2, make_immed(count*4), makeareg(7));
+    }
+
+    ap1 = gen_expr( node->v.p[1], F_DREG, 4 );
+    make_legal( ap1, F_DREG, 4 );
+    gen_code( op_move, 4, ap1, makedreg(0) );
+    freeop( ap1 );
+
+    ap2 = gen_expr( node->v.p[2], F_DREG, 4 );
+    make_legal( ap2, F_DREG, 4 );
+    gen_code( op_move, 4, ap2, makedreg(1) );
+    freeop( ap2 );
+
+    gen_code( op_jsr, 0, make_offset(ptr->basename), NULL );
+
+    if (count > 0) {
+        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code( op_add, 2, make_immed(count*4), makeareg(7));
+    }
+
+    if (num > 0)
+        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+}
+
 int
 gen_libcall(struct enode *node, int argbytes)
 {
@@ -373,6 +540,66 @@ gen_libcall(struct enode *node, int argbytes)
             for (ptr = libpragma; ptr != NULL; ptr = ptr->next) {
                 if (strcmp(&fname[10], ptr->funcname) == 0) {
                     gen_libcall2( node, argbytes, ptr );
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+
+int
+gen_flibcall(struct enode *node, int argbytes)
+{
+    char           *fname;
+    struct flibcall *ptr = flibpragma;
+
+    if (node->v.p[0]->nodetype == en_nacon) {
+        fname = node->v.p[0]->v.sp;
+        if (strncmp( "__FLIBCALL_", fname, 11) == 0) {
+            for (ptr = flibpragma; ptr != NULL; ptr = ptr->next) {
+                if (strcmp(&fname[11], ptr->funcname) == 0) {
+                    gen_flibcall2( node, argbytes, ptr );
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+
+int
+gen_syscall(struct enode *node, int argbytes)
+{
+    char           *fname;
+    struct syscall *ptr = syspragma;
+
+    if (node->v.p[0]->nodetype == en_nacon) {
+        fname = node->v.p[0]->v.sp;
+        if (strncmp( "__SYSCALL_", fname, 10) == 0) {
+            for (ptr = syspragma; ptr != NULL; ptr = ptr->next) {
+                if (strcmp(&fname[10], ptr->funcname) == 0) {
+                    gen_syscall2( node, argbytes, ptr );
+                    return TRUE;
+                }
+            }
+        }
+    }
+    return FALSE;
+}
+
+int
+gen_tagcall(struct enode *node, int argbytes)
+{
+    char           *fname;
+    struct tagcall  *ptr = tagpragma;
+
+    if (node->v.p[0]->nodetype == en_nacon) {
+        fname = node->v.p[0]->v.sp;
+        if (strncmp( "__TAGCALL_", fname, 10) == 0) {
+            for (ptr = tagpragma; ptr != NULL; ptr = ptr->next) {
+                if (strcmp(&fname[10], ptr->funcname) == 0) {
+                    gen_tagcall2( node, argbytes, ptr );
                     return TRUE;
                 }
             }

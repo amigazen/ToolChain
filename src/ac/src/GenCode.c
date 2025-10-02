@@ -40,6 +40,9 @@
 
 extern char    *xalloc();
 extern TYP      stdint;
+extern int      gen_flibcall(struct enode *node, int argbytes);
+extern int      gen_syscall(struct enode *node, int argbytes);
+extern int      gen_tagcall(struct enode *node, int argbytes);
 
 #define MAX_SHIFT   8
 
@@ -2238,17 +2241,23 @@ gen_fcall(node, flags)
 
     if (!gen_builtins(node, i)) {
         if (!gen_libcall(node, i)) {
-            if (node->v.p[0]->nodetype == en_nacon)
-                gen_code(op_jsr, 0, make_offset(node->v.p[0]), NULL);
-            else {
-                ap = gen_expr(node->v.p[0], F_AREG, 4);
-                make_legal(ap, F_AREG, 4);
-                ap->mode = am_ind;
-                gen_code(op_jsr, 0, ap, NULL);
-                freeop(ap);
+            if (!gen_flibcall(node, i)) {
+                if (!gen_syscall(node, i)) {
+                    if (!gen_tagcall(node, i)) {
+                        if (node->v.p[0]->nodetype == en_nacon)
+                            gen_code(op_jsr, 0, make_offset(node->v.p[0]), NULL);
+                        else {
+                            ap = gen_expr(node->v.p[0], F_AREG, 4);
+                            make_legal(ap, F_AREG, 4);
+                            ap->mode = am_ind;
+                            gen_code(op_jsr, 0, ap, NULL);
+                            freeop(ap);
+                        }
+                        if (i != 0)
+                            gen_code(op_add, 4, make_immed((long) i), makeareg(am_xpc));
+                    }
+                }
             }
-            if (i != 0)
-                gen_code(op_add, 4, make_immed((long) i), makeareg(am_xpc));
         }
     }
 
