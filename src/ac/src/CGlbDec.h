@@ -79,6 +79,10 @@ extern struct snode *autohead;
 extern struct snode *autotail;
 
 extern struct libcall  *libpragma;
+extern struct flibcall *flibpragma;
+extern struct syscall  *syspragma;
+extern struct tagcall  *tagpragma;
+extern struct msgcall  *msgpragma;
  
 extern int      global_flag;
 extern TABLE    defsyms;

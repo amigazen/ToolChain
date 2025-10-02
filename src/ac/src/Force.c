@@ -1,4 +1,3 @@
-
 /* PDC Compiler - A Freely Distributable C Compiler for the Amiga
  *                Based upon prior work by Matthew Brandt and Jeff Lydiatt.
  *
@@ -42,7 +41,123 @@ extern TYP stdfunc;
 extern TYP stdfloat;
 extern TYP stddouble;
 
-extern struct enode *makenode();
+/* Integer promotion function - promotes char/short to int/unsigned int */
+TYP *integer_promote(TYP *tp, struct enode **node)
+{
+    switch (tp->type) {
+    case bt_char:
+        if (node != NULL) {
+            *node = makenode(en_cbl, *node, NULL);
+            (*node)->signedflag = 1;
+        }
+        return &stdint;
+    case bt_uchar:
+        if (node != NULL) {
+            *node = makenode(en_cbl, *node, NULL);
+            (*node)->signedflag = 0;
+        }
+        return &stdunsigned;
+    case bt_short:
+        if (node != NULL) {
+            *node = makenode(en_cwl, *node, NULL);
+            (*node)->signedflag = 1;
+        }
+        return &stdint;
+    case bt_ushort:
+        if (node != NULL) {
+            *node = makenode(en_cwl, *node, NULL);
+            (*node)->signedflag = 0;
+        }
+        return &stdunsigned;
+    default:
+        return tp;  /* No promotion needed */
+    }
+}
+
+/* Array decay function - converts arrays to pointers when used in expressions */
+TYP *array_decay(TYP *tp, struct enode **node)
+{
+    /* Arrays decay to pointers to their first element */
+    if (tp != NULL && tp->type == bt_pointer && tp->val_flag == 1) {
+        /* This is an array type, convert to pointer */
+        TYP *new_tp = maketype(bt_pointer, 4);
+        new_tp->btp = tp->btp;
+        new_tp->val_flag = 0;  /* Not an array anymore */
+        new_tp->qualifiers = tp->qualifiers;  /* Preserve qualifiers */
+        return new_tp;
+    }
+    return tp;
+}
+
+/* Usual arithmetic conversions - implements ANSI C conversion rules */
+TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node1, struct enode **node2)
+{
+    /* First apply integer promotion to both operands */
+    tp1 = integer_promote(tp1, node1);
+    tp2 = integer_promote(tp2, node2);
+    
+    /* If either operand is floating point, convert to floating point */
+    if (tp1->type == bt_double || tp2->type == bt_double) {
+        if (tp1->type != bt_double) {
+            if (node1 != NULL) {
+                *node1 = makenode(en_cld, *node1, NULL);
+                (*node1)->signedflag = 1;
+            }
+        }
+        if (tp2->type != bt_double) {
+            if (node2 != NULL) {
+                *node2 = makenode(en_cld, *node2, NULL);
+                (*node2)->signedflag = 1;
+            }
+        }
+        return &stddouble;
+    }
+    
+    if (tp1->type == bt_float || tp2->type == bt_float) {
+        if (tp1->type != bt_float) {
+            if (node1 != NULL) {
+                *node1 = makenode(en_clf, *node1, NULL);
+                (*node1)->signedflag = 1;
+            }
+        }
+        if (tp2->type != bt_float) {
+            if (node2 != NULL) {
+                *node2 = makenode(en_clf, *node2, NULL);
+                (*node2)->signedflag = 1;
+            }
+        }
+        return &stdfloat;
+    }
+    
+    /* Both operands are now integer types after promotion */
+    /* If both are unsigned, result is unsigned */
+    if ((tp1->type == bt_unsigned || tp1->type == bt_ulong) && 
+        (tp2->type == bt_unsigned || tp2->type == bt_ulong)) {
+        return &stdunsigned;
+    }
+    
+    /* If one is unsigned and the other is signed, convert to unsigned */
+    if ((tp1->type == bt_unsigned || tp1->type == bt_ulong) || 
+        (tp2->type == bt_unsigned || tp2->type == bt_ulong)) {
+        if (tp1->type == bt_long) {
+            if (node1 != NULL) {
+                *node1 = makenode(en_cld, *node1, NULL);
+                (*node1)->signedflag = 0;
+            }
+        }
+        if (tp2->type == bt_long) {
+            if (node2 != NULL) {
+                *node2 = makenode(en_cld, *node2, NULL);
+                (*node2)->signedflag = 0;
+            }
+        }
+        return &stdunsigned;
+    }
+    
+    /* Both are signed, result is signed */
+    return &stdint;
+}
+
 extern int          isscalar();
 extern void         error();
 
@@ -247,246 +362,43 @@ forcefit(node1, tp1, node2, tp2)
     struct enode  **node1, **node2;
     TYP            *tp1, *tp2;
 {
-    switch (tp1->type) {
-    case bt_char:
-        switch (tp2->type) {
-        case bt_char:
-            conv_signed( node1, en_cbl );
-            conv_signed( node2, en_cbl );
-            return (&stdint);
-        case bt_uchar:
-            conv_unsigned( node1, en_cbl );
-            conv_unsigned( node2, en_cbl );
-            return (&stdunsigned);
-        case bt_ushort:
-            conv_unsigned( node1, en_cbl );
-            conv_unsigned( node2, en_cwl );
-            return (&stdunsigned);
-        case bt_short:
-        case bt_enum:
-            conv_signed( node1, en_cbl );
-            conv_signed( node2, en_cwl );
-            return (&stdint);
-        case bt_long:
-            conv_signed( node1, en_cbl );
-            return (&stdint);
-        case bt_pointer:
-            conv_unsigned( node1, en_cbl );
-            return (tp2);
-        case bt_unsigned:
-            conv_unsigned( node1, en_cbl );
-            return (&stdunsigned);
-        case bt_float:
-            conv_signed( node2, en_cfd );
-            /* FALL THRU */
-        case bt_double:
-            conv_signed( node1, en_cbl );
-            conv_signed( node1, en_cld );
-            return (&stddouble);
-        }
-        break;
-    case bt_uchar:
-        switch (tp2->type) {
-        case bt_char:
-        case bt_uchar:
-            conv_unsigned( node1, en_cbl );
-            conv_unsigned( node2, en_cbl );
-            return (&stdunsigned);
-        case bt_short:
-        case bt_ushort:
-        case bt_enum:
-            conv_unsigned( node1, en_cbl );
-            conv_unsigned( node2, en_cwl );
-            return (&stdunsigned);
-        case bt_pointer:
-            conv_unsigned( node1, en_cbl );
-            return (tp2);
-        case bt_unsigned:
-        case bt_long:
-            conv_unsigned( node1, en_cbl );
-            if (node2 != NULL) 
-                (*node2)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_float:
-            conv_signed( node2, en_cfd );
-        case bt_double:
-            conv_unsigned( node1, en_cbl );
-            conv_signed( node1, en_cld );
-            return (&stddouble);
-        }
-        break;
-    case bt_ushort:
-        switch (tp2->type) {
-        case bt_char:
-        case bt_uchar:
-            conv_unsigned( node1, en_cwl );
-            conv_unsigned( node2, en_cbl );
-            return (&stdunsigned);
-        case bt_short:
-        case bt_ushort:
-        case bt_enum:
-            conv_unsigned( node1, en_cwl );
-            conv_unsigned( node2, en_cwl );
-            return (&stdunsigned);
-        case bt_pointer:
-            conv_unsigned( node1, en_cwl );
-            return (tp2);
-        case bt_unsigned:
-        case bt_long:
-            conv_unsigned( node1, en_cwl );
-            if (node2 != NULL)
-                (*node2)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_float:
-            conv_signed( node2, en_cfd );
-            /* FALL THRU */
-        case bt_double:
-            conv_unsigned( node1, en_cwl );
-            conv_signed( node1, en_cld );
-            return (&stddouble);
-        }
-        break;
-    case bt_short:
-    case bt_enum:
-        switch (tp2->type) {
-        case bt_uchar:
-            conv_unsigned( node1, en_cwl );
-            conv_unsigned( node2, en_cbl );
-            return (&stdunsigned);
-        case bt_char:
-            conv_signed( node1, en_cwl );
-            conv_signed( node2, en_cbl );
-            return (&stdint);
-        case bt_ushort:
-            conv_unsigned( node1, en_cwl );
-            conv_unsigned( node2, en_cwl );
-            return (&stdunsigned);
-        case bt_short:
-        case bt_enum:
-            conv_signed( node1, en_cwl );
-            conv_signed( node2, en_cwl );
-            return (&stdint);
-        case bt_pointer:
-            conv_unsigned( node1, en_cwl );
-            return (tp2);
-        case bt_unsigned:
-            conv_unsigned( node1, en_cwl );
-            if (node2 != NULL)
-                (*node2)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_long:
-            conv_signed( node1, en_cwl );
-            return (&stdint);
-        case bt_float:
-            conv_signed( node2, en_cfd );
-            /* FALL THRU */
-        case bt_double:
-            conv_signed( node1, en_cwl );
-            conv_signed( node1, en_cld );
-            return (&stddouble);
-        }
-        break;
-    case bt_long:
-        switch (tp2->type) {
-        case bt_long:
-            return( tp1 );
-        case bt_char:
-            conv_signed( node2, en_cbl );
-            return (&stdint);
-        case bt_uchar:
-            conv_unsigned( node2, en_cbl );
-            if (node1 != NULL)
-                (*node1)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_ushort:
-            conv_unsigned( node2, en_cwl );
-            if (node1 != NULL)
-                (*node1)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_short:
-        case bt_enum:
-            conv_signed( node2, en_cwl );
-            return (&stdint);
-        case bt_unsigned:
-            if (node1 != NULL)
-                (*node1)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_pointer:
-            return tp2;
-        case bt_float:
-            conv_signed( node2, en_cfd );
-            /* FALL THRU */
-        case bt_double:
-            conv_signed( node1, en_cld );
-            return (&stddouble);
-            break;
-        }
-        break;
-    case bt_pointer:
+    /* Handle special cases first */
+    if (tp1->type == bt_pointer) {
         if (isscalar(tp2) || tp2->type == bt_pointer)
             return tp1;
         if (tp2->type == bt_ifunc || tp2->type == bt_func)
             return tp1;
-        break;
-    case bt_unsigned:
-        switch (tp2->type) {
-        case bt_pointer:
-            return tp2;
-        case bt_uchar:
-        case bt_char:
-            conv_unsigned( node2, en_cbl );
-            return (&stdunsigned);
-        case bt_ushort:
-        case bt_short:
-        case bt_enum:
-            conv_unsigned( node2, en_cwl );
-            return (&stdunsigned);
-        case bt_unsigned:
-            return( tp1 );
-        case bt_long:
-            if (node2 != NULL)
-                (*node2)->signedflag = 0;
-            return (&stdunsigned);
-        case bt_float:
-            conv_signed( node2, en_cfd );
-            /* FALL THRU */
-        case bt_double:
-            conv_signed( node1, en_cld );
-            return (&stddouble);
-        }
-        break;
-    case bt_union:
-    case bt_struct:
-        if (tp1->type == tp2->type)
-            return (tp1);
-        break;
-    case bt_float:
-        switch (tp2->type) {
-        case bt_float:
-            return (tp1);
-        case bt_double:
-            conv_signed( node1, en_cfd );
-            return (&stddouble);
-        case bt_long:
-            conv_signed( node2, en_clf );
-            return (tp1);
-        }
-        break;
-    case bt_double:
-        switch (tp2->type) {
-        case bt_double:
-            return (tp1);
-        case bt_float:
-            conv_signed( node2, en_cfd );
-            return (tp1);
-        case bt_long:
-            conv_signed( node2, en_cld );
-            return (tp1);
-        }
-        break;
+        error(ERR_MISMATCH, NULL);
+        return tp1;
     }
-    error(ERR_MISMATCH, NULL);
-    return tp1;
+    
+    if (tp2->type == bt_pointer) {
+        if (isscalar(tp1))
+            return tp2;
+        if (tp1->type == bt_ifunc || tp1->type == bt_func)
+            return tp2;
+        error(ERR_MISMATCH, NULL);
+        return tp2;
+    }
+    
+    if (tp1->type == bt_union || tp1->type == bt_struct) {
+        if (tp1->type == tp2->type)
+            return tp1;
+        error(ERR_MISMATCH, NULL);
+        return tp1;
+    }
+    
+    if (tp2->type == bt_union || tp2->type == bt_struct) {
+        if (tp1->type == tp2->type)
+            return tp2;
+        error(ERR_MISMATCH, NULL);
+        return tp2;
+    }
+    
+    /* Apply array decay first */
+    tp1 = array_decay(tp1, node1);
+    tp2 = array_decay(tp2, node2);
+    
+    /* Use usual arithmetic conversions for all other cases */
+    return usual_arithmetic_conversions(tp1, tp2, node1, node2);
 }
-
-

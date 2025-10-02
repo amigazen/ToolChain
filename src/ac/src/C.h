@@ -89,12 +89,22 @@ struct sym {
     }       lst;
     struct typ     *btp;
     char           *sname;
+    char        qualifiers; /* type qualifiers: const=1, volatile=2 */
     }          *tp;
 };
 
 #define SYM struct sym
 #define TYP struct typ
 #define TABLE   struct stab
+
+/* Type qualifier constants */
+#define QUAL_CONST     1
+#define QUAL_VOLATILE  2
+
+/* Type system function declarations */
+extern TYP *integer_promote(TYP *tp, struct enode **node);
+extern TYP *array_decay(TYP *tp, struct enode **node);
+extern TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node1, struct enode **node2);
 
 #define PDC_IEEESINGLE  1   /* Mask for ieeedoubbas library */
 #define PDC_IEEEDOUBLE  2   /* Mask for ieeesingbas library */

@@ -53,14 +53,14 @@
 #include    "Gen.h"
 #include    "Cglbdec.h"
 
-TYP             stdint = {bt_long, 0, 4, {0, 0}, 0, "int"};
-TYP             stdunsigned = {bt_unsigned, 0, 4, {0, 0}, 0, "unsigned"};
-TYP             stdchar = {bt_char, 0, 1, {0, 0}, 0, "char"};
-TYP             stdshort = {bt_short, 0, 2, {0, 0}, 0, "short"};
-TYP             stdstring = {bt_pointer, 1, 4, {0, 0}, &stdchar, "string"};
-TYP             stdfunc = {bt_func, 1, 0, {0, 0}, &stdint, "func"};
-TYP             stdfloat = {bt_float, 0, 4, {0, 0}, 0, "float"};
-TYP             stddouble = {bt_double, 0, 8, {0, 0}, 0, "double"};
+TYP             stdint = {bt_long, 0, 4, {0, 0}, 0, "int", 0};
+TYP             stdunsigned = {bt_unsigned, 0, 4, {0, 0}, 0, "unsigned", 0};
+TYP             stdchar = {bt_char, 0, 1, {0, 0}, 0, "char", 0};
+TYP             stdshort = {bt_short, 0, 2, {0, 0}, 0, "short", 0};
+TYP             stdstring = {bt_pointer, 1, 4, {0, 0}, &stdchar, "string", 0};
+TYP             stdfunc = {bt_func, 1, 0, {0, 0}, &stdint, "func", 0};
+TYP             stdfloat = {bt_float, 0, 4, {0, 0}, 0, "float", 0};
+TYP             stddouble = {bt_double, 0, 8, {0, 0}, 0, "double", 0};
 
 extern TYP     *head;       /* shared with decl */
 extern TYP     *istypedef();
@@ -314,6 +314,9 @@ parmlist(sp)
             tp2 = sp1->tp;
 
         if (tp1 != NULL) {
+            /* Apply array decay for function parameters */
+            tp1 = array_decay(tp1, &ep2);
+            
             if (tp2 != NULL) {
                 if (!equal_types(tp1, tp2))
                     error(ERR_PROTO, NULL);

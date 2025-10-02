@@ -70,6 +70,38 @@ struct libcall {
     char            *offset;
 };
 
+/* SAS/C pragma structures */
+struct flibcall {
+    struct flibcall *next;
+    char            *basename;
+    char            *funcname;
+    char            *args;
+    char            *offset;
+};
+
+struct syscall {
+    struct syscall  *next;
+    char            *basename;
+    char            *funcname;
+    char            *args;
+    char            *offset;
+};
+
+struct tagcall {
+    struct tagcall  *next;
+    char            *basename;
+    char            *funcname;
+    char            *args;
+    char            *offset;
+};
+
+struct msgcall {
+    struct msgcall  *next;
+    int             msg_num;
+    int             msg_state;  /* 0=error, 1=warning, 2=ignore */
+    int             push_flag;  /* 1 if push was specified */
+};
+
 /* addressing mode structure       */
 
 struct amode {

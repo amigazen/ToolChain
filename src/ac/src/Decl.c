@@ -40,9 +40,10 @@ TYP            *head = NULL;
 TYP            *tail = NULL;
 char           *declid = NULL;
 TABLE           tagtable = {NULL, NULL};
-TYP             stdconst = {bt_long, 1, 4, {NULL, NULL}, 0, "const"};
+TYP             stdconst = {bt_long, 1, 4, {NULL, NULL}, 0, "const", QUAL_CONST};
 
 void    decl2(), declenum(), enumbody(), declstruct(), structbody();
+void    apply_qualifiers();
 
 extern SYM      *search();
 extern long     intexpr();
@@ -102,6 +103,8 @@ maketype(enum e_bt bt, int siz)
     tp->sname = NULL;
     tp->lst.head = NULL;
     tp->lst.tail = NULL;
+    tp->btp = NULL;
+    tp->qualifiers = 0;  /* Initialize qualifiers to none */
     return tp;
 }
 
@@ -165,10 +168,14 @@ decl(TABLE *table)
     case kw_const:
         getsym();
         decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_CONST;
         break;
     case kw_volatile:
         getsym();
         decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_VOLATILE;
         break;
     case kw_char:
         head = tail = maketype(bt_char, 1);

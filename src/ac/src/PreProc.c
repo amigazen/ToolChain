@@ -76,6 +76,10 @@ char            __datebuf[64];  /* buffer for __DATE__  */
 char            __timebuf[64];  /* buffer for __TIME__  */
 char            __funcbuf[64];  /* buffer for __FUNC__  */
 
+/* Token buffer for lookahead */
+static char     token_buffer[256];
+static int      token_buffered = 0;
+
 enum e_pm       inclprep[10];
 enum e_ps       inclstat[10];
 
@@ -677,6 +681,44 @@ paste_tokens(token1, token2)
     return result;
 }
 
+static void
+reverse_string(char *str)
+{
+    char *start, *end, temp;
+    
+    if (str == NULL || *str == '\0')
+        return;
+        
+    start = str;
+    end = str + strlen(str) - 1;
+    
+    while (start < end) {
+        temp = *start;
+        *start = *end;
+        *end = temp;
+        start++;
+        end--;
+    }
+}
+
+char           *
+reverse_args(args)
+    char           *args;
+{
+    char           *reversed;
+    int             len;
+    
+    if (args == NULL)
+        return NULL;
+        
+    len = strlen(args);
+    reversed = (char *)xalloc(len + 1);
+    strcpy(reversed, args);
+    reverse_string(reversed);
+    
+    return reversed;
+}
+
 char           *
 prepdefine(sp)
     SYM            *sp;
@@ -1128,6 +1170,24 @@ gettoken()
     *ptr = '\0';
 }
 
+static void
+buffer_token()
+{
+    if (!token_buffered) {
+        strcpy(token_buffer, laststr);
+        token_buffered = 1;
+    }
+}
+
+static void
+unbuffer_token()
+{
+    if (token_buffered) {
+        strcpy(laststr, token_buffer);
+        token_buffered = 0;
+    }
+}
+
 void
 dopragma()
 {
@@ -1151,7 +1211,8 @@ dopragma()
         gettoken();
         lib->offset = litlate(laststr);
         gettoken();
-        lib->args = litlate( laststr );
+        /* Reverse args to match SAS/C format */
+        lib->args = reverse_args(litlate( laststr ));
 
         lib->next = libpragma;
         libpragma = lib;
@@ -1159,6 +1220,121 @@ dopragma()
         strcpy( laststr, "__LIBCALL_" );
         strcat( laststr, lib->funcname );
         setdefine( lib->funcname, litlate(laststr));
+        --global_flag;
+    }
+    else if (strcmp( laststr, "flibcall" ) == 0) {
+        struct flibcall *flib;
+        ++global_flag;
+        flib = (struct flibcall *) xalloc( sizeof(struct flibcall) );
+        gettoken();
+        flib->basename = litlate( laststr );
+        gettoken();
+        flib->funcname = litlate( laststr );
+        gettoken();
+        flib->offset = litlate(laststr);
+        gettoken();
+        /* Reverse args to match SAS/C format */
+        flib->args = reverse_args(litlate( laststr ));
+
+        flib->next = flibpragma;
+        flibpragma = flib;
+
+        strcpy( laststr, "__FLIBCALL_" );
+        strcat( laststr, flib->funcname );
+        setdefine( flib->funcname, litlate(laststr));
+        --global_flag;
+    }
+    else if (strcmp( laststr, "syscall" ) == 0) {
+        struct syscall *sys;
+        ++global_flag;
+        sys = (struct syscall *) xalloc( sizeof(struct syscall) );
+        gettoken();
+        sys->basename = litlate( laststr );
+        gettoken();
+        sys->funcname = litlate( laststr );
+        gettoken();
+        sys->offset = litlate(laststr);
+        gettoken();
+        /* Reverse args to match SAS/C format */
+        sys->args = reverse_args(litlate( laststr ));
+
+        sys->next = syspragma;
+        syspragma = sys;
+
+        strcpy( laststr, "__SYSCALL_" );
+        strcat( laststr, sys->funcname );
+        setdefine( sys->funcname, litlate(laststr));
+        --global_flag;
+    }
+    else if (strcmp( laststr, "tagcall" ) == 0) {
+        struct tagcall *tag;
+        ++global_flag;
+        tag = (struct tagcall *) xalloc( sizeof(struct tagcall) );
+        gettoken();
+        tag->basename = litlate( laststr );
+        gettoken();
+        tag->funcname = litlate( laststr );
+        gettoken();
+        tag->offset = litlate(laststr);
+        gettoken();
+        /* Reverse args to match SAS/C format */
+        tag->args = reverse_args(litlate( laststr ));
+
+        tag->next = tagpragma;
+        tagpragma = tag;
+
+        strcpy( laststr, "__TAGCALL_" );
+        strcat( laststr, tag->funcname );
+        setdefine( tag->funcname, litlate(laststr));
+        --global_flag;
+    }
+    else if (strcmp( laststr, "msg" ) == 0) {
+        struct msgcall *msg;
+        char *state_str;
+        ++global_flag;
+        msg = (struct msgcall *) xalloc( sizeof(struct msgcall) );
+        
+        /* Get message number */
+        gettoken();
+        msg->msg_num = atoi(laststr);
+        
+        /* Get state (error/warn/ignore/pop) */
+        gettoken();
+        state_str = laststr;
+        if (strcmp(state_str, "error") == 0 || strcmp(state_str, "err") == 0) {
+            msg->msg_state = 0; /* error */
+        } else if (strcmp(state_str, "warn") == 0 || strcmp(state_str, "wrn") == 0) {
+            msg->msg_state = 1; /* warning */
+        } else if (strcmp(state_str, "ignore") == 0 || strcmp(state_str, "ign") == 0) {
+            msg->msg_state = 2; /* ignore */
+        } else if (strcmp(state_str, "pop") == 0) {
+            msg->msg_state = 3; /* pop - restore previous state */
+            msg->push_flag = 0;
+            msg->next = msgpragma;
+            msgpragma = msg;
+            --global_flag;
+            getline(incldepth == 0);
+            return;
+        } else {
+            error(ERR_PREPROC, "invalid msg state");
+            --global_flag;
+            getline(incldepth == 0);
+            return;
+        }
+        
+        /* Check for push keyword */
+        msg->push_flag = 0;
+        buffer_token(); /* Save current token */
+        gettoken();
+        if (strcmp(laststr, "push") == 0) {
+            msg->push_flag = 1;
+        } else {
+            /* Restore the token if it's not push */
+            unbuffer_token();
+        }
+
+        msg->next = msgpragma;
+        msgpragma = msg;
         --global_flag;
     }
     else if (strcmp( laststr, "intmath" ) == 0) {

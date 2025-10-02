@@ -102,6 +102,10 @@ struct snode   *autohead = NULL;
 struct snode   *autotail = NULL;
 
 struct libcall *libpragma = NULL;
+struct flibcall *flibpragma = NULL;
+struct syscall *syspragma = NULL;
+struct tagcall *tagpragma = NULL;
+struct msgcall *msgpragma = NULL;
 
 int             global_flag = 1;
 TABLE           defsyms = {NULL, NULL};
