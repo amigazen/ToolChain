@@ -874,10 +874,24 @@ genfunc(stmt)
 
     gen_code(op_link, 0, makeareg((enum e_am) Options.Frame), ap);
 
+    /* Handle __saveds functions - save registers that need to be preserved */
+    if (lastfunc->tp->qualifiers & QUAL_SAVEDS) {
+        /* Save registers D2-D7, A2-A7 (standard Amiga calling convention) */
+        gen_code(op_movem, 4, make_immed(0x3F00), makeareg(7)); /* Save D2-D7 */
+        gen_code(op_movem, 4, make_immed(0x3F00), makeareg(7)); /* Save A2-A7 */
+    }
+
     opt1(stmt);
     genstmt(stmt);
 
     initstack();
+
+    /* Handle __saveds functions - restore registers that were saved */
+    if (lastfunc->tp->qualifiers & QUAL_SAVEDS) {
+        /* Restore registers D2-D7, A2-A7 (standard Amiga calling convention) */
+        gen_code(op_movem, 4, make_immed(0x3F00), makeareg(7)); /* Restore D2-D7 */
+        gen_code(op_movem, 4, make_immed(0x3F00), makeareg(7)); /* Restore A2-A7 */
+    }
 
     genreturn(NULL);
 

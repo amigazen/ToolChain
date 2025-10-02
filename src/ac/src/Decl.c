@@ -220,6 +220,12 @@ decl(TABLE *table)
         if (head != NULL)
             head->qualifiers |= QUAL_STDARGS;
         break;
+    case kw_saveds:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_SAVEDS;
+        break;
     case kw_char:
         head = tail = maketype(bt_char, 1);
         getsym();
