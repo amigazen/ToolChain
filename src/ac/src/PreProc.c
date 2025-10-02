@@ -80,8 +80,8 @@ char            __funcbuf[64];  /* buffer for __FUNC__  */
 static char     token_buffer[256];
 static int      token_buffered = 0;
 
-enum e_pm       inclprep[10];
-enum e_ps       inclstat[10];
+enum e_pm       inclprep[32];  /* Increased from 10 to 32 for deep nesting */
+enum e_ps       inclstat[32];  /* Increased from 10 to 32 for deep nesting */
 
 enum e_pm       premode = pr_all;
 enum e_ps       prestat = ps_do;
@@ -253,16 +253,15 @@ dodefine()
         /* Check if it's an identical redefinition */
         SYM *existing = search(lastid, defsyms.head);
         if (existing->tp != NULL && lastch == '(') {
-            /* Function macro - check if parameters match */
-            /* For now, allow redefinition and update the value */
+            /* Function macro - allow redefinition and update the value */
             existing->value.s = NULL; /* Will be set later */
         } else if (existing->tp == NULL && lastch != '(') {
-            /* Object macro - allow redefinition */
+            /* Object macro - allow redefinition and update the value */
             existing->value.s = NULL; /* Will be set later */
         } else {
-            error(ERR_DEFINE, "already defined");
-            getline(incldepth == 0);
-            return;
+            /* Type mismatch - function vs object macro */
+            warning("macro redefinition with different type");
+            existing->value.s = NULL; /* Will be set later */
         }
     }
 
@@ -362,6 +361,16 @@ dodefine()
     else
         sp->value.s = litlate(" ");
 
+    /* Check for identical redefinition and warn if different */
+    if (search(lastid, defsyms.head) != NULL) {
+        SYM *existing = search(lastid, defsyms.head);
+        if (existing->value.s != NULL && sp->value.s != NULL) {
+            if (strcmp(existing->value.s, sp->value.s) != 0) {
+                warning("macro redefinition with different value");
+            }
+        }
+    }
+
     insert(sp, &defsyms);
     --global_flag;
     getline(incldepth == 0);
@@ -440,6 +449,11 @@ doifdef(mode)
     SYM            *sp;
 
     if (prestat == ps_ignore) {
+        if (prepdepth >= 32) {
+            error(ERR_PREPROC, "preprocessor nesting too deep");
+            getline(incldepth == 0);
+            return;
+        }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
@@ -458,6 +472,11 @@ doifdef(mode)
         return;
     }
 
+    if (prepdepth >= 32) {
+        error(ERR_PREPROC, "preprocessor nesting too deep");
+        getline(incldepth == 0);
+        return;
+    }
     inclstat[prepdepth] = prestat;
     inclprep[prepdepth++] = premode;
 
@@ -482,6 +501,11 @@ doif()
     int             value;
 
     if (prestat == ps_ignore) {
+        if (prepdepth >= 32) {
+            error(ERR_PREPROC, "preprocessor nesting too deep");
+            getline(incldepth == 0);
+            return;
+        }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
@@ -490,6 +514,11 @@ doif()
         return;
     }
 
+    if (prepdepth >= 32) {
+        error(ERR_PREPROC, "preprocessor nesting too deep");
+        getline(incldepth == 0);
+        return;
+    }
     inclstat[prepdepth] = prestat;
     inclprep[prepdepth++] = premode;
 
@@ -887,6 +916,11 @@ void
 doasm()
 {
     if (prestat == ps_ignore) {
+        if (prepdepth >= 32) {
+            error(ERR_PREPROC, "preprocessor nesting too deep");
+            getline(incldepth == 0);
+            return;
+        }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
@@ -995,6 +1029,11 @@ doelif()
     }
 
     if (prestat == ps_ignore) {
+        if (prepdepth >= 32) {
+            error(ERR_PREPROC, "preprocessor nesting too deep");
+            getline(incldepth == 0);
+            return;
+        }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
@@ -1003,6 +1042,11 @@ doelif()
         return;
     }
 
+    if (prepdepth >= 32) {
+        error(ERR_PREPROC, "preprocessor nesting too deep");
+        getline(incldepth == 0);
+        return;
+    }
     inclstat[prepdepth] = prestat;
     inclprep[prepdepth++] = premode;
 

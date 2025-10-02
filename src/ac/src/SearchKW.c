@@ -77,6 +77,17 @@ struct kwblk    keywords[] = {
     {"void", kw_void},
     {"volatile", kw_volatile},
     {"while", kw_while},
+    /* SAS/C keywords */
+    {"__asm", kw_asm},
+    {"__regargs", kw_regargs},
+    {"__stdargs", kw_stdargs},
+    {"__saveds", kw_saveds},
+    {"__far", kw_far},
+    {"__near", kw_near},
+    {"__chip", kw_chip},
+    {"__fast", kw_fast},
+    {"__interrupt", kw_interrupt},
+    {"__aligned", kw_aligned},
     {(char *) 0, (enum e_sym) 0}
 };
 

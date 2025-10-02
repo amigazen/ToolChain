@@ -37,7 +37,10 @@ enum e_sym {
     kw_defined, kw_do, kw_double, kw_else, kw_enum, kw_extern, kw_float,
     kw_for, kw_goto, kw_if, kw_int, kw_long, kw_register, kw_return,
     kw_short, kw_signed, kw_sizeof, kw_static, kw_struct, kw_switch,
-    kw_typedef, kw_union, kw_unsigned, kw_void, kw_volatile, kw_while, eof
+    kw_typedef, kw_union, kw_unsigned, kw_void, kw_volatile, kw_while,
+    /* SAS/C keywords */
+    kw_asm, kw_regargs, kw_stdargs, kw_saveds, kw_far, kw_near, kw_chip, 
+    kw_fast, kw_interrupt, kw_aligned, eof
 };
 
 enum e_sc {

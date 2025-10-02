@@ -209,9 +209,10 @@ install_defines()
     setdefine("__PDC__", " 1 ");
     setdefine("pdc", " 1 ");
     setdefine("amiga", " 1 ");
-#ifdef unix
-    setdefine("unix", " 1 ");
-#endif
+    setdefine("__AMIGA__", " 1 ");
+    setdefine("__amigaos__", " 1 ");
+    setdefine("__SASC", " 1 ");
+
 
     if (Options.Builtin) {
         setdefine("strcmp", "__BUILTIN_strcmp");
