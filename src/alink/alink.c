@@ -157,96 +157,49 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     long lval;
     struct LinkerDefine *def;
     int ret;
+    char **expanded_argv;
+    int expanded_cap;
+    int expanded_argc;
+    int ei;
+    char *start;
+    char save;
+    char **av;
+    int ac;
 
     if (argc < 2) {
         usage();
         return 1;
     }
-    ctx->out_name[0] = '\0';
-    ninputs = 0;
-    cap = 64;
-    to_free = (char **)0;
-    n_to_free = 0;
-    to_free_cap = 0;
-    inputs = (char **)malloc((size_t)(cap + 1) * sizeof(char *));
-    if (!inputs) {
+    /* Expand WITH and @file: tokenize each line by spaces so "FROM lib:c.o" -> two args */
+    expanded_cap = 256;
+    expanded_argv = (char **)malloc((size_t)expanded_cap * sizeof(char *));
+    if (!expanded_argv) {
         fprintf(stderr, "alink: out of memory\n");
         return 1;
     }
     to_free = (char **)malloc(512 * sizeof(char *));
     if (!to_free) {
-        free(inputs);
+        free(expanded_argv);
         return 1;
     }
     to_free_cap = 512;
-
+    n_to_free = 0;
+    expanded_argc = 0;
     i = 1;
     while (i < argc) {
-        if (strcmp(argv[i], "to") == 0) {
-            i++;
-            if (i >= argc) {
-                fprintf(stderr, "alink: to requires an argument\n");
-                free(to_free);
-                free(inputs);
-                return 1;
-            }
-            strncpy(ctx->out_name, argv[i], 255);
-            ctx->out_name[255] = '\0';
-            i++;
-            continue;
-        }
-        if (strcmp(argv[i], "from") == 0 || strcmp(argv[i], "root") == 0) {
-            i++;
-            while (i < argc && !is_slink_keyword(argv[i]) && argv[i][0] != '-') {
-                if (ninputs >= cap) {
-                    cap *= 2;
-                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
-                    if (!new_inp) {
-                        fprintf(stderr, "alink: out of memory\n");
-                        for (i = 0; i < n_to_free; i++)
-                            free(to_free[i]);
-                        free(to_free);
-                        free(inputs);
-                        return 1;
-                    }
-                    inputs = new_inp;
-                }
-                inputs[ninputs++] = argv[i++];
-            }
-            continue;
-        }
-        if (strcmp(argv[i], "library") == 0 || strcmp(argv[i], "lib") == 0) {
-            i++;
-            while (i < argc && !is_slink_keyword(argv[i]) && argv[i][0] != '-') {
-                if (ninputs >= cap) {
-                    cap *= 2;
-                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
-                    if (!new_inp) {
-                        for (i = 0; i < n_to_free; i++)
-                            free(to_free[i]);
-                        free(to_free);
-                        free(inputs);
-                        return 1;
-                    }
-                    inputs = new_inp;
-                }
-                inputs[ninputs++] = argv[i++];
-            }
-            continue;
-        }
         if (strcmp(argv[i], "with") == 0) {
             i++;
             if (i >= argc) {
                 fprintf(stderr, "alink: with requires an argument\n");
-                for (i = 0; i < n_to_free; i++)
-                    free(to_free[i]);
+                for (ei = 0; ei < n_to_free; ei++)
+                    free(to_free[ei]);
                 free(to_free);
-                free(inputs);
+                free(expanded_argv);
                 return 1;
             }
             atf = fopen(argv[i], "r");
             if (atf) {
-                while (fgets(buf, (int)sizeof(buf), atf) && ninputs < cap && n_to_free < to_free_cap) {
+                while (fgets(buf, (int)sizeof(buf), atf) && n_to_free < to_free_cap) {
                     p = buf;
                     while (*p == ' ' || *p == '\t')
                         p++;
@@ -254,11 +207,35 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
                     while (end > p && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
                         end--;
                     *end = '\0';
-                    if (*p) {
-                        to_free[n_to_free] = strdup(p);
-                        if (to_free[n_to_free]) {
-                            inputs[ninputs++] = to_free[n_to_free];
-                            n_to_free++;
+                    while (*p) {
+                        while (*p == ' ' || *p == '\t')
+                            p++;
+                        if (!*p)
+                            break;
+                        start = p;
+                        while (*p && *p != ' ' && *p != '\t')
+                            p++;
+                        if (p > start) {
+                            save = *p;
+                            *p = '\0';
+                            if (expanded_argc >= expanded_cap) {
+                                expanded_cap *= 2;
+                                new_inp = (char **)realloc(expanded_argv, (size_t)expanded_cap * sizeof(char *));
+                                if (!new_inp) {
+                                    for (ei = 0; ei < n_to_free; ei++)
+                                        free(to_free[ei]);
+                                    free(to_free);
+                                    free(expanded_argv);
+                                    return 1;
+                                }
+                                expanded_argv = new_inp;
+                            }
+                            to_free[n_to_free] = strdup(start);
+                            if (to_free[n_to_free]) {
+                                expanded_argv[expanded_argc++] = to_free[n_to_free];
+                                n_to_free++;
+                            }
+                            *p = save;
                         }
                     }
                 }
@@ -267,154 +244,293 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
             i++;
             continue;
         }
-        if (strcmp(argv[i], "smallcode") == 0 || strcmp(argv[i], "sc") == 0) {
+        if (argv[i][0] == '@') {
+            atf = fopen(argv[i] + 1, "r");
+            if (atf) {
+                while (fgets(buf, (int)sizeof(buf), atf) && n_to_free < to_free_cap) {
+                    p = buf;
+                    while (*p == ' ' || *p == '\t')
+                        p++;
+                    end = p + strlen(p);
+                    while (end > p && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
+                        end--;
+                    *end = '\0';
+                    while (*p) {
+                        while (*p == ' ' || *p == '\t')
+                            p++;
+                        if (!*p)
+                            break;
+                        start = p;
+                        while (*p && *p != ' ' && *p != '\t')
+                            p++;
+                        if (p > start) {
+                            save = *p;
+                            *p = '\0';
+                            if (expanded_argc >= expanded_cap) {
+                                expanded_cap *= 2;
+                                new_inp = (char **)realloc(expanded_argv, (size_t)expanded_cap * sizeof(char *));
+                                if (!new_inp) {
+                                    for (ei = 0; ei < n_to_free; ei++)
+                                        free(to_free[ei]);
+                                    free(to_free);
+                                    free(expanded_argv);
+                                    return 1;
+                                }
+                                expanded_argv = new_inp;
+                            }
+                            to_free[n_to_free] = strdup(start);
+                            if (to_free[n_to_free]) {
+                                expanded_argv[expanded_argc++] = to_free[n_to_free];
+                                n_to_free++;
+                            }
+                            *p = save;
+                        }
+                    }
+                }
+                fclose(atf);
+            }
+            i++;
+            continue;
+        }
+        if (expanded_argc >= expanded_cap) {
+            expanded_cap *= 2;
+            new_inp = (char **)realloc(expanded_argv, (size_t)expanded_cap * sizeof(char *));
+            if (!new_inp) {
+                for (ei = 0; ei < n_to_free; ei++)
+                    free(to_free[ei]);
+                free(to_free);
+                free(expanded_argv);
+                return 1;
+            }
+            expanded_argv = new_inp;
+        }
+        expanded_argv[expanded_argc++] = argv[i++];
+    }
+    av = expanded_argv;
+    ac = expanded_argc;
+
+    ctx->out_name[0] = '\0';
+    ninputs = 0;
+    cap = 64;
+    inputs = (char **)malloc((size_t)(cap + 1) * sizeof(char *));
+    if (!inputs) {
+        for (ei = 0; ei < n_to_free; ei++)
+            free(to_free[ei]);
+        free(to_free);
+        free(expanded_argv);
+        return 1;
+    }
+
+    i = 0;
+    while (i < ac) {
+        if (strcmp(av[i], "to") == 0) {
+            i++;
+            if (i >= ac) {
+                fprintf(stderr, "alink: to requires an argument\n");
+                free(to_free);
+                free(inputs);
+                free(expanded_argv);
+                return 1;
+            }
+            strncpy(ctx->out_name, av[i], 255);
+            ctx->out_name[255] = '\0';
+            i++;
+            continue;
+        }
+        if (strcmp(av[i], "from") == 0 || strcmp(av[i], "root") == 0) {
+            i++;
+            while (i < ac && !is_slink_keyword(av[i]) && av[i][0] != '-') {
+                if (ninputs >= cap) {
+                    cap *= 2;
+                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
+                    if (!new_inp) {
+                        fprintf(stderr, "alink: out of memory\n");
+                        for (i = 0; i < n_to_free; i++)
+                            free(to_free[i]);
+                        free(to_free);
+                        free(expanded_argv);
+                        free(inputs);
+                        return 1;
+                    }
+                    inputs = new_inp;
+                }
+                inputs[ninputs++] = av[i++];
+            }
+            continue;
+        }
+        if (strcmp(av[i], "library") == 0 || strcmp(av[i], "lib") == 0) {
+            i++;
+            while (i < ac && !is_slink_keyword(av[i]) && av[i][0] != '-') {
+                if (ninputs >= cap) {
+                    cap *= 2;
+                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
+                    if (!new_inp) {
+                        for (i = 0; i < n_to_free; i++)
+                            free(to_free[i]);
+                        free(to_free);
+                        free(expanded_argv);
+                        free(inputs);
+                        return 1;
+                    }
+                    inputs = new_inp;
+                }
+                inputs[ninputs++] = av[i++];
+            }
+            continue;
+        }
+        if (strcmp(av[i], "smallcode") == 0 || strcmp(av[i], "sc") == 0) {
             ctx->small_code = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "smalldata") == 0 || strcmp(argv[i], "sd") == 0) {
+        if (strcmp(av[i], "smalldata") == 0 || strcmp(av[i], "sd") == 0) {
             ctx->small_data = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "chip") == 0) {
+        if (strcmp(av[i], "chip") == 0) {
             ctx->chip_opt = 1;
             ctx->fast_opt = 0;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "fast") == 0) {
+        if (strcmp(av[i], "fast") == 0) {
             ctx->fast_opt = 1;
             ctx->chip_opt = 0;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "faster") == 0) {
+        if (strcmp(av[i], "faster") == 0) {
             i++;
             continue;
         }
-        if (strcmp(argv[i], "stripdebug") == 0 || strcmp(argv[i], "nodebug") == 0 || strcmp(argv[i], "nd") == 0) {
+        if (strcmp(av[i], "stripdebug") == 0 || strcmp(av[i], "nodebug") == 0 || strcmp(av[i], "nd") == 0) {
             ctx->no_debug = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "verbose") == 0) {
+        if (strcmp(av[i], "verbose") == 0) {
             ctx->verbose = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "quiet") == 0) {
+        if (strcmp(av[i], "quiet") == 0) {
             ctx->quiet = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "onedata") == 0 || strcmp(argv[i], "od") == 0) {
+        if (strcmp(av[i], "onedata") == 0 || strcmp(av[i], "od") == 0) {
             ctx->small_data = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "ver") == 0) {
+        if (strcmp(av[i], "ver") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: ver requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
-            ctx->verify_file = argv[i];
+            ctx->verify_file = av[i];
             i++;
             continue;
         }
-        if (strcmp(argv[i], "ovlymgr") == 0) {
+        if (strcmp(av[i], "ovlymgr") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: ovlymgr requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
-            ctx->ovlymgr_file = argv[i];
+            ctx->ovlymgr_file = av[i];
             i++;
             continue;
         }
-        if (strcmp(argv[i], "xref") == 0) {
+        if (strcmp(av[i], "xref") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: xref requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
-            ctx->xref_file = argv[i];
+            ctx->xref_file = av[i];
             i++;
             continue;
         }
-        if (strcmp(argv[i], "bufsize") == 0) {
+        if (strcmp(av[i], "bufsize") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: bufsize requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
-            lval = strtol(argv[i], &endp, 0);
-            if (endp != argv[i] && lval >= 0)
+            lval = strtol(av[i], &endp, 0);
+            if (endp != av[i] && lval >= 0)
                 ctx->bufsize_val = (unsigned long)lval;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "maxhunk") == 0) {
+        if (strcmp(av[i], "maxhunk") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: maxhunk requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
-            lval = strtol(argv[i], &endp, 0);
-            if (endp != argv[i] && lval > 0)
+            lval = strtol(av[i], &endp, 0);
+            if (endp != av[i] && lval > 0)
                 ctx->maxhunk_val = (unsigned long)lval;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "noicons") == 0) {
+        if (strcmp(av[i], "noicons") == 0) {
             ctx->noicons = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "prelink") == 0) {
+        if (strcmp(av[i], "prelink") == 0) {
             ctx->prelink = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "addsym") == 0) {
+        if (strcmp(av[i], "addsym") == 0) {
             ctx->addsym = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "noalvs") == 0) {
+        if (strcmp(av[i], "noalvs") == 0) {
             ctx->noalvs = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "batch") == 0) {
+        if (strcmp(av[i], "batch") == 0) {
             ctx->batch = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "define") == 0) {
+        if (strcmp(av[i], "define") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: define requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
@@ -422,12 +538,12 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
                 free(inputs);
                 return 1;
             }
-            eq = strchr(argv[i], '=');
-            if (eq && eq != argv[i]) {
+            eq = strchr(av[i], '=');
+            if (eq && eq != av[i]) {
                 def = (struct LinkerDefine *)malloc(sizeof(struct LinkerDefine));
                 if (def) {
                     *eq = '\0';
-                    def->name = strdup(argv[i]);
+                    def->name = strdup(av[i]);
                     def->value = (unsigned long)strtoul(eq + 1, &endp, 0);
                     *eq = '=';
                     def->next = ctx->define_list;
@@ -437,155 +553,156 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
             i++;
             continue;
         }
-        if (strcmp(argv[i], "map") == 0) {
+        if (strcmp(av[i], "map") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: map requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
-            ctx->map_file = argv[i];
+            ctx->map_file = av[i];
             ctx->map_opts[0] = '\0';
             i++;
-            if (i < argc && argv[i][0] && argv[i][0] != '-' && !is_slink_keyword(argv[i])) {
-                if (strlen(argv[i]) < sizeof(ctx->map_opts))
-                    strcpy(ctx->map_opts, argv[i]);
+            if (i < ac && av[i][0] && av[i][0] != '-' && !is_slink_keyword(av[i])) {
+                if (strlen(av[i]) < sizeof(ctx->map_opts))
+                    strcpy(ctx->map_opts, av[i]);
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "plain") == 0) {
+        if (strcmp(av[i], "plain") == 0) {
             ctx->map_plain = 1;
             ctx->map_fancy = 0;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "fancy") == 0) {
+        if (strcmp(av[i], "fancy") == 0) {
             ctx->map_fancy = 1;
             ctx->map_plain = 0;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "hwidth") == 0) {
+        if (strcmp(av[i], "hwidth") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->map_hwidth = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "height") == 0) {
+        if (strcmp(av[i], "height") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->map_height = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "width") == 0) {
+        if (strcmp(av[i], "width") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->map_width = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "fwidth") == 0) {
+        if (strcmp(av[i], "fwidth") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->map_fwidth = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "pwidth") == 0) {
+        if (strcmp(av[i], "pwidth") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->map_pwidth = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "swidth") == 0) {
+        if (strcmp(av[i], "swidth") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->map_swidth = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "fndatam") == 0) {
+        if (strcmp(av[i], "fndatam") == 0) {
             ctx->fndatam = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "newocv") == 0) {
+        if (strcmp(av[i], "newocv") == 0) {
             ctx->newocv = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "libfd") == 0) {
+        if (strcmp(av[i], "libfd") == 0) {
             i++;
-            if (i < argc) {
-                ctx->libfd_file = argv[i];
+            if (i < ac) {
+                ctx->libfd_file = av[i];
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "libprefix") == 0) {
+        if (strcmp(av[i], "libprefix") == 0) {
             i++;
-            if (i < argc) {
-                ctx->libprefix_str = argv[i];
+            if (i < ac) {
+                ctx->libprefix_str = av[i];
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "libid") == 0) {
+        if (strcmp(av[i], "libid") == 0) {
             i++;
-            if (i < argc) {
-                ctx->libid_str = argv[i];
+            if (i < ac) {
+                ctx->libid_str = av[i];
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "librevision") == 0) {
+        if (strcmp(av[i], "librevision") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->librevision = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "libversion") == 0) {
+        if (strcmp(av[i], "libversion") == 0) {
             i++;
-            if (i < argc) {
-                lval = strtol(argv[i], &endp, 0);
-                if (endp != argv[i])
+            if (i < ac) {
+                lval = strtol(av[i], &endp, 0);
+                if (endp != av[i])
                     ctx->libversion = (int)lval;
                 i++;
             }
             continue;
         }
-        if (strcmp(argv[i], "-o") == 0) {
+        if (strcmp(av[i], "-o") == 0) {
             i++;
-            if (i >= argc) {
+            if (i >= ac) {
                 fprintf(stderr, "alink: -o requires an argument\n");
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
@@ -593,59 +710,59 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
                 free(inputs);
                 return 1;
             }
-            strncpy(ctx->out_name, argv[i], 255);
+            strncpy(ctx->out_name, av[i], 255);
             ctx->out_name[255] = '\0';
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-s") == 0) {
+        if (strcmp(av[i], "-s") == 0) {
             ctx->small_code = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-d") == 0) {
+        if (strcmp(av[i], "-d") == 0) {
             ctx->small_data = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-e") == 0) {
+        if (strcmp(av[i], "-e") == 0) {
             ctx->rem_empty = 0;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-c") == 0) {
+        if (strcmp(av[i], "-c") == 0) {
             ctx->chip_opt = 1;
             ctx->fast_opt = 0;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-r") == 0) {
+        if (strcmp(av[i], "-r") == 0) {
             ctx->res_opt = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-f") == 0) {
+        if (strcmp(av[i], "-f") == 0) {
             ctx->frag_opt = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-n") == 0) {
+        if (strcmp(av[i], "-n") == 0) {
             ctx->no_debug = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-v") == 0) {
+        if (strcmp(av[i], "-v") == 0) {
             ctx->verbose = 1;
             i++;
             continue;
         }
-        if (strcmp(argv[i], "-q") == 0) {
+        if (strcmp(av[i], "-q") == 0) {
             ctx->quiet = 1;
             i++;
             continue;
         }
-        if (argv[i][0] == '@') {
-            atf = fopen(argv[i] + 1, "r");
+        if (av[i][0] == '@') {
+            atf = fopen(av[i] + 1, "r");
             if (atf) {
                 while (fgets(buf, (int)sizeof(buf), atf) && ninputs < cap && n_to_free < to_free_cap) {
                     p = buf;
@@ -668,11 +785,12 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
             i++;
             continue;
         }
-        if (argv[i][0] == '-') {
-            fprintf(stderr, "alink: unknown option '%s'\n", argv[i]);
+        if (av[i][0] == '-') {
+            fprintf(stderr, "alink: unknown option '%s'\n", av[i]);
             for (i = 0; i < n_to_free; i++)
                 free(to_free[i]);
             free(to_free);
+            free(expanded_argv);
             free(inputs);
             return 1;
         }
@@ -684,12 +802,13 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
                 for (i = 0; i < n_to_free; i++)
                     free(to_free[i]);
                 free(to_free);
+                free(expanded_argv);
                 free(inputs);
                 return 1;
             }
             inputs = new_inp;
         }
-        inputs[ninputs++] = argv[i++];
+        inputs[ninputs++] = av[i++];
     }
 
     inputs[ninputs] = (char *)0;
@@ -699,12 +818,14 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
         for (i = 0; i < n_to_free; i++)
             free(to_free[i]);
         free(to_free);
+        free(expanded_argv);
         free(inputs);
         return 1;
     }
     if (ninputs == 0) {
         fprintf(stderr, "alink: no input files\n");
         free(to_free);
+        free(expanded_argv);
         free(inputs);
         return 1;
     }
@@ -713,6 +834,7 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
         if (freopen(ctx->verify_file, "w", stderr) == (FILE *)0) {
             fprintf(stderr, "alink: cannot open verify file '%s'\n", ctx->verify_file);
             free(to_free);
+            free(expanded_argv);
             free(inputs);
             return 1;
         }
@@ -723,6 +845,7 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
         for (i = 0; i < n_to_free; i++)
             free(to_free[i]);
         free(to_free);
+        free(expanded_argv);
         free(inputs);
         return 1;
     }
@@ -730,6 +853,7 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     for (i = 0; i < n_to_free; i++)
         free(to_free[i]);
     free(to_free);
+    free(expanded_argv);
     free(inputs);
     if (ret != 0)
         return 1;
