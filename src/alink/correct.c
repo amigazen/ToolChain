@@ -92,6 +92,12 @@ void correction(struct LinkerContext *ctx)
     unsigned long off;
     unsigned char *patch;
     unsigned char *ext_p;
+    struct XDEF *ovlymgr_xdef;
+    unsigned long manager_addr;
+    unsigned long stub_base;
+    unsigned char *stub_data;
+    unsigned long n_stubs;
+    unsigned long idx;
 
     u = ctx->units;
     while (u) {
@@ -270,6 +276,30 @@ void correction(struct LinkerContext *ctx)
         u = u->next;
     }
 
+    /* Fill overlay stubs (JSR @ovlyMgr; DC.W index) and get stub base for overlay refs */
+    stub_base = 0;
+    if (ctx->overlay_stub_sec && ctx->overlay_stub_sec->hunk_head &&
+        ctx->overlay_stub_sec->hunk_head->hunk_data) {
+        ovlymgr_xdef = alink_find_xdef(ctx, (const unsigned char *)"@ovlyMgr", 2);
+        if (!ovlymgr_xdef)
+            ovlymgr_xdef = alink_find_xdef(ctx, (const unsigned char *)"_ovlyMgr", 2);
+        if (ovlymgr_xdef) {
+            manager_addr = xdef_value(ovlymgr_xdef);
+            if (!xdef_is_abs(ovlymgr_xdef) && ovlymgr_xdef->xdef_sec && ovlymgr_xdef->xdef_sec->hunk_head)
+                manager_addr += ovlymgr_xdef->xdef_sec->hunk_head->sec_base_offset;
+            stub_base = ctx->overlay_stub_sec->hunk_head->sec_base_offset;
+            stub_data = ctx->overlay_stub_sec->hunk_head->hunk_data;
+            n_stubs = ctx->overlay_stub_sec->sec_size / 8;
+            for (idx = 0; idx < n_stubs; idx++) {
+                stub_data[idx * 8 + 0] = 0x4E;
+                stub_data[idx * 8 + 1] = (unsigned char)0xB9;
+                write_be32(stub_data + idx * 8 + 2, manager_addr);
+                stub_data[idx * 8 + 6] = (unsigned char)(idx >> 8);
+                stub_data[idx * 8 + 7] = (unsigned char)(idx & 0xFF);
+            }
+        }
+    }
+
     /* XREF resolution: patch by ref type */
     xref = ctx->xref_list;
     while (xref) {
@@ -281,9 +311,13 @@ void correction(struct LinkerContext *ctx)
             patch += 4 + name_len_lw * 4;
             num_offsets = read_be32(patch);
             patch += 4;
-            value = xdef_value(xdef);
-            if (!xdef_is_abs(xdef) && xdef->xdef_sec && xdef->xdef_sec->hunk_head)
-                value += xdef->xdef_sec->hunk_head->sec_base_offset;
+            if (xref->overlay_index >= 0 && stub_base != 0)
+                value = stub_base + (unsigned long)xref->overlay_index * 8;
+            else {
+                value = xdef_value(xdef);
+                if (!xdef_is_abs(xdef) && xdef->xdef_sec && xdef->xdef_sec->hunk_head)
+                    value += xdef->xdef_sec->hunk_head->sec_base_offset;
+            }
             for (off = 0; off < num_offsets; off++) {
                 unsigned long addr = read_be32(patch + (unsigned long)off * 4);
                 switch (xref->xref_type) {

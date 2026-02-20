@@ -28,13 +28,26 @@ static struct Section *get_section(struct LinkerContext *ctx, unsigned long type
     struct Section *sec;
     struct Section *prev;
     const char *n;
+    int node;
 
-    if (type == HUNK_CODE)
-        head = &ctx->code_sections;
-    else if (type == HUNK_DATA)
-        head = &ctx->data_sections;
-    else
-        head = &ctx->bss_sections;
+    node = -1;
+    if (ctx->active_unit && ctx->active_unit->overlay_node >= 0 && ctx->overlay_nodes)
+        node = ctx->active_unit->overlay_node;
+    if (node >= 0) {
+        if (type == HUNK_CODE)
+            head = &ctx->overlay_nodes[node].code_sections;
+        else if (type == HUNK_DATA)
+            head = &ctx->overlay_nodes[node].data_sections;
+        else
+            head = &ctx->overlay_nodes[node].bss_sections;
+    } else {
+        if (type == HUNK_CODE)
+            head = &ctx->code_sections;
+        else if (type == HUNK_DATA)
+            head = &ctx->data_sections;
+        else
+            head = &ctx->bss_sections;
+    }
 
     n = (name && name[0]) ? name : "UNNAMED";
 
@@ -60,15 +73,10 @@ static struct Section *get_section(struct LinkerContext *ctx, unsigned long type
         }
     }
 
-    sec = (struct Section *)alink_alloc_clear(ctx, sizeof(struct Section));
+    sec = create_section_overlay(ctx, type, n, node);
     if (!sec)
         return (struct Section *)0;
-    sec->type = type;
     sec->section_id = (unsigned long)ctx->id_cnt++;
-    strncpy(sec->section_name, n, ALINK_SECNAMESZ - 1);
-    sec->section_name[ALINK_SECNAMESZ - 1] = '\0';
-    sec->next = *head;
-    *head = sec;
     return sec;
 }
 
@@ -110,7 +118,6 @@ static const unsigned char *parse_hunk_blocks(struct LinkerContext *ctx,
 {
     unsigned long block_type;
     unsigned long count;
-    unsigned long i;
     unsigned long name_len_lw;
     unsigned char ext_type;
     unsigned long val;
@@ -487,6 +494,7 @@ static int add_xref(struct LinkerContext *ctx, struct Hunk *hunk,
     xref->xref_hunk = hunk;
     xref->xref_ptr = xref_ptr;
     xref->xref_type = ref_type;
+    xref->overlay_index = -1;
     if (ctx->xref_list_tail) {
         ctx->xref_list_tail->next = xref;
         ctx->xref_list_tail = xref;
@@ -531,9 +539,12 @@ static int load_file(struct LinkerContext *ctx, const char *path,
     return 0;
 }
 
-int read_units(struct LinkerContext *ctx, char **paths, int npaths)
+int read_units(struct LinkerContext *ctx, char **paths, const int *node_indices, int npaths)
 {
     int i;
+    int node;
+    int is_lib;
+    size_t plen;
     unsigned char *data;
     unsigned long size;
     unsigned long offset;
@@ -552,8 +563,7 @@ int read_units(struct LinkerContext *ctx, char **paths, int npaths)
         return -1;
 
     for (i = 0; i < npaths; i++) {
-        int is_lib;
-        size_t plen;
+        node = (node_indices != (const int *)0) ? node_indices[i] : -1;
 
         if (load_file(ctx, paths[i], &data, &size) != 0) {
             fprintf(stderr, "alink: cannot read '%s'\n", paths[i]);
@@ -608,6 +618,7 @@ int read_units(struct LinkerContext *ctx, char **paths, int npaths)
                 return -1;
             unit->next = ctx->units;
             unit->select = is_lib ? 0 : 1;  /* libraries: select by refs */
+            unit->overlay_node = node;
             unit->obj_name = paths[i];
             unit->name = unit->name_buffer;
             if (name_len_lw > 0 && name_len_lw * 4 < ALINK_SECNAMESZ) {

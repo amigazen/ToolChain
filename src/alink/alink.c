@@ -11,6 +11,9 @@
 #include <string.h>
 #include "alink.h"
 
+static char* verstag = "$VER: alink 1.1 (20/2/2026)";
+static char* stack_cookie = "8192";
+
 static int is_slink_keyword(const char *s)
 {
     if (!s || !*s)
@@ -50,6 +53,8 @@ static int is_slink_keyword(const char *s)
     if (strcmp(s, "fndatam") == 0 || strcmp(s, "newocv") == 0)
         return 1;
     if (strcmp(s, "librevision") == 0 || strcmp(s, "libversion") == 0)
+        return 1;
+    if (strcmp(s, "overlay") == 0 || strcmp(s, "#") == 0)
         return 1;
     return 0;
 }
@@ -167,6 +172,25 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     int ac;
     char *q;
     char *seg;
+    int *overlay_spec_levels;
+    char **overlay_spec_paths;
+    int overlay_spec_cap;
+    int overlay_spec_n;
+    int k;
+    int lev;
+    int par;
+    int last_at_level[32];
+    int ord_count[32];
+    char **ordered_paths;
+    int *ordered_nodes;
+    int n_ordered;
+    int oi;
+    int ni;
+
+    overlay_spec_levels = (int *)0;
+    overlay_spec_paths = (char **)0;
+    overlay_spec_cap = 0;
+    overlay_spec_n = 0;
 
     if (argc < 2) {
         usage();
@@ -476,6 +500,37 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
                     }
                     inputs[ninputs++] = av[i++];
                 }
+            }
+            continue;
+        }
+        if (strcmp(av[i], "overlay") == 0) {
+            ctx->overlay_mode = 1;
+            i++;
+            overlay_spec_cap = 256;
+            overlay_spec_levels = (int *)malloc((size_t)overlay_spec_cap * sizeof(int));
+            overlay_spec_paths = (char **)malloc((size_t)overlay_spec_cap * sizeof(char *));
+            if (overlay_spec_levels && overlay_spec_paths) {
+                overlay_spec_n = 0;
+                while (i < ac && strcmp(av[i], "#") != 0 && !is_slink_keyword(av[i])) {
+                    p = av[i];
+                    lev = 0;
+                    while (*p == '*') {
+                        lev++;
+                        p++;
+                    }
+                    if (*p && overlay_spec_n < overlay_spec_cap && n_to_free < to_free_cap) {
+                        to_free[n_to_free] = strdup(p);
+                        if (to_free[n_to_free]) {
+                            overlay_spec_paths[overlay_spec_n] = to_free[n_to_free];
+                            overlay_spec_levels[overlay_spec_n] = lev;
+                            overlay_spec_n++;
+                            n_to_free++;
+                        }
+                    }
+                    i++;
+                }
+                if (i < ac && strcmp(av[i], "#") == 0)
+                    i++;
             }
             continue;
         }
@@ -941,7 +996,71 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
         free(inputs);
         return 1;
     }
-    ret = read_units(ctx, inputs, ninputs);
+    if (ctx->overlay_mode && overlay_spec_n > 0 && overlay_spec_levels && overlay_spec_paths) {
+        for (k = 0; k < 32; k++) {
+            last_at_level[k] = -1;
+            ord_count[k] = 0;
+        }
+        ctx->n_overlay_nodes = overlay_spec_n;
+        ctx->overlay_nodes = (struct OverlayNode *)alink_alloc_clear(ctx, (unsigned long)overlay_spec_n * sizeof(struct OverlayNode));
+        for (k = 0; k < overlay_spec_n; k++) {
+            lev = overlay_spec_levels[k];
+            par = (lev > 0) ? last_at_level[lev - 1] : -1;
+            ctx->overlay_nodes[k].level = lev;
+            ctx->overlay_nodes[k].ordinate = ++ord_count[lev];
+            ctx->overlay_nodes[k].parent_index = par;
+            ctx->overlay_nodes[k].nfiles = 1;
+            ctx->overlay_nodes[k].files = (char **)alink_alloc(ctx, sizeof(char *));
+            ctx->overlay_nodes[k].files[0] = overlay_spec_paths[k];
+            last_at_level[lev] = k;
+        }
+        free(overlay_spec_levels);
+        free(overlay_spec_paths);
+        overlay_spec_levels = (int *)0;
+        overlay_spec_paths = (char **)0;
+        n_ordered = (ctx->ovlymgr_file && ctx->ovlymgr_file[0]) ? 1 : 0;
+        n_ordered += ninputs;
+        for (k = 0; k < ctx->n_overlay_nodes; k++)
+            n_ordered += ctx->overlay_nodes[k].nfiles;
+        ordered_paths = (char **)malloc((size_t)(n_ordered + 1) * sizeof(char *));
+        ordered_nodes = (int *)malloc((size_t)n_ordered * sizeof(int));
+        if (ordered_paths && ordered_nodes) {
+            oi = 0;
+            if (ctx->ovlymgr_file && ctx->ovlymgr_file[0]) {
+                ordered_paths[oi] = (char *)ctx->ovlymgr_file;
+                ordered_nodes[oi] = -1;
+                oi++;
+            }
+            for (ni = 0; ni < ninputs; ni++) {
+                ordered_paths[oi] = inputs[ni];
+                ordered_nodes[oi] = -1;
+                oi++;
+            }
+            for (k = 0; k < ctx->n_overlay_nodes; k++) {
+                for (par = 0; par < ctx->overlay_nodes[k].nfiles; par++) {
+                    ordered_paths[oi] = ctx->overlay_nodes[k].files[par];
+                    ordered_nodes[oi] = k;
+                    oi++;
+                }
+            }
+            ordered_paths[oi] = (char *)0;
+            ret = read_units(ctx, ordered_paths, ordered_nodes, n_ordered);
+            free(ordered_paths);
+            free(ordered_nodes);
+        } else {
+            ret = read_units(ctx, inputs, (const int *)0, ninputs);
+            if (ordered_paths)
+                free(ordered_paths);
+            if (ordered_nodes)
+                free(ordered_nodes);
+        }
+    } else {
+        if (overlay_spec_levels)
+            free(overlay_spec_levels);
+        if (overlay_spec_paths)
+            free(overlay_spec_paths);
+        ret = read_units(ctx, inputs, (const int *)0, ninputs);
+    }
     for (i = 0; i < n_to_free; i++)
         free(to_free[i]);
     free(to_free);
@@ -955,6 +1074,7 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     kill_zero_sections(ctx);
     resolve_common(ctx);
     combine_bss_onto_data(ctx);
+    prepare_overlay_stubs(ctx);
     set_section_ids(ctx);
     calc_hunk_offsets(ctx);
     set_lnk_xdef(ctx);

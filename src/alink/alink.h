@@ -55,6 +55,21 @@ struct Unit {
     const char *obj_name;
     char *name;
     char name_buffer[ALINK_SECNAMESZ];
+    int overlay_node;  /* -1 = root, 0.. = overlay node index */
+};
+
+/* One overlay node in the tree (level, ordinate, file list, section lists). */
+struct OverlayNode {
+    int level;
+    int ordinate;
+    int parent_index;
+    char **files;
+    int nfiles;
+    struct Section *code_sections;
+    struct Section *data_sections;
+    struct Section *bss_sections;
+    unsigned long first_hunk;
+    unsigned long num_hunks;
 };
 
 struct XDEF {
@@ -70,6 +85,7 @@ struct XREF {
     struct Hunk *xref_hunk;
     unsigned char *xref_ptr;
     unsigned char xref_type;  /* EXT_REF32, EXT_REF16, etc. */
+    int overlay_index;       /* -1 = normal ref; 0..n-1 = overlay table index for stub */
 };
 
 struct ObjectFile {
@@ -123,6 +139,10 @@ struct LinkerContext {
     int map_pwidth;
     int map_swidth;
     const char *ovlymgr_file;
+    int overlay_mode;           /* 1 if OVERLAY was seen */
+    struct OverlayNode *overlay_nodes;
+    int n_overlay_nodes;
+    unsigned long overlay_table_size;  /* max hunks in memory (root + one branch) */
     const char *libfd_file;
     const char *libprefix_str;
     const char *libid_str;
@@ -154,13 +174,14 @@ struct LinkerContext {
     unsigned short hunks_per_unit;
     FILE *out_file;
     void *alloc_list;
+    struct Section *overlay_stub_sec;  /* root code section holding JSR @ovlyMgr + DC.W index stubs */
 };
 
 void alink_init(struct LinkerContext *ctx);
 void alink_clear(struct LinkerContext *ctx);
 int alink_link(struct LinkerContext *ctx, int argc, char **argv);
 
-int read_units(struct LinkerContext *ctx, char **paths, int npaths);
+int read_units(struct LinkerContext *ctx, char **paths, const int *node_indices, int npaths);
 int add_linker_xdefs(struct LinkerContext *ctx);
 void add_linker_xdef(struct LinkerContext *ctx, const char *name, unsigned int name_len_lw,
     unsigned char type, unsigned long value);
@@ -173,7 +194,9 @@ void set_xdef_value(struct XDEF *xdef, unsigned long value);
 void kill_unselected(struct LinkerContext *ctx);
 void kill_zero_sections(struct LinkerContext *ctx);
 struct Section *create_section(struct LinkerContext *ctx, unsigned long type, const char *name);
+struct Section *create_section_overlay(struct LinkerContext *ctx, unsigned long type, const char *name, int node_index);
 void combine_bss_onto_data(struct LinkerContext *ctx);
+void prepare_overlay_stubs(struct LinkerContext *ctx);
 void set_section_ids(struct LinkerContext *ctx);
 void calc_hunk_offsets(struct LinkerContext *ctx);
 void resolve_common(struct LinkerContext *ctx);
