@@ -165,6 +165,8 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     char save;
     char **av;
     int ac;
+    char *q;
+    char *seg;
 
     if (argc < 2) {
         usage();
@@ -199,6 +201,9 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
             }
             atf = fopen(argv[i], "r");
             if (atf) {
+                char line2[256];
+                char *q;
+                char *end2;
                 while (fgets(buf, (int)sizeof(buf), atf) && n_to_free < to_free_cap) {
                     p = buf;
                     while (*p == ' ' || *p == '\t')
@@ -207,6 +212,30 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
                     while (end > p && (end[-1] == '\n' || end[-1] == '\r' || end[-1] == ' ' || end[-1] == '\t'))
                         end--;
                     *end = '\0';
+                    /* Line continuation: * at end of line appends next line */
+                    while (end > p && end[-1] == '*') {
+                        end--;
+                        *end = '\0';
+                        if (fgets(line2, (int)sizeof(line2), atf)) {
+                            q = line2;
+                            while (*q == ' ' || *q == '\t')
+                                q++;
+                            end2 = q + strlen(q);
+                            while (end2 > q && (end2[-1] == '\n' || end2[-1] == '\r'))
+                                end2--;
+                            *end2 = '\0';
+                            if ((size_t)(end - buf + 1 + strlen(q) + 1) <= sizeof(buf)) {
+                                *end = ' ';
+                                strcpy(end + 1, q);
+                                end = buf + strlen(buf);
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                    p = buf;
                     while (*p) {
                         while (*p == ' ' || *p == '\t')
                             p++;
@@ -340,41 +369,113 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
         if (strcmp(av[i], "from") == 0 || strcmp(av[i], "root") == 0) {
             i++;
             while (i < ac && !is_slink_keyword(av[i]) && av[i][0] != '-') {
-                if (ninputs >= cap) {
-                    cap *= 2;
-                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
-                    if (!new_inp) {
-                        fprintf(stderr, "alink: out of memory\n");
-                        for (i = 0; i < n_to_free; i++)
-                            free(to_free[i]);
-                        free(to_free);
-                        free(expanded_argv);
-                        free(inputs);
-                        return 1;
+                p = av[i];
+                if (strchr(p, ',') || strchr(p, '+')) {
+                    start = p;
+                    while (*start && n_to_free < to_free_cap) {
+                        q = start;
+                        while (*q && *q != ',' && *q != '+')
+                            q++;
+                        if (q > start) {
+                            seg = (char *)malloc((size_t)(q - start + 1));
+                            if (seg) {
+                                memcpy(seg, start, (size_t)(q - start));
+                                seg[q - start] = '\0';
+                                to_free[n_to_free++] = seg;
+                                if (ninputs >= cap) {
+                                    cap *= 2;
+                                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
+                                    if (!new_inp) {
+                                        for (ei = 0; ei < n_to_free; ei++)
+                                            free(to_free[ei]);
+                                        free(to_free);
+                                        free(expanded_argv);
+                                        free(inputs);
+                                        return 1;
+                                    }
+                                    inputs = new_inp;
+                                }
+                                inputs[ninputs++] = seg;
+                            }
+                        }
+                        if (*q)
+                            q++;
+                        start = q;
                     }
-                    inputs = new_inp;
+                    i++;
+                } else {
+                    if (ninputs >= cap) {
+                        cap *= 2;
+                        new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
+                        if (!new_inp) {
+                            fprintf(stderr, "alink: out of memory\n");
+                            for (ei = 0; ei < n_to_free; ei++)
+                                free(to_free[ei]);
+                            free(to_free);
+                            free(expanded_argv);
+                            free(inputs);
+                            return 1;
+                        }
+                        inputs = new_inp;
+                    }
+                    inputs[ninputs++] = av[i++];
                 }
-                inputs[ninputs++] = av[i++];
             }
             continue;
         }
         if (strcmp(av[i], "library") == 0 || strcmp(av[i], "lib") == 0) {
             i++;
             while (i < ac && !is_slink_keyword(av[i]) && av[i][0] != '-') {
-                if (ninputs >= cap) {
-                    cap *= 2;
-                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
-                    if (!new_inp) {
-                        for (i = 0; i < n_to_free; i++)
-                            free(to_free[i]);
-                        free(to_free);
-                        free(expanded_argv);
-                        free(inputs);
-                        return 1;
+                p = av[i];
+                if (strchr(p, ',') || strchr(p, '+')) {
+                    start = p;
+                    while (*start && n_to_free < to_free_cap) {
+                        q = start;
+                        while (*q && *q != ',' && *q != '+')
+                            q++;
+                        if (q > start) {
+                            seg = (char *)malloc((size_t)(q - start + 1));
+                            if (seg) {
+                                memcpy(seg, start, (size_t)(q - start));
+                                seg[q - start] = '\0';
+                                to_free[n_to_free++] = seg;
+                                if (ninputs >= cap) {
+                                    cap *= 2;
+                                    new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
+                                    if (!new_inp) {
+                                        for (ei = 0; ei < n_to_free; ei++)
+                                            free(to_free[ei]);
+                                        free(to_free);
+                                        free(expanded_argv);
+                                        free(inputs);
+                                        return 1;
+                                    }
+                                    inputs = new_inp;
+                                }
+                                inputs[ninputs++] = seg;
+                            }
+                        }
+                        if (*q)
+                            q++;
+                        start = q;
                     }
-                    inputs = new_inp;
+                    i++;
+                } else {
+                    if (ninputs >= cap) {
+                        cap *= 2;
+                        new_inp = (char **)realloc(inputs, (size_t)(cap + 1) * sizeof(char *));
+                        if (!new_inp) {
+                            for (ei = 0; ei < n_to_free; ei++)
+                                free(to_free[ei]);
+                            free(to_free);
+                            free(expanded_argv);
+                            free(inputs);
+                            return 1;
+                        }
+                        inputs = new_inp;
+                    }
+                    inputs[ninputs++] = av[i++];
                 }
-                inputs[ninputs++] = av[i++];
             }
             continue;
         }
@@ -813,15 +914,6 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
 
     inputs[ninputs] = (char *)0;
 
-    if (ctx->out_name[0] == '\0') {
-        fprintf(stderr, "alink: to <output> or -o <output> is required\n");
-        for (i = 0; i < n_to_free; i++)
-            free(to_free[i]);
-        free(to_free);
-        free(expanded_argv);
-        free(inputs);
-        return 1;
-    }
     if (ninputs == 0) {
         fprintf(stderr, "alink: no input files\n");
         free(to_free);
@@ -868,9 +960,17 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     set_lnk_xdef(ctx);
     correction(ctx);
 
-    ret = write_load_file(ctx);
+    ret = write_map_file(ctx);
     if (ret != 0)
         return 1;
+    ret = write_xref_file(ctx);
+    if (ret != 0)
+        return 1;
+    if (ctx->out_name[0]) {
+        ret = write_load_file(ctx);
+        if (ret != 0)
+            return 1;
+    }
 
     ctx->return_code = 0;
     return 0;

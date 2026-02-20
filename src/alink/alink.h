@@ -180,6 +180,8 @@ void resolve_common(struct LinkerContext *ctx);
 void set_lnk_xdef(struct LinkerContext *ctx);
 void correction(struct LinkerContext *ctx);
 int write_load_file(struct LinkerContext *ctx);
+int write_map_file(struct LinkerContext *ctx);
+int write_xref_file(struct LinkerContext *ctx);
 
 void *alink_alloc(struct LinkerContext *ctx, unsigned long size);
 void *alink_alloc_clear(struct LinkerContext *ctx, unsigned long size);

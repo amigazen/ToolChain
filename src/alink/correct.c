@@ -217,6 +217,55 @@ void correction(struct LinkerContext *ctx)
                     }
                 }
             }
+
+            /* DREL16: add target section offset to big-endian word (data-relative) */
+            if (h->hunk_reloc16d && data) {
+                unsigned long v16;
+                rp = h->hunk_reloc16d;
+                for (;;) {
+                    count = read_be32(rp);
+                    rp += 4;
+                    if (count == 0)
+                        break;
+                    hunk_num = read_be32(rp);
+                    target_sec_id = u->hunk_sec[hunk_num]->section_id;
+                    target_offset = u->hunk_offset[hunk_num];
+                    write_be32(rp, target_sec_id);
+                    rp += 4;
+                    while (count--) {
+                        off = read_be32(rp);
+                        rp += 4;
+                        v16 = ((unsigned long)(unsigned char)data[off] << 8) |
+                              (unsigned long)(unsigned char)data[off + 1];
+                        v16 = (v16 + target_offset) & 0xFFFFUL;
+                        data[off] = (unsigned char)(v16 >> 8);
+                        data[off + 1] = (unsigned char)v16;
+                    }
+                }
+            }
+
+            /* DREL8: add target section offset to byte (data-relative) */
+            if (h->hunk_reloc8d && data) {
+                unsigned long v8;
+                rp = h->hunk_reloc8d;
+                for (;;) {
+                    count = read_be32(rp);
+                    rp += 4;
+                    if (count == 0)
+                        break;
+                    hunk_num = read_be32(rp);
+                    target_sec_id = u->hunk_sec[hunk_num]->section_id;
+                    target_offset = u->hunk_offset[hunk_num];
+                    write_be32(rp, target_sec_id);
+                    rp += 4;
+                    while (count--) {
+                        off = read_be32(rp);
+                        rp += 4;
+                        v8 = ((unsigned long)(unsigned char)data[off]) + target_offset;
+                        data[off] = (unsigned char)(v8 & 0xFFUL);
+                    }
+                }
+            }
         }
         u = u->next;
     }

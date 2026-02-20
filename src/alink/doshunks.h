@@ -24,6 +24,8 @@
 #define HUNK_LIB         1018
 #define HUNK_INDEX       1019
 #define HUNK_RELOC32SHORT 1020
+#define HUNK_OVERLAY     1013   /* 0x3F5: overlay table, follows root */
+#define HUNK_BREAK       1014   /* 0x3F6: ends overlay node (not HUNK_END) */
 
 #define HUNKB_CHIP       30
 #define HUNKB_FAST       31

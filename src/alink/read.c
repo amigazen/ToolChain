@@ -584,13 +584,14 @@ int read_units(struct LinkerContext *ctx, char **paths, int npaths)
         offset = 0;
         while (offset + 4 <= size) {
             type = read_be32(data + offset);
+            if (type == HUNK_LIB) {
+                /* Skip HUNK_LIB magic; library is concatenated HUNK_UNITs */
+                offset += 4;
+                continue;
+            }
             if (type != HUNK_UNIT) {
                 if (type == ALINK_PHX_MAGIC)
                     break;
-                if (type == HUNK_LIB) {
-                    fprintf(stderr, "alink: HUNK_LIB not yet supported\n");
-                    return -1;
-                }
                 fprintf(stderr, "alink: expected HUNK_UNIT in '%s'\n", paths[i]);
                 return -1;
             }
