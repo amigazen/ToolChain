@@ -550,6 +550,7 @@ int read_units(struct LinkerContext *ctx, char **paths, const int *node_indices,
     unsigned long offset;
     unsigned long type;
     unsigned long name_len_lw;
+    unsigned long count;
     struct Unit *unit;
     int j;
     struct ObjectFile *ob;
@@ -595,8 +596,26 @@ int read_units(struct LinkerContext *ctx, char **paths, const int *node_indices,
         while (offset + 4 <= size) {
             type = read_be32(data + offset);
             if (type == HUNK_LIB) {
-                /* Skip HUNK_LIB magic; library is concatenated HUNK_UNITs */
+                if (offset == 0) {
+                    is_lib = 1;
+                    ctx->lib_unit = 1;
+                }
                 offset += 4;
+                continue;
+            }
+            if (type == HUNK_INDEX) {
+                offset += 4;
+                if (offset + 4 <= size) {
+                    count = read_be32(data + offset);
+                    offset += 4;
+                    for (j = 0; (unsigned long)j < count && offset + 4 <= size; j++) {
+                        name_len_lw = read_be32(data + offset);
+                        offset += 4;
+                        if (offset + name_len_lw * 4 + 4 > size)
+                            break;
+                        offset += name_len_lw * 4 + 4;
+                    }
+                }
                 continue;
             }
             if (type != HUNK_UNIT) {

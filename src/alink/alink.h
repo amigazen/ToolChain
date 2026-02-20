@@ -88,6 +88,17 @@ struct XREF {
     int overlay_index;       /* -1 = normal ref; 0..n-1 = overlay table index for stub */
 };
 
+/* Cross-section RELOC16/8: ref patched to JMP.L stub; stub filled in correction. */
+struct JumpStubRef {
+    struct JumpStubRef *next;
+    struct Hunk *ref_hunk;
+    unsigned long ref_off;
+    int target_hunk_num;
+    int is_reloc16;       /* 1 = RELOC16, 0 = RELOC8 */
+    struct Hunk *stub_hunk;
+    unsigned long stub_off;
+};
+
 struct ObjectFile {
     struct ObjectFile *next;
     unsigned long size;
@@ -175,6 +186,8 @@ struct LinkerContext {
     FILE *out_file;
     void *alloc_list;
     struct Section *overlay_stub_sec;  /* root code section holding JSR @ovlyMgr + DC.W index stubs */
+    struct JumpStubRef *jump_stub_refs;   /* cross-section RELOC16/8: ref -> stub mapping */
+    struct JumpStubRef *jump_stub_refs_tail;
 };
 
 void alink_init(struct LinkerContext *ctx);
@@ -197,6 +210,7 @@ struct Section *create_section(struct LinkerContext *ctx, unsigned long type, co
 struct Section *create_section_overlay(struct LinkerContext *ctx, unsigned long type, const char *name, int node_index);
 void combine_bss_onto_data(struct LinkerContext *ctx);
 void prepare_overlay_stubs(struct LinkerContext *ctx);
+void prepare_jump_stubs(struct LinkerContext *ctx);
 void set_section_ids(struct LinkerContext *ctx);
 void calc_hunk_offsets(struct LinkerContext *ctx);
 void resolve_common(struct LinkerContext *ctx);

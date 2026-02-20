@@ -71,6 +71,20 @@ void set_lnk_xdef(struct LinkerContext *ctx)
         set_xdef_value(xdef, (unsigned long)(ctx->res_opt ? 1 : 0));
 }
 
+/* Find jump-stub ref for (ref_hunk, ref_off); 0 if not found. */
+static struct JumpStubRef *find_jump_stub(struct LinkerContext *ctx, struct Hunk *ref_hunk, unsigned long ref_off)
+{
+    struct JumpStubRef *jr;
+
+    jr = ctx->jump_stub_refs;
+    while (jr) {
+        if (jr->ref_hunk == ref_hunk && jr->ref_off == ref_off)
+            return jr;
+        jr = jr->next;
+    }
+    return (struct JumpStubRef *)0;
+}
+
 void correction(struct LinkerContext *ctx)
 {
     struct Unit *u;
@@ -98,6 +112,13 @@ void correction(struct LinkerContext *ctx)
     unsigned char *stub_data;
     unsigned long n_stubs;
     unsigned long idx;
+    struct JumpStubRef *jr;
+    long delta;
+    struct JumpStubRef *jrc;
+    struct Hunk *stub_hunk;
+    unsigned long reloc_size;
+    unsigned char *reloc_block;
+    int n_per_stub;
 
     u = ctx->units;
     while (u) {
@@ -154,9 +175,8 @@ void correction(struct LinkerContext *ctx)
                 }
             }
 
-            /* RELOC16: PC-relative word; same section only */
+            /* RELOC16: PC-relative word; same section inline, cross-section via stub */
             if (h->hunk_reloc16 && data) {
-                long delta;
                 rp = h->hunk_reloc16;
                 for (;;) {
                     count = read_be32(rp);
@@ -164,24 +184,35 @@ void correction(struct LinkerContext *ctx)
                     if (count == 0)
                         break;
                     hunk_num = read_be32(rp);
-                    if (u->hunk_sec[hunk_num] != h->hunk_section)
-                        break;
-                    target_offset = u->hunk_offset[hunk_num];
                     rp += 4;
+                    target_offset = u->hunk_offset[hunk_num];
                     while (count--) {
                         off = read_be32(rp);
                         rp += 4;
-                        delta = (long)target_offset - (long)my_offset - (long)off - 2;
-                        delta += (short)((data[off] << 8) | (unsigned char)data[off + 1]);
-                        data[off] = (unsigned char)((unsigned long)delta >> 8);
-                        data[off + 1] = (unsigned char)delta;
+                        if (u->hunk_sec[hunk_num] == h->hunk_section) {
+                            delta = (long)target_offset - (long)my_offset - (long)off - 2;
+                            delta += (short)((data[off] << 8) | (unsigned char)data[off + 1]);
+                            data[off] = (unsigned char)((unsigned long)delta >> 8);
+                            data[off + 1] = (unsigned char)delta;
+                        } else {
+                            jr = find_jump_stub(ctx, h, off);
+                            if (jr && jr->stub_hunk && jr->stub_hunk->hunk_data) {
+                                delta = (long)(jr->stub_hunk->sec_base_offset + jr->stub_off)
+                                    - (long)my_offset - (long)off - 2;
+                                delta += (short)((data[off] << 8) | (unsigned char)data[off + 1]);
+                                data[off] = (unsigned char)((unsigned long)delta >> 8);
+                                data[off + 1] = (unsigned char)delta;
+                                jr->stub_hunk->hunk_data[jr->stub_off + 0] = 0x4E;
+                                jr->stub_hunk->hunk_data[jr->stub_off + 1] = (unsigned char)0xF9;
+                                write_be32(jr->stub_hunk->hunk_data + jr->stub_off + 2, target_offset);
+                            }
+                        }
                     }
                 }
             }
 
-            /* RELOC8: PC-relative byte; same section only */
+            /* RELOC8: PC-relative byte; same section inline, cross-section via stub */
             if (h->hunk_reloc8 && data) {
-                long delta;
                 rp = h->hunk_reloc8;
                 for (;;) {
                     count = read_be32(rp);
@@ -189,16 +220,27 @@ void correction(struct LinkerContext *ctx)
                     if (count == 0)
                         break;
                     hunk_num = read_be32(rp);
-                    if (u->hunk_sec[hunk_num] != h->hunk_section)
-                        break;
-                    target_offset = u->hunk_offset[hunk_num];
                     rp += 4;
+                    target_offset = u->hunk_offset[hunk_num];
                     while (count--) {
                         off = read_be32(rp);
                         rp += 4;
-                        delta = (long)target_offset - (long)my_offset - (long)off - 1;
-                        delta += (signed char)data[off];
-                        data[off] = (unsigned char)(delta & 0xFF);
+                        if (u->hunk_sec[hunk_num] == h->hunk_section) {
+                            delta = (long)target_offset - (long)my_offset - (long)off - 1;
+                            delta += (signed char)data[off];
+                            data[off] = (unsigned char)(delta & 0xFF);
+                        } else {
+                            jr = find_jump_stub(ctx, h, off);
+                            if (jr && jr->stub_hunk && jr->stub_hunk->hunk_data) {
+                                delta = (long)(jr->stub_hunk->sec_base_offset + jr->stub_off)
+                                    - (long)my_offset - (long)off - 1;
+                                delta += (signed char)data[off];
+                                data[off] = (unsigned char)(delta & 0xFF);
+                                jr->stub_hunk->hunk_data[jr->stub_off + 0] = 0x4E;
+                                jr->stub_hunk->hunk_data[jr->stub_off + 1] = (unsigned char)0xF9;
+                                write_be32(jr->stub_hunk->hunk_data + jr->stub_off + 2, target_offset);
+                            }
+                        }
                     }
                 }
             }
@@ -274,6 +316,44 @@ void correction(struct LinkerContext *ctx)
             }
         }
         u = u->next;
+    }
+
+    /* Build RELOC32 blocks for jump-stub hunks so loader adds section base to stub target longword */
+    jr = ctx->jump_stub_refs;
+    while (jr) {
+        stub_hunk = jr->stub_hunk;
+        if (stub_hunk && !stub_hunk->hunk_reloc32) {
+            n_per_stub = 0;
+            jrc = ctx->jump_stub_refs;
+            while (jrc) {
+                if (jrc->stub_hunk == stub_hunk)
+                    n_per_stub++;
+                jrc = jrc->next;
+            }
+            if (n_per_stub > 0) {
+                reloc_size = 4 + (unsigned long)n_per_stub * 12 + 4;
+                reloc_block = (unsigned char *)alink_alloc(ctx, reloc_size);
+                if (reloc_block) {
+                    patch = reloc_block;
+                    jrc = ctx->jump_stub_refs;
+                    while (jrc) {
+                        if (jrc->stub_hunk == stub_hunk && jrc->ref_hunk && jrc->ref_hunk->unit_struct) {
+                            u = jrc->ref_hunk->unit_struct;
+                            write_be32(patch, 1UL);
+                            patch += 4;
+                            write_be32(patch, u->hunk_sec[jrc->target_hunk_num]->section_id);
+                            patch += 4;
+                            write_be32(patch, jrc->stub_off + 2);
+                            patch += 4;
+                        }
+                        jrc = jrc->next;
+                    }
+                    write_be32(patch, 0UL);
+                    stub_hunk->hunk_reloc32 = reloc_block;
+                }
+            }
+        }
+        jr = jr->next;
     }
 
     /* Fill overlay stubs (JSR @ovlyMgr; DC.W index) and get stub base for overlay refs */

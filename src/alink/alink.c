@@ -1075,6 +1075,7 @@ int alink_link(struct LinkerContext *ctx, int argc, char **argv)
     resolve_common(ctx);
     combine_bss_onto_data(ctx);
     prepare_overlay_stubs(ctx);
+    prepare_jump_stubs(ctx);
     set_section_ids(ctx);
     calc_hunk_offsets(ctx);
     set_lnk_xdef(ctx);

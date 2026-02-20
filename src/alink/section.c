@@ -140,6 +140,184 @@ void prepare_overlay_stubs(struct LinkerContext *ctx)
     ctx->overlay_stub_sec = sec;
 }
 
+/* Cross-section RELOC16/8: collect refs, create one stub hunk per code section that has refs. */
+void prepare_jump_stubs(struct LinkerContext *ctx)
+{
+    struct Unit *u;
+    struct Hunk *h;
+    struct Section *sec;
+    struct JumpStubRef *jr;
+    unsigned char *rp;
+    unsigned long count;
+    unsigned long hunk_num;
+    unsigned long off;
+    unsigned long stub_size;
+    int i;
+    int n_refs;
+
+    ctx->jump_stub_refs = (struct JumpStubRef *)0;
+    ctx->jump_stub_refs_tail = (struct JumpStubRef *)0;
+    u = ctx->units;
+    while (u) {
+        for (i = 0; i < u->num_hunks; i++) {
+            h = u->hunk_ptr[i];
+            if (h->hunk_reloc16) {
+                rp = h->hunk_reloc16;
+                for (;;) {
+                    count = read_be32(rp);
+                    rp += 4;
+                    if (count == 0)
+                        break;
+                    hunk_num = read_be32(rp);
+                    rp += 4;
+                    while (count--) {
+                        off = read_be32(rp);
+                        rp += 4;
+                        if (u->hunk_sec[hunk_num] != h->hunk_section) {
+                            jr = (struct JumpStubRef *)alink_alloc(ctx, sizeof(struct JumpStubRef));
+                            if (!jr)
+                                return;
+                            jr->next = (struct JumpStubRef *)0;
+                            jr->ref_hunk = h;
+                            jr->ref_off = off;
+                            jr->target_hunk_num = (int)hunk_num;
+                            jr->is_reloc16 = 1;
+                            jr->stub_hunk = (struct Hunk *)0;
+                            jr->stub_off = 0;
+                            if (ctx->jump_stub_refs_tail)
+                                ctx->jump_stub_refs_tail->next = jr;
+                            else
+                                ctx->jump_stub_refs = jr;
+                            ctx->jump_stub_refs_tail = jr;
+                        }
+                    }
+                }
+            }
+            if (h->hunk_reloc8) {
+                rp = h->hunk_reloc8;
+                for (;;) {
+                    count = read_be32(rp);
+                    rp += 4;
+                    if (count == 0)
+                        break;
+                    hunk_num = read_be32(rp);
+                    rp += 4;
+                    while (count--) {
+                        off = read_be32(rp);
+                        rp += 4;
+                        if (u->hunk_sec[hunk_num] != h->hunk_section) {
+                            jr = (struct JumpStubRef *)alink_alloc(ctx, sizeof(struct JumpStubRef));
+                            if (!jr)
+                                return;
+                            jr->next = (struct JumpStubRef *)0;
+                            jr->ref_hunk = h;
+                            jr->ref_off = off;
+                            jr->target_hunk_num = (int)hunk_num;
+                            jr->is_reloc16 = 0;
+                            jr->stub_hunk = (struct Hunk *)0;
+                            jr->stub_off = 0;
+                            if (ctx->jump_stub_refs_tail)
+                                ctx->jump_stub_refs_tail->next = jr;
+                            else
+                                ctx->jump_stub_refs = jr;
+                            ctx->jump_stub_refs_tail = jr;
+                        }
+                    }
+                }
+            }
+        }
+        u = u->next;
+    }
+    if (!ctx->jump_stub_refs)
+        return;
+    /* One stub hunk per code section that has cross-section refs; append to that section. */
+    sec = ctx->code_sections;
+    while (sec) {
+        n_refs = 0;
+        jr = ctx->jump_stub_refs;
+        while (jr) {
+            if (jr->ref_hunk->hunk_section == sec)
+                n_refs++;
+            jr = jr->next;
+        }
+        if (n_refs > 0) {
+            stub_size = (unsigned long)n_refs * 6;
+            h = (struct Hunk *)alink_alloc_clear(ctx, sizeof(struct Hunk));
+            if (!h)
+                return;
+            h->hunk_data = (unsigned char *)alink_alloc_clear(ctx, stub_size);
+            if (!h->hunk_data)
+                return;
+            h->data_size = stub_size;
+            h->hunk_section = sec;
+            h->unit_struct = (struct Unit *)0;
+            if (sec->hunk_tail) {
+                sec->hunk_tail->next = h;
+                sec->hunk_tail = h;
+            } else {
+                sec->hunk_head = sec->hunk_tail = h;
+            }
+            sec->sec_size += stub_size;
+            n_refs = 0;
+            jr = ctx->jump_stub_refs;
+            while (jr) {
+                if (jr->ref_hunk->hunk_section == sec) {
+                    jr->stub_hunk = h;
+                    jr->stub_off = (unsigned long)n_refs * 6;
+                    n_refs++;
+                }
+                jr = jr->next;
+            }
+        }
+        sec = sec->next;
+    }
+    /* Overlay code sections: same treatment. */
+    if (ctx->overlay_mode && ctx->overlay_nodes) {
+        for (i = 0; i < ctx->n_overlay_nodes; i++) {
+            sec = ctx->overlay_nodes[i].code_sections;
+            while (sec) {
+                n_refs = 0;
+                jr = ctx->jump_stub_refs;
+                while (jr) {
+                    if (jr->ref_hunk->hunk_section == sec)
+                        n_refs++;
+                    jr = jr->next;
+                }
+                if (n_refs > 0) {
+                    stub_size = (unsigned long)n_refs * 6;
+                    h = (struct Hunk *)alink_alloc_clear(ctx, sizeof(struct Hunk));
+                    if (!h)
+                        return;
+                    h->hunk_data = (unsigned char *)alink_alloc_clear(ctx, stub_size);
+                    if (!h->hunk_data)
+                        return;
+                    h->data_size = stub_size;
+                    h->hunk_section = sec;
+                    h->unit_struct = (struct Unit *)0;
+                    if (sec->hunk_tail) {
+                        sec->hunk_tail->next = h;
+                        sec->hunk_tail = h;
+                    } else {
+                        sec->hunk_head = sec->hunk_tail = h;
+                    }
+                    sec->sec_size += stub_size;
+                    n_refs = 0;
+                    jr = ctx->jump_stub_refs;
+                    while (jr) {
+                        if (jr->ref_hunk->hunk_section == sec) {
+                            jr->stub_hunk = h;
+                            jr->stub_off = (unsigned long)n_refs * 6;
+                            n_refs++;
+                        }
+                        jr = jr->next;
+                    }
+                }
+                sec = sec->next;
+            }
+        }
+    }
+}
+
 struct Section *create_section_overlay(struct LinkerContext *ctx, unsigned long type, const char *name, int node_index)
 {
     struct Section **head;
