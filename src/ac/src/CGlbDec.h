@@ -70,6 +70,7 @@ extern struct OptTab {
 #define OPT_REF(off) (*(int *) ((char *) &Options + (off)))
 
 extern void default_options(void);
+extern void dodecl(int defclass);
 
 extern long ival;
 extern double   rval;

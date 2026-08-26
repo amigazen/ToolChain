@@ -54,9 +54,12 @@ extern char    *fgets();
 
 extern TABLE             tagtable;
 extern unsigned char    *lptr;           /* shared with preproc */
-extern FILE             *inclfile[10];   /* shared with preproc */
-extern int               inclline[10];   /* shared with preproc */
-extern char             *inclname[10];   /* shared with preproc */
+extern char              inclfile_buf[]; /* shared with preproc */
+extern char              inclline_buf[];
+extern char              inclname_buf[];
+#define inclfile ((FILE **) (void *) inclfile_buf)
+#define inclline ((int *) (void *) inclline_buf)
+#define inclname ((char **) (void *) inclname_buf)
 
 extern int      incldepth;  /* shared with preproc */
 extern int      inpreproc;  /* shared with preproc */

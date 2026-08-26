@@ -576,7 +576,14 @@ opt0(node)
                     dooper(node);
                 return;
             }
-            if (ICON16L(ep->v.p[0]->v.i) == 0) {
+            /*
+             * Compare the full icon, not ICON16L.  Poisoned values of the
+             * form (e_sc<<16)|n have a zero low half; treating those as
+             * "add 0" dropped struct field offsets and emitted (A0) instead
+             * of n(A0).  Gen-2 then corrupted SYM.next and ran away writing
+             * gigabytes of console output.
+             */
+            if (ep->v.p[0]->v.i == 0) {
                 if (ep->nodetype == en_sub) {
                     ep->v.p[0] = ep->v.p[1];
                     ep->nodetype = en_uminus;
@@ -587,7 +594,7 @@ opt0(node)
             }
         }
         else if (ep->v.p[1]->nodetype == en_icon) {
-            if (ICON16L(ep->v.p[1]->v.i) == 0) {
+            if (ep->v.p[1]->v.i == 0) {
                 *node = ep->v.p[0];
                 return;
             }

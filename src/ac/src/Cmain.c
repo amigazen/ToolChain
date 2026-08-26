@@ -42,6 +42,116 @@
 #include    "Cglbdec.h"
 #include    "Version.h"
 
+/*
+ * Crash / CLI breadcrumbs for Amiga self-host (ac-self / ac-self2).
+ * Uses dos.library Output()+Write only — no printf/stdio.
+ * Default ON for Amiga builds; set -DAC_DEBUG=0 or #define AC_DEBUG 0 to silence.
+ */
+#if !defined(AC_DEBUG)
+#if defined(AC_HOST_POSIX)
+#define AC_DEBUG 0
+#else
+#define AC_DEBUG 1
+#endif
+#endif
+
+#if AC_DEBUG && !defined(AC_HOST_POSIX)
+long Output();
+long Write();
+int fflush();
+
+/*
+ * Raw Write(Output()) bypasses the cclib FILE buffer.  Flush first so a
+ * mid-line fprintf (e.g. MemMgt "bytes local tables") is not split by
+ * an acdbg line when the 1024-byte stdio buffer fills under redirect.
+ */
+static void
+ac_dbg(msg)
+char *msg;
+{
+	long n;
+	long out;
+
+	if (msg == 0)
+		return;
+	if (stdout != 0)
+		fflush(stdout);
+	n = 0;
+	while (msg[n] != '\0')
+		n++;
+	out = Output();
+	if (out != 0)
+		Write(out, msg, n);
+}
+
+static void
+ac_dbg_long(prefix, v)
+char *prefix;
+long v;
+{
+	char buf[12];
+	char *p;
+	unsigned long u;
+	int neg;
+
+	ac_dbg(prefix);
+	neg = 0;
+	if (v < 0) {
+		neg = 1;
+		u = (unsigned long)(-v);
+	} else
+		u = (unsigned long)v;
+	p = &buf[11];
+	*p = '\0';
+	if (u == 0)
+		*--p = '0';
+	else {
+		while (u != 0) {
+			*--p = (char)('0' + (int)(u % 10));
+			u = u / 10;
+		}
+	}
+	if (neg)
+		*--p = '-';
+	ac_dbg(p);
+	ac_dbg("\n");
+}
+
+static void
+ac_dbg_s(prefix, s)
+char *prefix;
+char *s;
+{
+	ac_dbg(prefix);
+	if (s == 0)
+		ac_dbg("(null)");
+	else
+		ac_dbg(s);
+	ac_dbg("\n");
+}
+
+static void
+ac_dbg_opt(c, arg)
+int c;
+char *arg;
+{
+	char ch[2];
+
+	ac_dbg("acdbg: getopt '");
+	ch[0] = (char)c;
+	ch[1] = '\0';
+	ac_dbg(ch);
+	ac_dbg("'\n");
+	if (arg != 0)
+		ac_dbg_s("acdbg:   optarg=", arg);
+}
+#else
+#define ac_dbg(msg)		((void)0)
+#define ac_dbg_long(p, v)	((void)0)
+#define ac_dbg_s(p, s)		((void)0)
+#define ac_dbg_opt(c, a)	((void)0)
+#endif
+
 char *HelpMsg[] = {
     VERSION,
     " by amigazen project\n",
@@ -85,7 +195,8 @@ extern TABLE    tagtable;
 extern int      total_errors;
 extern int      inclnum;
 extern int      fatal;
-extern char    *incldir[];
+extern char     incldir_buf[];
+#define incldir  ((char **) (void *) incldir_buf)
 extern char     prepbuffer[];
 extern char    *itoa();
 extern char    *litlate();
@@ -150,14 +261,29 @@ main(int argc, char **argv)
     /* Static: ac-self aliased used_stdin with loop index i in one register. */
     static int      used_stdin;
     int             i, c, files_processed;
+    int             argc0;
+
+    ac_dbg("acdbg: main enter\n");
+    ac_dbg_long("acdbg: argc=", (long)argc);
+    if (argv == 0) {
+        ac_dbg("acdbg: argv is NULL — abort\n");
+        exit(1);
+    }
+    for (i = 0; i < argc; i++) {
+        ac_dbg_long("acdbg: argv#", (long)i);
+        ac_dbg_s("acdbg:   =", argv[i]);
+    }
 
     opterr = 1;
     used_stdin = FALSE;
     progname = argv[0];
+    ac_dbg_s("acdbg: progname=", progname);
 
+    ac_dbg("acdbg: default_options\n");
     default_options();
 
 #if !defined(AC_HOST_POSIX)
+    ac_dbg("acdbg: install_bootstrap_includes\n");
     install_bootstrap_includes();
 #endif
 
@@ -165,7 +291,10 @@ main(int argc, char **argv)
     open_stdio();
 #endif
 
-    while ((c = getopt(argc, argv, "ABGLNQRSabglnqrsd:D:F:f:I:L:o:P:u:U:cE?")) != EOF)
+    ac_dbg("acdbg: getopt begin\n");
+    argc0 = argc;
+    while ((c = getopt(argc0, argv, "ABGLNQRSabglnqrsd:D:F:f:I:L:o:P:u:U:cE?")) != EOF) {
+        ac_dbg_opt(c, optarg);
         switch (c) {
         case 'a':
         case 'A':
@@ -198,6 +327,7 @@ main(int argc, char **argv)
                 strcat(prepbuffer, "/");
             incldir[inclnum++] = litlate(prepbuffer);
             --global_flag;
+            ac_dbg_s("acdbg: include=", prepbuffer);
             break;
         case 'l':
             OPT_REF(OPT_OFF_List) = !OPT_REF(OPT_OFF_List);
@@ -209,6 +339,7 @@ main(int argc, char **argv)
         case 'o':
         case 'O':
             strcpy(outfile, optarg);
+            ac_dbg_s("acdbg: outfile=", outfile);
             break;
         case 'p':
         case 'P':
@@ -248,6 +379,7 @@ main(int argc, char **argv)
             break;
         case 'c':
             OPT_REF(OPT_OFF_CompileOnly) = 1;
+            ac_dbg("acdbg: CompileOnly\n");
             break;
         case 'E':
             OPT_REF(OPT_OFF_PreprocessOnly) = 1;
@@ -272,9 +404,20 @@ main(int argc, char **argv)
             usage();
             break;
         }
+    }
+    ac_dbg("acdbg: getopt done\n");
+    ac_dbg_long("acdbg: optind=", (long)optind);
+    ac_dbg_long("acdbg: Quiet=", (long)OPT_REF(OPT_OFF_Quiet));
+    ac_dbg_long("acdbg: CompileOnly=", (long)OPT_REF(OPT_OFF_CompileOnly));
+    ac_dbg_long("acdbg: Optimize=", (long)OPT_REF(OPT_OFF_Optimize));
 
     argc -= optind;
     argv += optind;
+    ac_dbg_long("acdbg: input files=", (long)argc);
+    for (i = 0; i < argc; i++) {
+        ac_dbg_long("acdbg: file#", (long)i);
+        ac_dbg_s("acdbg:   =", argv[i]);
+    }
 
     for (i = 0; i < argc; i++) {
         if (strcmp(argv[i], "-") == 0) {
@@ -296,19 +439,29 @@ main(int argc, char **argv)
     files_processed = 0;
 
     for (i = 0; i < argc; i++) {
+        ac_dbg_s("acdbg: openfiles ", argv[i]);
         if (openfiles(argv[i])) {
+            ac_dbg("acdbg: openfiles ok\n");
             files_processed++;
             lineno = 0;
+            ac_dbg("acdbg: initsym\n");
             initsym();
 
-            if (OPT_REF(OPT_OFF_PreComp) == 2)
+            if (OPT_REF(OPT_OFF_PreComp) == 2) {
+                ac_dbg_s("acdbg: read_precomp ", prefile);
                 read_precomp(prefile);
+            }
 
+            ac_dbg("acdbg: install_defines\n");
             install_defines();
 
+            ac_dbg("acdbg: getch\n");
             getch();
+            ac_dbg("acdbg: getsym\n");
             getsym();
+            ac_dbg("acdbg: compile\n");
             compile();
+            ac_dbg("acdbg: compile returned\n");
             ac_getline(1);
 
             if (!fatal && OPT_REF(OPT_OFF_PreComp) == 1) {
@@ -320,14 +473,19 @@ main(int argc, char **argv)
                 fmt_precomp(prefile);
             }
 
+            ac_dbg("acdbg: summary\n");
             summary();
+            ac_dbg("acdbg: release_global\n");
             release_global();
+            ac_dbg("acdbg: closefiles\n");
             closefiles();
-        }
+        } else
+            ac_dbg("acdbg: openfiles failed\n");
     }
 
     /* Check if no files were successfully processed */
     if (files_processed == 0) {
+        ac_dbg("acdbg: no files compiled\n");
         fprintf(AC_DIAG_STREAM, "%s: error: no files compiled\n", progname);
         exit(1);
     }
@@ -335,6 +493,7 @@ main(int argc, char **argv)
 #ifdef AC_HOST_POSIX
     close_stdio();
 #endif
+    ac_dbg("acdbg: main exit\n");
     /* POSIX exit codes: 0=success, 1=error, 2=usage error */
     if (fatal || total_errors > 0)
         exit(1);
@@ -368,14 +527,12 @@ formsection(char *buffer, char *name, char *ext)
 int
 openfiles(char *s)
 {
-#if !defined(AC_HOST_POSIX)
     /*
-     * Optional: free stderr before opening source+output.  Harmless with
-     * cclib.library (large FILE table); was needed for tiny ac.lib _fdevtab.
+     * Do not fclose(stderr) here.  That was an ac.lib FILE-table hack.
+     * Under cclib, stderr often aliases the same FILE* as stdout
+     * (ErrorOutput == Output); closing it makes the next fputs(stdout)
+     * hit CClib panic code 20 (stale/forged stream).
      */
-    if (stderr != NULL)
-        fclose(stderr);
-#endif
 
     if (!OPT_REF(OPT_OFF_Quiet)) {
 #ifdef AZTEC_C

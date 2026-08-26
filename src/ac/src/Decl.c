@@ -42,9 +42,21 @@ char           *declid = NULL;
 TABLE           tagtable = {NULL, NULL};
 TYP             stdconst = {bt_long, 1, 0, 4, {NULL, NULL}, 0, "const", QUAL_CONST};
 
-void    decl2(), declenum(), enumbody(), declstruct(), structbody();
+void    decl2(), declenum(), enumbody(), declstruct();
 void    apply_qualifiers();
 void    decl_callconv(void);
+
+/*
+ * Enum parameters must be declared as int.  Callers push 4-byte ints
+ * (default promotions / pea).  A callee that uses enum e_sc / enum e_bt
+ * (2-byte) shifts later args by -2: declare() then read ilc from 14(A5)
+ * instead of 16(A5), so ICON16L(ilc) was always 0 and every struct member
+ * was emitted as (A0) instead of N(A0).  Gen-2 overwrote SYM.next and
+ * flooded the console with gigabytes of output.
+ */
+int     declare(TABLE *table, int al, int ilc, int ztype, int ral);
+void    structbody(TYP *tp, int ztype);
+void    dodecl(int defclass);
 
 extern SYM      *search();
 extern long     intexpr();
@@ -63,17 +75,26 @@ static int
 typesize_mul(count, elemsize)
     int count, elemsize;
 {
+    int             orig;
+
     /*
      * Incomplete types have tp->size == -1 while a tag is being defined.
      * Skip the scale when the element size is not yet known.
      *
      * Product via u16_product() — never calls ac.lib .lmuls at runtime.
-     * Mask elemsize: poisoned (e_sc<<16)|n must not zero the product.
+     * Mask poisoned (e_sc<<16)|n.  If ICON16L yields 0 from a non-zero
+     * original (high half only), use 4 — returning `count` alone made
+     * int x[10] / char *p[10] BSS only DS.b 10 under ac-self.
      */
-    if (elemsize > 65535 || elemsize < -1)
+    orig = elemsize;
+    if (elemsize != -1 && elemsize != (int) ICON16L((long) elemsize))
         elemsize = (int) ICON16L((long) elemsize);
-    if (elemsize <= 0)
-        return count;
+    if (elemsize <= 0) {
+        if (orig != 0 && orig != -1)
+            elemsize = 4;
+        else
+            return count;
+    }
     if (count <= 0)
         return 0;
     return (int) u16_product((long) count, (long) elemsize);
@@ -99,6 +120,7 @@ type_size(tp)
         return 0;
 
     t = (int) tp->type;
+    /* Real pointers only — sized arrays keep val_flag != 0 (see declare()). */
     if (t == bt_pointer && tp->val_flag == 0)
         return 4;
 
@@ -129,7 +151,12 @@ type_size(tp)
     }
 
     sz = (long) tp->size;
-    if (sz > 65535L || sz < -1L)
+    /*
+     * Unpoison (e_sc<<16)|n.  Do not use a 65535 literal — 16-bit hosts
+     * fold it to -1 so (~65535L)==0 and the mask never strips the high word
+     * (that returned 393216 as a pointer stride and broke argv[i]).
+     */
+    if (sz != -1L && sz != ICON16L(sz))
         sz = ICON16L(sz);
     if (sz <= 0)
         return 0;
@@ -683,7 +710,12 @@ alignment(TYP *tp)
 }
 
 int
-declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
+declare(table, al, ilc, ztype, ral)
+    TABLE          *table;
+    int             al;     /* enum e_sc — must be int (see prototype) */
+    int             ilc;
+    int             ztype;  /* enum e_bt */
+    int             ral;    /* enum e_sc */
 
 /*
  * process declarations of the form:
@@ -762,8 +794,16 @@ declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
                 head = tail = maketype(bt_double, 8);
                 break;
             }
-            if (head->size == 0 || head->type == bt_pointer)
-                head->val_flag = 0; /* Make *argv[] work */
+            /*
+             * Decay only unsized array declarators (char *argv[]) to a
+             * real pointer.  The old test cleared val_flag for every
+             * bt_pointer — including char *incldir[10] — so type_size()
+             * returned 4, BSS was DS.b 4, and include-path pointers
+             * smashed into prepbuffer (nested NDK includes failed).
+             */
+            if (head->type == bt_pointer && head->val_flag != 0
+                && head->size == 0)
+                head->val_flag = 0;
         }
 
         if (declid != NULL) {   /* otherwise just struct tag... */
@@ -1074,7 +1114,9 @@ declstruct(enum e_bt ztype)
 }
 
 void
-structbody(TYP *tp, enum e_bt ztype)
+structbody(tp, ztype)
+    TYP            *tp;
+    int             ztype;  /* enum e_bt — must be int (see prototype) */
 {
     int             slc;
 
@@ -1102,7 +1144,8 @@ structbody(TYP *tp, enum e_bt ztype)
 }
 
 void
-dodecl(enum e_sc defclass)
+dodecl(defclass)
+    int             defclass;   /* enum e_sc — must be int (see prototype) */
 {
     TYP            *tp;
 
@@ -1296,9 +1339,12 @@ declproto(TABLE *table)  /* table is the argument table for the function */
         }
 
 declproto_one:
-        /* Make *argv[] work */
-
-        if (head->size == 0 || head->type == bt_pointer)
+        /*
+         * Decay only unsized arrays (char *argv[]) to pointers — not
+         * sized arrays of pointers (see declare() comment above).
+         */
+        if (head->type == bt_pointer && head->val_flag != 0
+            && head->size == 0)
             head->val_flag = 0;
 
         sp = (SYM *) xalloc(SZ_SYM);

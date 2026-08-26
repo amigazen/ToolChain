@@ -46,8 +46,11 @@
 
 ACC         = ac
 ACSELF_CC   = ac-self
-# NDK headers via AmigaDOS INCLUDE: (exec/, dos/, … for cclib Include_H).
-ACFLAGS     = -Iinclude:
+# Local AC headers first; NDK (-Iinclude:) last so stdlib.h is not the
+# NDK/SAS one.  install_bootstrap_includes() uses the same order.
+ACFLAGS     = -Iinclude -Iinclude:
+# Bootstrap compiles: -q suppresses per-function local-table dumps.
+BOOTFLAGS   = $(ACFLAGS) -q
 
 OUTDIR_AC   = bootstrap/ac
 OUTDIR_SELF = bootstrap/self
@@ -215,12 +218,12 @@ bootstrap-self: selfhost-ac $(ASSEMBLY_SELF)
 $(OUTDIR_AC)/%.s: %.c ./ac
 	-makedir $(OUTDIR_AC)
 	-delete $(OUTDIR_AC)/$*.o QUIET
-	$(ACC) $(ACFLAGS) -c -o $@ $<
+	$(ACC) $(BOOTFLAGS) -c -o $@ $<
 
 $(OUTDIR_SELF)/%.s: %.c $(BIN_AC)
 	-makedir $(OUTDIR_SELF)
 	-delete $(OUTDIR_SELF)/$*.o QUIET
-	$(ACSELF_CC) $(ACFLAGS) -c -o $@ $<
+	$(ACSELF_CC) $(BOOTFLAGS) -c -o $@ $<
 
 # AmigaDOS date-only stamps can leave .o newer than regenerated .s; wipe before A68k.
 force-assemble-ac:
@@ -309,6 +312,7 @@ selfhost-ac: cclib-crt bootstrap-ac assemble-ac link-ac
 
 selfhost-self: cclib-crt bootstrap-self assemble-self link-self
 	@echo "--- $(BIN_SELF) linked with cclib CRT ---"
+	@echo "Verify offsets first: bootstrap/self/Cmain.s must use 12(A0) not (A0)"
 
 # --- ac-self2 smoke test (minimal first; does not rebuild ac-self2) ---
 # After compiler fixes: smake && make selfhost-ac && make clean-self && make selfhost-self

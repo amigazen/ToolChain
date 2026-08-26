@@ -27,7 +27,7 @@ struct MsgPort {
 	unsigned char pad[34];
 };
 
-/* AmigaDOS Process: Task(92) + MsgPort(34) + fields to pr_CLI at 172 */
+/* AmigaDOS Process: Task(92) + MsgPort(34) + fields; pr_CLI at offset 172 */
 struct Process {
 	unsigned char pr_Task[92];
 	struct MsgPort pr_MsgPort;
@@ -59,7 +59,7 @@ struct ac_UserData {
 	char **_argv;
 };
 
-/* Exec / DOS (amiga.lib stubs; GetArgStr is crt/ac_lvos.s — not in 1.x amiga.lib) */
+/* Exec / DOS (amiga.lib stubs; GetArgStr is crt/ac_lvos.s ï¿½ not in 1.x amiga.lib) */
 struct Library *OpenLibrary(char *name, unsigned long version);
 void CloseLibrary(struct Library *lib);
 struct Process *FindTask(char *name);
@@ -88,7 +88,7 @@ void abort();
 int atexit();
 void ac_crt_entry();
 
-/* Call void(void) via pointer  AC cannot parse void (*f)(void). */
+/* Call void(void) via pointer ï¿½ AC cannot parse void (*f)(void). */
 void ac_call0();
 
 /* ---- CRT-owned globals (cclib SetupSTDIO wires these) ---- */
@@ -266,6 +266,10 @@ ac_crt_entry()
 		return;
 	DOSBase = dos;
 
+	/* Early breadcrumb: crash before main leaves no Cmain acdbg lines. */
+	ac_dos_msg("acdbg: crt enter\n");
+
+	ac_dos_msg("acdbg: crt utility\n");
 	util = OpenLibrary("utility.library", 37L);
 	if (util == 0)
 		util = OpenLibrary("utility.library", 0L);
@@ -277,14 +281,17 @@ ac_crt_entry()
 	}
 	UtilityBase = util;
 
+	ac_dos_msg("acdbg: crt FindTask\n");
 	pr = FindTask((char *)0);
 	if (pr->pr_CLI == 0L) {
 		WaitPort(&pr->pr_MsgPort);
 		WBenchMsg = (struct WBStartup *)GetMsg(&pr->pr_MsgPort);
 	} else if (DOSBase->lib_Version >= 37) {
+		ac_dos_msg("acdbg: crt GetArgStr\n");
 		aptr = GetArgStr();
 	}
 
+	ac_dos_msg("acdbg: crt cclib\n");
 	CCLibBase = OpenLibrary("cclib.library", 4L);
 	if (CCLibBase == 0) {
 		ac_dos_msg("ac: cannot open cclib.library v4\n");
@@ -306,6 +313,7 @@ ac_crt_entry()
 		ac_math_opened = 1;
 	}
 
+	ac_dos_msg("acdbg: crt SetupSTDIO\n");
 	/*
 	 * Pass exit as the abort hook so Ctrl-C runs atexit + ClearSTDIO.
 	 * SetupSTDIO returns non-zero on success (cclib contract).
@@ -319,10 +327,12 @@ ac_crt_entry()
 		goto fail;
 	}
 
+	ac_dos_msg("acdbg: crt GetSTDIO\n");
 	ud = GetSTDIO();
-	if (ud != 0)
+	if (ud != 0) {
+		ac_dos_msg("acdbg: crt -> main\n");
 		rv = main((int)ud->_argc, ud->_argv);
-	else
+	} else
 		rv = 20;
 
 fail:

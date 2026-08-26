@@ -58,9 +58,20 @@ extern char    *itoa(int x);
 #endif
 #endif
 
-FILE           *inclfile[10];
-int             inclline[10];
-char           *inclname[10];
+/*
+ * Include-stack and -I path tables.  Do NOT use T *foo[10] / int foo[10]:
+ * under ac-self, typesize_mul() can collapse those to DS.b 10 (count only)
+ * when the element size is a poisoned (e_sc<<16) value.  Explicit char[40]
+ * matches prepbuffer[1024] and always gets the right BSS size (10 * 4).
+ */
+char            inclfile_buf[40];
+char            inclline_buf[40];
+char            inclname_buf[40];
+char            incldir_buf[40];
+#define inclfile ((FILE **) (void *) inclfile_buf)
+#define inclline ((int *) (void *) inclline_buf)
+#define inclname ((char **) (void *) inclname_buf)
+#define incldir  ((char **) (void *) incldir_buf)
 
 int             incldepth = 0;
 int             prepdepth = 0;
@@ -68,13 +79,16 @@ int             inpreproc = FALSE;
 int             oneline = FALSE;
 int             inclnum = 0;
 unsigned char  *lptr;
-char           *incldir[10];
 char            prepbuffer[1024];
 
 #if !defined(AC_HOST_POSIX)
 /*
- * Prepend parser-safe bootstrap headers (compinc/) and target includes
- * (include/) so "ac -c Symbol.c" works without -Icompinc on Amiga.
+ * Default -I list for Amiga self-host.  Nested #include <...> walks this
+ * same list (no "dir of parent header" search).
+ *
+ * Order matters: C library headers (stdio/stdlib) must come from cclib or
+ * local include/ — not from NDK include:, which has SAS-isms AC rejects
+ * (e.g. "unsigned long int").  NDK is last so dos/exec/proto still resolve.
  */
 void
 install_bootstrap_includes(void)
@@ -84,6 +98,8 @@ install_bootstrap_includes(void)
         incldir[inclnum++] = "///SDK/cclib.library/SDK/Include_H/";
         incldir[inclnum++] = "compinc/";
         incldir[inclnum++] = "include/";
+        /* NDK last — dos/, exec/, proto/, … */
+        incldir[inclnum++] = "include:";
     }
 }
 #endif
@@ -213,7 +229,17 @@ doinclude()
     }
 
     if (fp == NULL) {
-        fatal_error(ERR_CANTOPEN, NULL);
+        /*
+         * Show every -I / bootstrap dir tried.  Nested includes use this
+         * same list; a missing NDK assign shows up here as include: + name.
+         */
+        fprintf(AC_DIAG_STREAM, "Can't open include file \"%s\"\n", laststr);
+        for (num = 0; num < inclnum; num++) {
+            strcpy(prepbuffer, incldir[num]);
+            strcat(prepbuffer, laststr);
+            fprintf(AC_DIAG_STREAM, "  tried: %s\n", prepbuffer);
+        }
+        fatal_error(ERR_CANTOPEN, laststr);
         ac_getline(incldepth == 0);
     }
     else {

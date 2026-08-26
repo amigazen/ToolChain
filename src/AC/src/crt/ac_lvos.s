@@ -47,22 +47,24 @@ _ClearSTDIO:
 * LVO -66  (a0..a5, d0..d4)
 *
 * Save A4/A5 (and D2-D4/A2-A3/A6) around the LVO: AC may use A5 as FP.
+* movem saves 8 longs (D2-D4 + A2-A6); first arg is therefore at 36(A7),
+* not 32 (32 is the return address).  Wrong offsets crash inside cclib.
 *
 	XDEF	_SetupSTDIO
 _SetupSTDIO:
 	movem.l	D2-D4/A2-A6,-(A7)
-* After 7 longs saved, original 4(A7) is at 32(A7)
-	move.l	32(A7),A0
-	move.l	36(A7),A1
-	move.l	40(A7),A2
-	move.l	44(A7),A3
-	move.l	48(A7),A4
-	move.l	52(A7),A5
-	move.l	56(A7),D0
-	move.l	60(A7),D1
-	move.l	64(A7),D2
-	move.l	68(A7),D3
-	move.l	72(A7),D4
+* After 8 longs saved: 0(A7)..31 = regs, 32 = rts, 36 = first C arg
+	move.l	36(A7),A0
+	move.l	40(A7),A1
+	move.l	44(A7),A2
+	move.l	48(A7),A3
+	move.l	52(A7),A4
+	move.l	56(A7),A5
+	move.l	60(A7),D0
+	move.l	64(A7),D1
+	move.l	68(A7),D2
+	move.l	72(A7),D3
+	move.l	76(A7),D4
 	move.l	_CCLibBase,A6
 	jsr	-66(A6)
 	movem.l	(A7)+,D2-D4/A2-A6
@@ -135,27 +137,40 @@ _fputs:
 	jsr	-306(A6)
 	rts
 
+*
+* Tagcall stubs that load A2 (&vararg) must preserve A2.  AC keeps
+* &_stdout / &_fprintf in A2/A3 across consecutive fprintf calls; if the
+* stub leaves A2 as &args, the next move.l (A2) pushes a forged FILE* and
+* cclib panics with code 20 (seen mid-warning during ac-self compile).
+*
+* After saving A2: 0=saved A2, 4=rts, 8=arg0, 12=arg1, 16=first vararg.
+*
 * int fprintf(stream, fmt, ...)  tagcall LVO -330  a0=stream a1=fmt a2=&args
 	XDEF	_fprintf
 _fprintf:
-	move.l	4(A7),A0
-	move.l	8(A7),A1
-	lea	12(A7),A2
+	move.l	A2,-(A7)
+	move.l	8(A7),A0
+	move.l	12(A7),A1
+	lea	16(A7),A2
 	move.l	_CCLibBase,A6
 	jsr	-330(A6)
+	move.l	(A7)+,A2
 	rts
 
 * int sprintf(s, fmt, ...)  tagcall LVO -342  a0=s a1=fmt a2=&args
 	XDEF	_sprintf
 _sprintf:
-	move.l	4(A7),A0
-	move.l	8(A7),A1
-	lea	12(A7),A2
+	move.l	A2,-(A7)
+	move.l	8(A7),A0
+	move.l	12(A7),A1
+	lea	16(A7),A2
 	move.l	_CCLibBase,A6
 	jsr	-342(A6)
+	move.l	(A7)+,A2
 	rts
 
 * int printf(fmt, ...)  tagcall LVO -318  a0=fmt a1=&args
+* A1 is scratch; callers do not keep live values there across the call.
 	XDEF	_printf
 _printf:
 	move.l	4(A7),A0
