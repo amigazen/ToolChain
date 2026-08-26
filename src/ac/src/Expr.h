@@ -79,7 +79,7 @@ struct dnode {
 };
 
 struct enode {
-    enum e_node     nodetype;
+    short           nodetype;   /* enum e_node — word at 0 (Expr.s makenode) */
     short           size;
     short           constflag;
     short           signedflag;
@@ -91,6 +91,14 @@ struct enode {
         struct enode   *p[2];
     }               v;
 };
+
+#if defined(AC_HOST_POSIX)
+#ifdef SZ_ENODE
+#undef SZ_ENODE
+#endif
+#define SZ_ENODE    ((int)sizeof(struct enode))
+#endif
+
 
 struct snode {
     enum e_stmt     stype;
@@ -110,3 +118,9 @@ struct cse {
     int             voidf;  /* cannot optimize flag */
     int             reg;    /* allocated register */
 };
+
+/*
+ * Old-style declaration: v1 is a machine word (icon, label, name, or pointer).
+ * A full prototype is not used so self-host and K&R call sites stay compatible.
+ */
+struct enode   *makenode();

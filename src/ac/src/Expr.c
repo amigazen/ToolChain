@@ -53,17 +53,19 @@
 #include    "Gen.h"
 #include    "Cglbdec.h"
 
-TYP             stdint = {bt_long, 0, 4, {0, 0}, 0, "int", 0};
-TYP             stdunsigned = {bt_unsigned, 0, 4, {0, 0}, 0, "unsigned", 0};
-TYP             stdchar = {bt_char, 0, 1, {0, 0}, 0, "char", 0};
-TYP             stdlonglong = {bt_longlong, 0, 8, {0, 0}, 0, "long long", 0};
-TYP             stdulonglong = {bt_ulonglong, 0, 8, {0, 0}, 0, "unsigned long long", 0};
-TYP             stdbool = {bt_bool, 0, 1, {0, 0}, 0, "_Bool", 0};
-TYP             stdshort = {bt_short, 0, 2, {0, 0}, 0, "short", 0};
-TYP             stdstring = {bt_pointer, 1, 4, {0, 0}, &stdchar, "string", 0};
-TYP             stdfunc = {bt_func, 1, 0, {0, 0}, &stdint, "func", 0};
-TYP             stdfloat = {bt_float, 0, 4, {0, 0}, 0, "float", 0};
-TYP             stddouble = {bt_double, 0, 8, {0, 0}, 0, "double", 0};
+TYP             stdint = {bt_long, 0, 0, 4, {0, 0}, 0, "int", 0};
+TYP             stdunsigned = {bt_unsigned, 0, 0, 4, {0, 0}, 0, "unsigned", 0};
+TYP             stdchar = {bt_char, 0, 0, 1, {0, 0}, 0, "char", 0};
+TYP             stdlonglong = {bt_longlong, 0, 0, 8, {0, 0}, 0, "long long", 0};
+TYP             stdulonglong = {bt_ulonglong, 0, 0, 8, {0, 0}, 0, "unsigned long long", 0};
+TYP             stdbool = {bt_bool, 0, 0, 1, {0, 0}, 0, "_Bool", 0};
+TYP             stdshort = {bt_short, 0, 0, 2, {0, 0}, 0, "short", 0};
+TYP             stdstring = {bt_pointer, 1, 0, 4, {0, 0}, &stdchar, "string", 0};
+TYP             stdfunc = {bt_func, 1, 0, 0, {0, 0}, &stdint, "func", 0};
+TYP             stdfloat = {bt_float, 0, 0, 4, {0, 0}, 0, "float", 0};
+TYP             stddouble = {bt_double, 0, 0, 8, {0, 0}, 0, "double", 0};
+static TYP      stdvoidty = {bt_void, 0, 0, 0, {0, 0}, 0, "void", 0};
+TYP             stdnullptr = {bt_pointer, 0, 0, 4, {0, 0}, &stdvoidty, "nullptr", 0};
 
 extern TYP     *head;       /* shared with decl */
 extern TYP     *istypedef();
@@ -84,23 +86,47 @@ TYP            *expression();   /* forward declaration */
 TYP            *exprnc();   /* forward declaration */
 TYP            *unary();    /* forward declaration */
 
+/*
+ * Byte stride for pointer arithmetic.  Never trust raw tp->size: during
+ * self-host it can be 0, which made cp++ into add.l #0 and hung usage()
+ * on ac-self2 -?.
+ */
+static int
+pointer_stride(tp)
+    TYP            *tp;
+{
+    int             s;
+
+    if (tp == NULL)
+        return 1;
+    s = type_size(tp);
+    if (s <= 0)
+        return 1;
+    return s;
+}
+
 struct enode   *
 makenode(nt, v1, v2)
 
 /*
  * build an expression node with a node type of nt and values v1 and v2.
+ *
+ * v1 is a machine word (icon, label, name pointer, or child pointer) stored
+ * in the enode union.  Use long, not struct enode *, so 64-bit host builds
+ * do not truncate pointers when callers pass integers or char * names.
  */
     enum e_node     nt;
-    struct enode   *v1, *v2;
+    long            v1;
+    struct enode   *v2;
 {
     struct enode   *ep;
 
-    ep = (struct enode *) xalloc(sizeof(struct enode));
+    ep = (struct enode *) xalloc(SZ_ENODE);
     ep->nodetype = nt;
     ep->size = 0;
     ep->constflag = 0;
     ep->signedflag = 1;
-    ep->v.p[0] = v1;
+    ep->v.i = v1;
     ep->v.p[1] = v2;
     return ep;
 }
@@ -119,6 +145,64 @@ equal_types(tp1, tp2)
     return (FALSE);
 }
 
+static int
+is_inttype(tp)
+    TYP            *tp;
+{
+    if (tp == NULL)
+        return (FALSE);
+
+    switch (tp->type) {
+    case bt_char:
+    case bt_uchar:
+    case bt_short:
+    case bt_ushort:
+    case bt_long:
+    case bt_unsigned:
+    case bt_ulong:
+    case bt_ulonglong:
+    case bt_longlong:
+    case bt_enum:
+    case bt_bool:
+        return (TRUE);
+    default:
+        return (FALSE);
+    }
+}
+
+static int
+is_pointer(tp)
+    TYP            *tp;
+{
+    return (tp != NULL && tp->type == bt_pointer);
+}
+
+/*
+ * Looser than equal_types() for argument checking.  Needed for self-host
+ * bootstrap: NULL as 0, char* vs void*, enum vs int, and varargs tails.
+ */
+int
+types_compatible(tp1, tp2)
+    TYP            *tp1;
+    TYP            *tp2;
+{
+    if (tp1 == NULL || tp2 == NULL)
+        return (TRUE);
+    if (equal_types(tp1, tp2))
+        return (TRUE);
+    if (is_inttype(tp1) && is_inttype(tp2))
+        return (TRUE);
+    if (is_pointer(tp1) && is_pointer(tp2))
+        return (TRUE);
+    if (is_pointer(tp2) && is_inttype(tp1))
+        return (TRUE);
+    if (is_pointer(tp1) && tp2->type == bt_void)
+        return (TRUE);
+    if (is_pointer(tp2) && tp1->type == bt_void)
+        return (TRUE);
+    return (FALSE);
+}
+
 
 TYP            *
 deref(node, tp)
@@ -133,7 +217,7 @@ deref(node, tp)
     struct enode   *ep1;
 
     if (node == NULL || tp == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to deref.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to deref.\n" );
         return (NULL);
     }
 
@@ -182,7 +266,7 @@ deref(node, tp)
         break;
     case bt_struct:
     case bt_union:
-        ep1 = makenode(en_icon, (long) tp->size, NULL);
+        ep1 = makenode(en_icon, (long) type_size(tp), NULL);
         *node = makenode(en_m_ref, *node, ep1);
         break;
     case bt_float:
@@ -219,7 +303,7 @@ nameref(node)
 
     if (sp == NULL) {
         ++global_flag;
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->tp = maketype ( bt_func, 0 );
         sp->tp->btp = &stdint;
         sp->tp->val_flag = 1;
@@ -248,7 +332,7 @@ nameref(node)
             else {
                 tp = &stdint;
                 ++global_flag;
-                sp = (SYM *) xalloc(sizeof(SYM));
+                sp = (SYM *) xalloc(SZ_SYM);
                 sp->tp = tp;
                 sp->name = litlate(lastid);
                 sp->storage_class = sc_external;
@@ -288,7 +372,7 @@ nameref(node)
         default:    /* auto and any errors */
             if (sp->storage_class != sc_auto)
                 error(ERR_ILLCLASS, NULL);
-            *node = makenode(en_autocon, sp->value.i, NULL);
+            *node = makenode(en_autocon, ICON16L(sp->value.i), NULL);
             break;
         }
         if (tp->val_flag == 0)
@@ -334,7 +418,7 @@ parmlist(sp)
             tp1 = array_decay(tp1, &ep2);
             
             if (tp2 != NULL) {
-                if (!equal_types(tp1, tp2))
+                if (!types_compatible(tp1, tp2))
                     error(ERR_PROTO, NULL);
             }
 /* TODO
@@ -412,7 +496,15 @@ castbegin(st)
         st == kw_char || st == kw_short || st == kw_int ||
         st == kw_long || st == kw_float || st == kw_double ||
         st == kw_enum || st == kw_struct || st == kw_union ||
-        st == kw_void || st == kw_unsigned || st == kw_bool;
+        st == kw_void || st == kw_unsigned || st == kw_signed ||
+        st == kw_bool || st == kw_int8 || st == kw_uint8 ||
+        st == kw_int16 || st == kw_uint16 || st == kw_int32 ||
+        st == kw_uint32 || st == kw_int64 || st == kw_uint64 ||
+        st == kw_intptr || st == kw_uintptr ||
+        st == kw_intmax || st == kw_uintmax ||
+        st == kw_const || st == kw_volatile ||
+        st == kw_restrict || st == kw_inline || st == kw_noreturn ||
+        st == kw_register;
 }
 
 TYP            *
@@ -456,6 +548,24 @@ primary(node)
     case cconst:
         tptr = &stdint;
         pnode = makenode(en_icon, (long) ival, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case kw_true:
+        tptr = &stdbool;
+        pnode = makenode(en_icon, 1L, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case kw_false:
+        tptr = &stdbool;
+        pnode = makenode(en_icon, 0L, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case kw_nullptr:
+        tptr = &stdnullptr;
+        pnode = makenode(en_icon, 0L, NULL);
         pnode->constflag = 1;
         getsym();
         break;
@@ -534,13 +644,20 @@ primary(node)
              * we could check the type of the expression here...
              */
 
-            if (tptr->size == 0)
-                qnode = rnode;
-            else {
-                qnode = makenode(en_icon, (long) (tptr->size), NULL);
-                qnode->constflag = 1;
-                qnode = makenode(en_mul, qnode, rnode);
-                qnode->constflag = rnode->constflag && qnode->v.p[0]->constflag;
+            {
+                int             esz;
+
+                /* Incomplete array (size 0): index is already a byte offset. */
+                esz = type_size(tptr);
+                if (esz <= 0)
+                    qnode = rnode;
+                else {
+                    qnode = makenode(en_icon, (long) esz, NULL);
+                    qnode->constflag = 1;
+                    qnode = makenode(en_mul, qnode, rnode);
+                    qnode->constflag = rnode->constflag &&
+                        qnode->v.p[0]->constflag;
+                }
             }
             pnode = makenode(en_add, pnode, qnode);
             pnode->constflag = qnode->constflag && pnode->v.p[1]->constflag;
@@ -569,7 +686,7 @@ primary(node)
                     error(ERR_NOMEMBER, NULL);
                 else {
                     tptr = sp->tp;
-                    qnode = makenode(en_icon, (long) (sp->value.i), NULL);
+                    qnode = makenode(en_icon, ICON16L((long)(sp->value.i)), NULL);
                     qnode->constflag = 1;
                     pnode = makenode(en_add, pnode, qnode);
                     pnode->constflag = pnode->v.p[0]->constflag;
@@ -598,7 +715,7 @@ primary(node)
             }
 
             pnode = makenode(en_fcall, pnode, parmlist(sp));
-            pnode->size = tptr->size;
+            pnode->size = type_size(tptr);
             needpunc(closepa);
             break;
         default:
@@ -678,7 +795,7 @@ unary(node)
             error(ERR_LVALUE, NULL);
         else {
             if (tp->type == bt_pointer)
-                ep2 = makenode(en_icon, (long) (tp->btp->size), NULL);
+                ep2 = makenode(en_icon, (long) pointer_stride(tp->btp), NULL);
             else
                 ep2 = makenode(en_icon, 1L, NULL);
             ep2->constflag = 1;
@@ -722,7 +839,7 @@ unary(node)
         }
         ep1->constflag = ep1->v.p[0]->constflag;
         break;
-    case not:
+    case sym_not:
         getsym();
         tp = unary(&ep1);
         if (tp == NULL) {
@@ -732,7 +849,7 @@ unary(node)
         ep1 = makenode(en_not, ep1, NULL);
         ep1->constflag = ep1->v.p[0]->constflag;
         break;
-    case compl:
+    case sym_compl:
         getsym();
         tp = unary(&ep1);
         if (tp == NULL) {
@@ -756,7 +873,7 @@ unary(node)
         if (tp->val_flag == 0)
             tp = deref(&ep1, tp);
         break;
-    case and:
+    case sym_and:
         getsym();
         tp = unary(&ep1);
         if (tp == NULL) {
@@ -765,7 +882,7 @@ unary(node)
         }
         if (lvalue(ep1))
             ep1 = ep1->v.p[0];
-        tp1 = (TYP *) xalloc(sizeof(TYP));
+        tp1 = (TYP *) xalloc(SZ_TYP);
         tp1->size = 4;
         tp1->type = bt_pointer;
         tp1->btp = tp;
@@ -788,7 +905,7 @@ unary(node)
             decl(NULL);
             decl1();
             if (head != NULL)
-                ep1 = makenode(en_icon, (long) (head->size), NULL);
+                ep1 = makenode(en_icon, (long)type_size(head), NULL);
             else {
                 error(ERR_IDEXPECT, NULL);
                 ep1 = makenode(en_icon, 1L, NULL);
@@ -797,7 +914,7 @@ unary(node)
         else {
             head = exprnc(&ep2);
             if (head != NULL)
-                ep1 = makenode(en_icon, (long) (head->size), NULL);
+                ep1 = makenode(en_icon, (long)type_size(head), NULL);
             else {
                 error(ERR_IDEXPECT, NULL);
                 ep1 = makenode(en_icon, 1L, NULL);
@@ -813,7 +930,7 @@ unary(node)
         tp = primary(&ep1);
         if (tp != NULL) {
             if (tp->type == bt_pointer)
-                i = tp->btp->size;
+                i = pointer_stride(tp->btp);
             else
                 i = 1;
             if (lastst == autoinc) {
@@ -1005,7 +1122,7 @@ addops(node)
         if (tp1->type == bt_pointer) {
             if (tp2->type != bt_pointer) {
                 tp2 = forcefit(NULL, &stdint, &ep2, tp2);
-                ep3 = makenode(en_icon, (long) (tp1->btp->size), NULL);
+                ep3 = makenode(en_icon, (long) pointer_stride(tp1->btp), NULL);
                 ep3->constflag = 1;
                 ep2 = makenode(en_mul, ep3, ep2);
                 ep2->constflag = ep2->v.p[1]->constflag;
@@ -1014,7 +1131,7 @@ addops(node)
         else if (tp2->type == bt_pointer) {
             if (tp1->type != bt_pointer) {
                 tp1 = forcefit(NULL, &stdint, &ep1, tp1);
-                ep3 = makenode(en_icon, (long) (tp2->btp->size), NULL);
+                ep3 = makenode(en_icon, (long) pointer_stride(tp2->btp), NULL);
                 ep3->constflag = 1;
                 ep1 = makenode(en_mul, ep3, ep1);
                 ep1->constflag = ep1->v.p[1]->constflag;
@@ -1025,7 +1142,7 @@ addops(node)
         case bt_pointer:
             ep1 = makenode(oper ? en_add : en_sub, ep1, ep2);
             if (tp2->type == bt_pointer && !oper) {
-                ep3 = makenode(en_icon, (long) (tp1->btp->size), NULL);
+                ep3 = makenode(en_icon, (long) pointer_stride(tp1->btp), NULL);
                 ep3->constflag = 1;
                 ep1 = makenode(en_div, ep1, ep3);
                 tp1 = &stdint;
@@ -1196,15 +1313,51 @@ equalops(node)
     return tp1;
 }
 
+/*
+ * Lower-precedence parsers for binop(); numeric levels avoid a function-
+ * pointer parameter type that AC cannot parse in K&R declarations.
+ */
+#define BINLEVEL_EQUAL  0
+#define BINLEVEL_BITAND 1
+#define BINLEVEL_BITXOR 2
+#define BINLEVEL_BITOR  3
+#define BINLEVEL_ANDOP  4
+
+TYP *expr_bitand(struct enode **);
+TYP *bitxor(struct enode **);
+TYP *expr_bitor(struct enode **);
+TYP *andop(struct enode **);
+
+static TYP *
+parse_binlevel(level, node)
+    int level;
+    struct enode **node;
+{
+    switch (level) {
+    case BINLEVEL_EQUAL:
+        return equalops(node);
+    case BINLEVEL_BITAND:
+        return expr_bitand(node);
+    case BINLEVEL_BITXOR:
+        return bitxor(node);
+    case BINLEVEL_BITOR:
+        return expr_bitor(node);
+    case BINLEVEL_ANDOP:
+        return andop(node);
+    default:
+        return NULL;
+    }
+}
+
 TYP *
-binop(node, xfunc, nt, sy)
+binop(node, level, nt, sy)
 
 /*
  * binop is a common routine to handle all of the legwork and error checking
  * for bitand, bitor, bitxor, andop, and orop.
  */
 struct enode  **node;
-TYP            *(*xfunc)(struct enode **);
+int             level;
 enum e_node     nt;
 enum e_sym      sy;
 
@@ -1212,12 +1365,12 @@ enum e_sym      sy;
     struct enode   *ep1, *ep2;
     TYP            *tp1, *tp2;
 
-    tp1 = (*xfunc) (&ep1);
+    tp1 = parse_binlevel(level, &ep1);
     if (tp1 == NULL)
         return NULL;
     while (lastst == sy) {
         getsym();
-        tp2 = (*xfunc) (&ep2);
+        tp2 = parse_binlevel(level, &ep2);
         if (tp2 == NULL)
             error(ERR_IDEXPECT, NULL);
         else {
@@ -1233,42 +1386,42 @@ enum e_sym      sy;
 }
 
 TYP            *
-bitand(node)
+expr_bitand(node)
 
 /*
  * the bitwise and operator...
  */
     struct enode  **node;
 {
-    return binop(node, equalops, en_and, and);
+    return binop(node, BINLEVEL_EQUAL, en_and, sym_and);
 }
 
 TYP            *
 bitxor(node)
     struct enode  **node;
 {
-    return binop(node, bitand, en_xor, uparrow);
+    return binop(node, BINLEVEL_BITAND, en_xor, uparrow);
 }
 
 TYP            *
-bitor(node)
+expr_bitor(node)
     struct enode  **node;
 {
-    return binop(node, bitxor, en_or, or);
+    return binop(node, BINLEVEL_BITXOR, en_or, sym_or);
 }
 
 TYP            *
 andop(node)
     struct enode  **node;
 {
-    return binop(node, bitor, en_land, land);
+    return binop(node, BINLEVEL_BITOR, en_land, land);
 }
 
 TYP            *
 orop(node)
     struct enode  **node;
 {
-    return binop(node, andop, en_lor, lor);
+    return binop(node, BINLEVEL_ANDOP, en_lor, lor);
 }
 
 TYP            *
@@ -1398,7 +1551,7 @@ asnop(node)
             getsym();
             tp2 = asnop(&ep2);
             if (tp1->type == bt_pointer) {
-                ep3 = makenode(en_icon, (long) (tp1->btp->size), NULL);
+                ep3 = makenode(en_icon, (long) pointer_stride(tp1->btp), NULL);
                 ep2 = makenode(en_mul, ep2, ep3);
             }
             goto ascomm2;

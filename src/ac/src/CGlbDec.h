@@ -26,7 +26,9 @@
  * Header file containing global declarations for the entire program
  */
 
-extern FILE    *input, *list, *output;
+extern FILE    *input, *list, *ac_output;
+#define output ac_output
+
 
 extern struct OptTab {
     int         Optimize;
@@ -46,6 +48,29 @@ extern struct OptTab {
     int         ShowColumn;
 }       Options;
 
+/*
+ * Byte offsets into Options.  ac-self collapses Options.member to (Options+0);
+ * Cmain must use these so gen-2 still sets Quiet/List/PreComp/CompileOnly correctly.
+ */
+#define OPT_OFF_Optimize          0
+#define OPT_OFF_List              4
+#define OPT_OFF_Quiet             8
+#define OPT_OFF_Annote           12
+#define OPT_OFF_Frame            16
+#define OPT_OFF_Debug            20
+#define OPT_OFF_MulDiv32         24
+#define OPT_OFF_Builtin          28
+#define OPT_OFF_PreComp          32
+#define OPT_OFF_Stack            36
+#define OPT_OFF_CompileOnly      40
+#define OPT_OFF_PreprocessOnly   44
+#define OPT_OFF_OutputFormat     48
+#define OPT_OFF_WarningsAsErrors 52
+#define OPT_OFF_ShowColumn       56
+#define OPT_REF(off) (*(int *) ((char *) &Options + (off)))
+
+extern void default_options(void);
+
 extern long ival;
 extern double   rval;
 extern int  lineno;
@@ -54,7 +79,7 @@ extern int  lastch;
 extern char lastid[MAX_IDP1];
 extern char laststr[MAX_STLP1];
 extern char    *curfile;
-extern enum e_sym lastst;
+extern int lastst;   /* token type; int not enum — SAS/C emits 16-bit enum (DC.w) */
 extern struct slit *strtab;
 
 extern TABLE    gsyms, lsyms;
@@ -93,3 +118,9 @@ extern TABLE    cmd_local;
 
 extern int      save_mask;  /* register save mask */
 extern int      PdcFlags;
+
+/* Lexer input line reader (not POSIX getline from stdio.h). */
+extern int      ac_getline(int listflag);
+
+/* Default -I paths for Amiga self-host (compinc/ before include/). */
+extern void     install_bootstrap_includes(void);

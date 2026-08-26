@@ -1,4 +1,3 @@
-
 /* PDC Compiler - A Freely Distributable C Compiler for the Amiga
  *                Based upon prior work by Matthew Brandt and Jeff Lydiatt.
  *
@@ -45,10 +44,17 @@ struct kwblk {
 
 struct kwblk    keywords[] = {
     {"_Bool", kw_bool},
+    {"_Noreturn", kw_noreturn},
+    {"and", land},
+    {"and_eq", asand},
     {"auto", kw_auto},
+    {"bitand", sym_and},
+    {"bitor", sym_or},
+    {"bool", kw_bool},
     {"break", kw_break},
     {"case", kw_case},
     {"char", kw_char},
+    {"compl", sym_compl},
     {"const", kw_const},
     {"continue", kw_continue},
     {"default", kw_default},
@@ -58,13 +64,27 @@ struct kwblk    keywords[] = {
     {"else", kw_else},
     {"enum", kw_enum},
     {"extern", kw_extern},
+    {"false", kw_false},
     {"float", kw_float},
     {"for", kw_for},
     {"goto", kw_goto},
     {"if", kw_if},
+    {"inline", kw_inline},
     {"int", kw_int},
+    {"int16_t", kw_int16},
+    {"int32_t", kw_int32},
+    {"int64_t", kw_int64},
+    {"int8_t", kw_int8},
+    {"intmax_t", kw_intmax},
+    {"intptr_t", kw_intptr},
     {"long", kw_long},
+    {"not", sym_not},
+    {"not_eq", neq},
+    {"nullptr", kw_nullptr},
+    {"or", lor},
+    {"or_eq", asor},
     {"register", kw_register},
+    {"restrict", kw_restrict},
     {"return", kw_return},
     {"short", kw_short},
     {"signed", kw_signed},
@@ -72,12 +92,21 @@ struct kwblk    keywords[] = {
     {"static", kw_static},
     {"struct", kw_struct},
     {"switch", kw_switch},
+    {"true", kw_true},
     {"typedef", kw_typedef},
+    {"uint16_t", kw_uint16},
+    {"uint32_t", kw_uint32},
+    {"uint64_t", kw_uint64},
+    {"uint8_t", kw_uint8},
+    {"uintmax_t", kw_uintmax},
+    {"uintptr_t", kw_uintptr},
     {"union", kw_union},
     {"unsigned", kw_unsigned},
     {"void", kw_void},
     {"volatile", kw_volatile},
     {"while", kw_while},
+    {"xor", lxor},
+    {"xor_eq", aseor},
     /* SAS/C keywords */
     {"__asm", kw_asm},
     {"__regargs", kw_regargs},
@@ -129,7 +158,7 @@ searchkw()
     high = kwblk_len - 1;
 
     do {
-        mid = (low + high) / 2;
+        mid = low + safe_ldiv(high - low, 2);
         kwbp = &keywords[mid];
 
         compare = strcmp(lastid, kwbp->word);

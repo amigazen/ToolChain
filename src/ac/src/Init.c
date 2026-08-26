@@ -37,6 +37,12 @@
 #include    "Gen.h"
 #include    "Cglbdec.h"
 
+/*
+ * Cap padding loops when type sizes are corrupt during self-host bootstrap.
+ */
+#define MAX_INIT_PAD 8192
+#define MAX_INIT_ELEMS 512
+
 extern SYM     *gsearch();
 extern SYM     *gsearch();
 extern TYP     *exprnc(), *asforcefit(), *deref();
@@ -86,7 +92,14 @@ initarray(tp)
             nbytes = initstring(tp);
         }
         else {
+            int ninit;
+
+            ninit = 0;
             while (lastst != end) {
+                if (++ninit > MAX_INIT_ELEMS) {
+                    error(ERR_SYNTAX, NULL);
+                    break;
+                }
                 nbytes += inittype(tp->btp);
                 if (lastst == comma)
                     getsym();
@@ -112,6 +125,8 @@ initarray(tp)
         error(ERR_ILLINIT, NULL);
     if (nbytes < tp->size) {
         num = tp->size - nbytes;
+        if (num > MAX_INIT_PAD || tp->size > MAX_INIT_PAD)
+            num = 0;
         if (num & 1) {  /* Only generate even amounts of storage */
             genbyte(0);
             --num;
@@ -142,6 +157,13 @@ initstruct(tp)
 
     if (sp != NULL) {
         if (nbytes < sp->value.i) {
+            /*
+             * Reject corrupt member offsets before genbyte loops explode.
+             */
+            if (sp->value.i > tp->size
+                || sp->value.i - nbytes > tp->size
+                || sp->value.i - nbytes > MAX_INIT_PAD)
+                sp->value.i = nbytes;
             while (nbytes < sp->value.i) {  /* align properly */
                 genbyte(0);
                 ++nbytes;
@@ -156,6 +178,10 @@ initstruct(tp)
             if (lastst == comma)
                 getsym();
             if (nbytes < sp->value.i) {
+                if (sp->value.i > tp->size
+                    || sp->value.i - nbytes > tp->size
+                    || sp->value.i - nbytes > MAX_INIT_PAD)
+                    sp->value.i = nbytes;
                 while (nbytes < sp->value.i) {  /* align properly */
                     genbyte(0);
                     ++nbytes;
@@ -166,8 +192,15 @@ initstruct(tp)
         }
     }
 done:
-    if (nbytes < tp->size)
-        genstorage((int) (tp->size - nbytes));
+    if (nbytes < tp->size) {
+        int pad;
+
+        pad = tp->size - nbytes;
+        if (pad > MAX_INIT_PAD || tp->size > MAX_INIT_PAD)
+            pad = 0;
+        if (pad > 0)
+            genstorage(pad);
+    }
     if (seen) {
         if (lastst == comma)
             getsym();
@@ -241,7 +274,7 @@ initpointer()
             error(ERR_IDEXPECT, NULL);
         else {
             if (ep->v.p[0]->nodetype == en_labcon) {
-                offset = ep->v.p[1]->v.i;
+                offset = (int)ICON16L((long)ep->v.p[1]->v.i);
                 if (ep->nodetype == en_add)
                     gen_labref((int) ep->v.p[0]->v.i, offset);
                 else
@@ -255,7 +288,7 @@ initpointer()
                 else if (ep->v.p[1]->nodetype != en_icon)
                     error(ERR_SYNTAX, NULL);
                 else {
-                    offset = ep->v.p[1]->v.i;
+                    offset = (int)ICON16L((long)ep->v.p[1]->v.i);
                     if (ep->nodetype == en_add)
                         genref(sp, offset);
                     else
@@ -356,18 +389,52 @@ void
 doinit(sp)
     SYM            *sp;
 {
+    int             align;
+    int             sz;
+
     if (lastst == assign)
         dseg();     /* initialize into data segment */
     else
         bseg();     /* generate storage in the bss  */
 
     nl();           /* start a new line in object */
+    /*
+     * Word-align before the label in this section.  After a 1-byte
+     * BSS object (e.g. optsign), the next long/pointer (optarg) must
+     * be even or A68k reports "Alignment error" on move.l.
+     * Fall back to size: if alignment() wrongly returns 1 for a
+     * multi-byte object, still emit CNOP 0,2.
+     */
+    align = 1;
+    if (sp->tp != NULL) {
+        align = alignment(sp->tp);
+        if (align <= 1) {
+            sz = type_size(sp->tp);
+            if (sz >= 2)
+                align = 2;
+        }
+    }
+    if (align > 1)
+        genalignment(align);
     if (sp->storage_class == sc_static)
         put_label((long) (sp->value.i));
     else
         gen_strlab(sp->name);
-    if (lastst != assign)
-        genstorage((int) (sp->tp->size));
+    if (lastst != assign) {
+        /* Use type_size(): arrays are bt_pointer+val_flag, not 4 bytes. */
+        sz = type_size(sp->tp);
+        if (sz > MAX_INIT_PAD || sz < 0)
+            sz = 0;
+        /*
+         * Never emit a BSS/data label with no DS.b — A68k/Blink then
+         * produce load files LoadSeg rejects ("not executable").
+         */
+        if (sz <= 0 && sp->tp != NULL && sp->tp->type != bt_func
+            && sp->tp->type != bt_ifunc && sp->tp->type != bt_void)
+            sz = 4;
+        if (sz > 0)
+            genstorage(sz);
+    }
     else {
         getsym();
         inittype(sp->tp);
@@ -393,7 +460,7 @@ doinitauto(sp)
     snp = (struct snode *) xalloc(sizeof(struct snode));
     snp->stype = st_expr;
 
-    ep1 = makenode(en_autocon, sp->value.i, NULL);
+    ep1 = makenode(en_autocon, ICON16L(sp->value.i), NULL);
     ep1->constflag = 0;
 
     tp1 = sp->tp;

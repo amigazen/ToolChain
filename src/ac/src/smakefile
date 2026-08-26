@@ -1,4 +1,26 @@
 
+# AC 4.0 — AmigaOS build (SAS/C smake)
+#
+# Run from THIS directory (github/TCC/src/ac/src):
+#
+#   smake -f smakefile all
+#   smake -f smakefile clean
+#
+# Self-host with ac (assembly only, no link):
+#
+#   make bootstrap
+#   make report
+#
+# Produces ./ac linked with slink (see output.txt for a successful log).
+#
+# The Mac/host GNU Makefile lives one level up:
+#
+#   github/TCC/src/ac/Makefile     (Mac/Linux, cc/clang)
+#
+# Self-host assembly (ac → bootstrap/*.s, no link):
+#
+#   make bootstrap
+
 # To compile with the debug option, make sure that DEBUG and DEBUGL are
 # uncommented.
 

@@ -34,21 +34,10 @@
 #include    <string.h>
 #include    <ctype.h>
 #include    <assert.h>
-#include    <time.h>
 
-#ifndef unix
+#include    "host_posix.h"
+
 #define GENERATE_TIME
-#endif
-
-#ifdef AZTEC_C
-#define isidch(x)    ((ctp_[(x)+1] & 0x07) || ((x) == '_') || ((x) == '$'))
-#include    <time.h>
-
-#else
-#ifdef GENERATE_TIME
-/* Removed sys/time.h include - conflicts with ANSI C time.h */
-#endif
-#endif
 
 #include    "C.h"
 #include    "Expr.h"
@@ -56,11 +45,6 @@
 #include    "Cglbdec.h"
 
 #define LINDEPTH    20
-
-static char    *months[] = {
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-};
 
 extern char    *itoa();
 extern SYM     *search();
@@ -146,41 +130,12 @@ static char    *errmsg[] =
 void
 time_and_date()
 {
-    struct tm       *tp;
-    long            timeval;
-
-    time( &timeval );
-    tp = localtime( &timeval );
-
-    strcpy( __datebuf, "\"" );
-    strcat( __datebuf, months[ tp->tm_mon ]);
-    strcat( __datebuf, " " );
-    strcat( __datebuf, itoa(tp->tm_mday));
-    strcat( __datebuf, " 19" );
-    strcat( __datebuf, itoa(tp->tm_year));
-    strcat( __datebuf, "\"" );
-
-    strcpy( __timebuf, "\"" );
-
-    if (tp->tm_hour < 10)
-        strcat( __timebuf, "0" );
-    strcat( __timebuf, itoa(tp->tm_hour));
-
-    if (tp->tm_min < 10)
-        strcat( __timebuf, ":0" );
-    else
-        strcat( __timebuf, ":" );
-
-    strcat( __timebuf, itoa(tp->tm_min));
-
-    if (tp->tm_sec < 10)
-        strcat( __timebuf, ":0" );
-    else
-        strcat( __timebuf, ":" );
-
-    strcat( __timebuf, itoa(tp->tm_sec));
-
-    strcat( __timebuf, "\"" );
+    /*
+     * Use compiler builtins, not struct tm: SDK time.h is often incomplete
+     * when ac-self compiles this file (tm_mon etc. -> No Member).
+     */
+    strcpy(__datebuf, "\"" __DATE__ "\"");
+    strcpy(__timebuf, "\"" __TIME__ "\"");
 }
 
 #endif
@@ -212,6 +167,8 @@ install_defines()
     setdefine("__AMIGA__", " 1 ");
     setdefine("__amigaos__", " 1 ");
     setdefine("__SASC", " 1 ");
+    setdefine("_SASC", " 1 ");
+    setdefine("__SASC__", " 1 ");
 
 
     if (Options.Builtin) {
@@ -255,7 +212,7 @@ initsym()
 }
 
 int
-getline(listflag)
+ac_getline(listflag)
     int             listflag;
 {
     int             err, i;
@@ -273,13 +230,13 @@ getline(listflag)
              */
             if (!(Options.List && listflag)) {
                 if (numerrs == 1)
-                    fprintf( stderr, "\nError in " );
+                    fprintf(AC_DIAG_STREAM, "\nError in " );
                 else
-                    fprintf( stderr, "\nErrors in " );
+                    fprintf(AC_DIAG_STREAM, "\nErrors in " );
                 if (lineno > 0) {
-                    fprintf(stderr, "line %d of ", lineno);
+                    fprintf(AC_DIAG_STREAM, "line %d of ", lineno);
                 }
-                fprintf(stderr, "%s:\n%s", curfile, in_line);
+                fprintf(AC_DIAG_STREAM, "%s:\n%s", curfile, in_line);
             }
 
             /*
@@ -288,11 +245,11 @@ getline(listflag)
             for (i = 0; numerrs--; ++i) {
                 err = errno[i];
                 s = (char *) " *** error ";
-                fprintf(stderr, "%s%d", s, err);
+                fprintf(AC_DIAG_STREAM, "%s%d", s, err);
                 if (err <= MAXERR) {
-                    fprintf(stderr, " %s", errmsg[err]);
+                    fprintf(AC_DIAG_STREAM, " %s", errmsg[err]);
                     if (errxx[i] != NULL) {
-                        fprintf(stderr, " : %s", errxx[i]);
+                        fprintf(AC_DIAG_STREAM, " : %s", errxx[i]);
                     }
                 }
                 else {
@@ -304,7 +261,7 @@ getline(listflag)
                         fprintf( list, "\n" );
                     }
                 }
-                fprintf( stderr, "\n" );
+                fprintf(AC_DIAG_STREAM, "\n" );
             }
         }
 
@@ -323,7 +280,7 @@ getline(listflag)
             curfile = inclname[incldepth];
             padstr( __filebuf, curfile );
             strcpy( __linebuf, itoa(dbxlnum));
-            return getline(0);
+            return ac_getline(0);
         }
 
         if (data == NULL && rv)
@@ -360,7 +317,7 @@ getch()
         }
         if (oneline)
             return lastch = -1;
-        if (getline(incldepth == 0))
+        if (ac_getline(incldepth == 0))
             return lastch = -1;
     }
     
@@ -387,7 +344,7 @@ joinch()
             lastch = chstack[lstackptr];
             return lastch;
         }
-        if (getline(incldepth == 0))
+        if (ac_getline(incldepth == 0))
             return lastch = -1;
     }
     return lastch;
@@ -452,33 +409,33 @@ error_at_line(n, msg, filename, line, column)
     switch (Options.OutputFormat) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
-            fprintf(stderr, "%s:%d:%d: error: %s", filename, line, column, msg);
+            fprintf(AC_DIAG_STREAM, "%s:%d:%d: error: %s", filename, line, column, msg);
         } else {
-            fprintf(stderr, "%s:%d: error: %s", filename, line, msg);
+            fprintf(AC_DIAG_STREAM, "%s:%d: error: %s", filename, line, msg);
         }
         if (n <= MAXERR) {
-            fprintf(stderr, " (%s)", errmsg[n]);
+            fprintf(AC_DIAG_STREAM, " (%s)", errmsg[n]);
         }
-        fprintf(stderr, "\n");
+        fprintf(AC_DIAG_STREAM, "\n");
         break;
     case 1: /* SASC format */
-        fprintf(stderr, "%s(%d", filename, line);
+        fprintf(AC_DIAG_STREAM, "%s(%d", filename, line);
         if (Options.ShowColumn) {
-            fprintf(stderr, ",%d", column);
+            fprintf(AC_DIAG_STREAM, ",%d", column);
         }
-        fprintf(stderr, ") : error: %s", msg);
+        fprintf(AC_DIAG_STREAM, ") : error: %s", msg);
         if (n <= MAXERR) {
-            fprintf(stderr, " (%s)", errmsg[n]);
+            fprintf(AC_DIAG_STREAM, " (%s)", errmsg[n]);
         }
-        fprintf(stderr, "\n");
+        fprintf(AC_DIAG_STREAM, "\n");
         break;
     case 2: /* PDC format */
     default:
-        fprintf(stderr, "Error in %s:%d: %s", filename, line, msg);
+        fprintf(AC_DIAG_STREAM, "Error in %s:%d: %s", filename, line, msg);
         if (n <= MAXERR) {
-            fprintf(stderr, " (%s)", errmsg[n]);
+            fprintf(AC_DIAG_STREAM, " (%s)", errmsg[n]);
         }
-        fprintf(stderr, "\n");
+        fprintf(AC_DIAG_STREAM, "\n");
         break;
     }
 }
@@ -498,33 +455,33 @@ warning_at_line(n, msg, filename, line, column)
     switch (Options.OutputFormat) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
-            fprintf(stderr, "%s:%d:%d: warning: %s", filename, line, column, msg);
+            fprintf(AC_DIAG_STREAM, "%s:%d:%d: warning: %s", filename, line, column, msg);
         } else {
-            fprintf(stderr, "%s:%d: warning: %s", filename, line, msg);
+            fprintf(AC_DIAG_STREAM, "%s:%d: warning: %s", filename, line, msg);
         }
         if (n <= MAXERR) {
-            fprintf(stderr, " (%s)", errmsg[n]);
+            fprintf(AC_DIAG_STREAM, " (%s)", errmsg[n]);
         }
-        fprintf(stderr, "\n");
+        fprintf(AC_DIAG_STREAM, "\n");
         break;
     case 1: /* SASC format */
-        fprintf(stderr, "%s(%d", filename, line);
+        fprintf(AC_DIAG_STREAM, "%s(%d", filename, line);
         if (Options.ShowColumn) {
-            fprintf(stderr, ",%d", column);
+            fprintf(AC_DIAG_STREAM, ",%d", column);
         }
-        fprintf(stderr, ") : warning: %s", msg);
+        fprintf(AC_DIAG_STREAM, ") : warning: %s", msg);
         if (n <= MAXERR) {
-            fprintf(stderr, " (%s)", errmsg[n]);
+            fprintf(AC_DIAG_STREAM, " (%s)", errmsg[n]);
         }
-        fprintf(stderr, "\n");
+        fprintf(AC_DIAG_STREAM, "\n");
         break;
     case 2: /* PDC format */
     default:
-        fprintf(stderr, "Warning in %s:%d: %s", filename, line, msg);
+        fprintf(AC_DIAG_STREAM, "Warning in %s:%d: %s", filename, line, msg);
         if (n <= MAXERR) {
-            fprintf(stderr, " (%s)", errmsg[n]);
+            fprintf(AC_DIAG_STREAM, " (%s)", errmsg[n]);
         }
-        fprintf(stderr, "\n");
+        fprintf(AC_DIAG_STREAM, "\n");
         break;
     }
     
@@ -674,11 +631,13 @@ getbase(b)
     char            b;
 {
     register long   i, j;
+    long            base;
 
+    base = (long) b;
     i = 0;
     while (isalnum(lastch)) {
         if ((j = radix36(lastch)) < b) {
-            i = i * b + j;
+            i = safe_lmul(i, base) + j;
             getch();
         }
         else
@@ -1064,7 +1023,7 @@ restart:            /* we come back here after comments */
                 lastst = neq;
             }
             else
-                lastst = not;
+                lastst = sym_not;
             break;
         case '%':
             getch();
@@ -1077,7 +1036,7 @@ restart:            /* we come back here after comments */
             break;
         case '~':
             getch();
-            lastst = compl;
+            lastst = sym_compl;
             break;
         case '.':
             getch();
@@ -1113,7 +1072,7 @@ restart:            /* we come back here after comments */
                 getch();
             }
             else
-                lastst = and;
+                lastst = sym_and;
             break;
         case '|':
             getch();
@@ -1126,7 +1085,7 @@ restart:            /* we come back here after comments */
                 getch();
             }
             else
-                lastst = or;
+                lastst = sym_or;
             break;
         case '(':
             getch();

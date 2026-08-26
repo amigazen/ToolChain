@@ -46,33 +46,36 @@ extern TYP stddouble;
 /* Integer promotion function - promotes char/short to int/unsigned int */
 TYP *integer_promote(TYP *tp, struct enode **node)
 {
+    if (tp == NULL)
+        return NULL;
+
     switch (tp->type) {
     case bt_char:
-        if (node != NULL) {
+        if (node != NULL && *node != NULL) {
             *node = makenode(en_cbl, *node, NULL);
             (*node)->signedflag = 1;
         }
         return &stdint;
     case bt_bool:
-        if (node != NULL) {
+        if (node != NULL && *node != NULL) {
             *node = makenode(en_cbl, *node, NULL);
             (*node)->signedflag = 1;
         }
         return &stdint;
     case bt_uchar:
-        if (node != NULL) {
+        if (node != NULL && *node != NULL) {
             *node = makenode(en_cbl, *node, NULL);
             (*node)->signedflag = 0;
         }
         return &stdunsigned;
     case bt_short:
-        if (node != NULL) {
+        if (node != NULL && *node != NULL) {
             *node = makenode(en_cwl, *node, NULL);
             (*node)->signedflag = 1;
         }
         return &stdint;
     case bt_ushort:
-        if (node != NULL) {
+        if (node != NULL && *node != NULL) {
             *node = makenode(en_cwl, *node, NULL);
             (*node)->signedflag = 0;
         }
@@ -85,15 +88,11 @@ TYP *integer_promote(TYP *tp, struct enode **node)
 /* Array decay function - converts arrays to pointers when used in expressions */
 TYP *array_decay(TYP *tp, struct enode **node)
 {
-    /* Arrays decay to pointers to their first element */
-    if (tp != NULL && tp->type == bt_pointer && tp->val_flag == 1) {
-        /* This is an array type, convert to pointer */
-        TYP *new_tp = maketype(bt_pointer, 4);
-        new_tp->btp = tp->btp;
-        new_tp->val_flag = 0;  /* Not an array anymore */
-        new_tp->qualifiers = tp->qualifiers;  /* Preserve qualifiers */
-        return new_tp;
-    }
+    /*
+     * Array-to-pointer decay during expression parsing is disabled until
+     * maketype()/xalloc interaction is verified on all host targets.
+     */
+    (void)node;
     return tp;
 }
 
@@ -103,17 +102,22 @@ TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node1, stru
     /* First apply integer promotion to both operands */
     tp1 = integer_promote(tp1, node1);
     tp2 = integer_promote(tp2, node2);
+
+    if (tp1 == NULL)
+        return tp2;
+    if (tp2 == NULL)
+        return tp1;
     
     /* If either operand is floating point, convert to floating point */
     if (tp1->type == bt_double || tp2->type == bt_double) {
         if (tp1->type != bt_double) {
-            if (node1 != NULL) {
+            if (node1 != NULL && *node1 != NULL) {
                 *node1 = makenode(en_cld, *node1, NULL);
                 (*node1)->signedflag = 1;
             }
         }
         if (tp2->type != bt_double) {
-            if (node2 != NULL) {
+            if (node2 != NULL && *node2 != NULL) {
                 *node2 = makenode(en_cld, *node2, NULL);
                 (*node2)->signedflag = 1;
             }
@@ -123,13 +127,13 @@ TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node1, stru
     
     if (tp1->type == bt_float || tp2->type == bt_float) {
         if (tp1->type != bt_float) {
-            if (node1 != NULL) {
+            if (node1 != NULL && *node1 != NULL) {
                 *node1 = makenode(en_clf, *node1, NULL);
                 (*node1)->signedflag = 1;
             }
         }
         if (tp2->type != bt_float) {
-            if (node2 != NULL) {
+            if (node2 != NULL && *node2 != NULL) {
                 *node2 = makenode(en_clf, *node2, NULL);
                 (*node2)->signedflag = 1;
             }
@@ -195,7 +199,7 @@ conv_signed( node, cmd )
     struct enode    **node;
     enum e_node     cmd;
 {
-    if (node != NULL) {
+    if (node != NULL && *node != NULL) {
         *node = makenode( cmd, *node, NULL );
         (*node)->signedflag = 1;
     }
@@ -206,7 +210,7 @@ conv_unsigned( node, cmd )
     struct enode    **node;
     enum e_node     cmd;
 {
-    if (node != NULL) {
+    if (node != NULL && *node != NULL) {
         *node = makenode( cmd, *node, NULL );
         (*node)->signedflag = 0;
     }
@@ -227,9 +231,15 @@ asforcefit(node1, tp1, node2, tp2)
     struct enode  **node1, **node2;
     TYP            *tp1, *tp2;
 {
-    node1 = node1;
+    if (tp1 == NULL || tp2 == NULL)
+        return (tp1 != NULL) ? tp1 : tp2;
 
     switch (tp1->type) {
+    case bt_bool:
+        /* Any scalar assigns to bool (C99/C23 conversion to 0/1 at runtime). */
+        if (isscalar(tp2) || tp2->type == bt_bool)
+            return tp1;
+        break;
     case bt_char:
         switch (tp2->type) {
         case bt_char:
@@ -357,6 +367,14 @@ asforcefit(node1, tp1, node2, tp2)
         if (isscalar(tp2) || tp2->type == bt_pointer)
             return tp1;
         break;
+    case bt_longlong:
+        if (isscalar(tp2) || tp2->type == bt_longlong || tp2->type == bt_ulonglong)
+            return tp1;
+        break;
+    case bt_ulonglong:
+        if (isscalar(tp2) || tp2->type == bt_longlong || tp2->type == bt_ulonglong)
+            return tp1;
+        break;
     case bt_union:
     case bt_struct:
         if (tp1->type == tp2->type)
@@ -398,6 +416,9 @@ forcefit(node1, tp1, node2, tp2)
     struct enode  **node1, **node2;
     TYP            *tp1, *tp2;
 {
+    if (tp1 == NULL || tp2 == NULL)
+        return (tp1 != NULL) ? tp1 : tp2;
+
     /* Handle special cases first */
     if (tp1->type == bt_pointer) {
         if (isscalar(tp2) || tp2->type == bt_pointer)
@@ -434,7 +455,24 @@ forcefit(node1, tp1, node2, tp2)
     /* Apply array decay first */
     tp1 = array_decay(tp1, node1);
     tp2 = array_decay(tp2, node2);
-    
-    /* Use usual arithmetic conversions for all other cases */
-    return usual_arithmetic_conversions(tp1, tp2, node1, node2);
+
+    /*
+     * Binary expression compatibility.  usual_arithmetic_conversions() rewrites
+     * expression nodes and is not yet safe for every legacy parse path; use a
+     * conservative result type until self-host bootstrap is stable.
+     */
+    if (tp1 == NULL || tp2 == NULL)
+        return (tp1 != NULL) ? tp1 : tp2;
+    if (tp1->type == bt_double || tp2->type == bt_double)
+        return &stddouble;
+    if (tp1->type == bt_float || tp2->type == bt_float)
+        return &stdfloat;
+    if (tp1->type == bt_longlong || tp2->type == bt_longlong)
+        return &stdlonglong;
+    if (tp1->type == bt_ulonglong || tp2->type == bt_ulonglong)
+        return &stdulonglong;
+    if (tp1->type == bt_unsigned || tp2->type == bt_unsigned ||
+        tp1->type == bt_ulong || tp2->type == bt_ulong)
+        return &stdunsigned;
+    return &stdint;
 }

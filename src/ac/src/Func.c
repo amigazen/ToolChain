@@ -91,20 +91,92 @@ funcbody(sp)
     poffset = 8;        /* size of return block */
     nparms = 0;
 
-    if (castbegin(lastst)) {
+    /*
+     * ANSI parameter list may already have been parsed in decl2() when the
+     * declarator saw `(type ...)`.  In that case lst is filled and lastst is
+     * `{` or `;` — do not call declproto again.
+     */
+    if (sp->tp->lst.head != NULL
+        && (lastst == begin || lastst == semicolon)) {
+        for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
+            if (sp1->tp->type == bt_pointer && sp1->tp->val_flag == 0)
+                size = 4;
+            else {
+                size = type_size(sp1->tp);
+                if (size <= 0)
+                    size = 4;
+            }
+            sp1->value.i = poffset;
+            if (sp1->name != NULL) {
+                SYM *lsp;
+
+                lsp = search(sp1->name, lsyms.head);
+                if (lsp != NULL)
+                    lsp->value.i = poffset;
+            }
+            if (size >= 4)
+                poffset += size;
+            else {
+                if (size == 1) {
+                    ++sp1->value.i;
+                    if (sp1->name != NULL) {
+                        SYM *lsp;
+
+                        lsp = search(sp1->name, lsyms.head);
+                        if (lsp != NULL)
+                            ++lsp->value.i;
+                    }
+                }
+                poffset += 2;
+            }
+            if (in_function == 1) {
+                sp1->storage_class = sc_auto;
+                sp1->storage_type = sc_parameter;
+#ifdef  GENERATE_DBX
+                dbx_ident(sp1);
+#endif
+            }
+        }
+    }
+    else if (castbegin(lastst)) {
         if (in_function > 1)
             declproto(&(sp->tp->lst), NULL );
         else
             declproto(&(sp->tp->lst), &lsyms );
         needpunc(closepa);
         for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
-            size = sp1->tp->size;
+            if (sp1->tp->type == bt_pointer && sp1->tp->val_flag == 0)
+                size = 4;
+            else {
+                size = type_size(sp1->tp);
+                if (size <= 0)
+                    size = 4;
+            }
             sp1->value.i = poffset;
+            /*
+             * declproto() inserts a copy into lsyms and another into tp->lst.
+             * Name lookup uses lsyms — keep its value.i in sync with poffset.
+             */
+            if (sp1->name != NULL) {
+                SYM *lsp;
+
+                lsp = search(sp1->name, lsyms.head);
+                if (lsp != NULL)
+                    lsp->value.i = poffset;
+            }
             if (size >= 4)
                 poffset += size;
             else {
-                if (size == 1)
+                if (size == 1) {
                     ++sp1->value.i;
+                    if (sp1->name != NULL) {
+                        SYM *lsp;
+
+                        lsp = search(sp1->name, lsyms.head);
+                        if (lsp != NULL)
+                            ++lsp->value.i;
+                    }
+                }
                 poffset += 2;
             }
             if (in_function == 1) {
@@ -130,10 +202,13 @@ funcbody(sp)
         for (i = 0; i < nparms; ++i) {
             if ((sp1 = search(names[i], lsyms.head)) == NULL)
                 sp1 = makeint(names[i]);
-            if (sp1->tp->type == bt_pointer)
+            if (sp1->tp->type == bt_pointer && sp1->tp->val_flag == 0)
                 size = 4;
-            else
-                size = sp1->tp->size;
+            else {
+                size = type_size(sp1->tp);
+                if (size <= 0)
+                    size = 4;
+            }
             sp1->value.i = poffset;
             if (size < 4) {
                 if (size == 1)
@@ -185,8 +260,8 @@ makeint(name)
     SYM            *sp;
     TYP            *tp;
 
-    sp = (SYM *) xalloc(sizeof(SYM));
-    tp = (TYP *) xalloc(sizeof(TYP));
+    sp = (SYM *) xalloc(SZ_SYM);
+    tp = (TYP *) xalloc(SZ_TYP);
     tp->type = bt_long;
     tp->size = 4;
     tp->btp = NULL;
@@ -211,7 +286,7 @@ check_table(head)
             if (Options.List) {
                 fprintf( list, err_fmt, head->name );
             }
-            fprintf( stderr, err_fmt, head->name );
+            fprintf(AC_DIAG_STREAM, err_fmt, head->name );
         }
         head = head->next;
     }

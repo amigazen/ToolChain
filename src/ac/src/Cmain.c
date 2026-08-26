@@ -32,7 +32,10 @@
 #include    <stdio.h>
 #include    <stdlib.h>
 #include    <string.h>
+#include    "host_posix.h"
+#if defined(AC_HOST_POSIX)
 #include    <unistd.h>
+#endif
 #include    "C.h"
 #include    "Expr.h"
 #include    "Gen.h"
@@ -99,7 +102,7 @@ add_option(TABLE *tbl, char *cmd)
 
     ++global_flag;
 
-    sp = (SYM *) xalloc(sizeof(SYM));
+    sp = (SYM *) xalloc(SZ_SYM);
     sp->storage_class = sc_define;
     sp->storage_type = sc_define;
     sp->value.s = NULL;
@@ -128,6 +131,15 @@ add_option(TABLE *tbl, char *cmd)
     --global_flag;
 }
 
+void
+default_options(void)
+{
+    /* OPT_REF only — named Options.field collapses to offset 0 under ac-self. */
+    OPT_REF(OPT_OFF_Optimize) = 1;
+    OPT_REF(OPT_OFF_Frame) = 5;
+    OPT_REF(OPT_OFF_ShowColumn) = 1;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -135,14 +147,21 @@ main(int argc, char **argv)
     extern int      optind;
     extern int      opterr;
     extern char    *optarg;
-    int             used_stdin;
+    /* Static: ac-self aliased used_stdin with loop index i in one register. */
+    static int      used_stdin;
     int             i, c, files_processed;
 
     opterr = 1;
     used_stdin = FALSE;
     progname = argv[0];
 
-#ifdef _unix_
+    default_options();
+
+#if !defined(AC_HOST_POSIX)
+    install_bootstrap_includes();
+#endif
+
+#ifdef AC_HOST_POSIX
     open_stdio();
 #endif
 
@@ -150,11 +169,11 @@ main(int argc, char **argv)
         switch (c) {
         case 'a':
         case 'A':
-            Options.Annote = !Options.Annote;
+            OPT_REF(OPT_OFF_Annote) = !OPT_REF(OPT_OFF_Annote);
             break;
         case 'b':
         case 'B':
-            Options.Builtin = !Options.Builtin;
+            OPT_REF(OPT_OFF_Builtin) = !OPT_REF(OPT_OFF_Builtin);
             break;
         case 'd':
         case 'D':   /* Define a preprocessor Symbol */
@@ -168,7 +187,7 @@ main(int argc, char **argv)
             break;
         case 'g':
         case 'G':
-            Options.Debug = !Options.Debug;
+            OPT_REF(OPT_OFF_Debug) = !OPT_REF(OPT_OFF_Debug);
             break;
         case 'I':   /* Preprocessor include directory */
             ++global_flag;
@@ -181,11 +200,11 @@ main(int argc, char **argv)
             --global_flag;
             break;
         case 'l':
-            Options.List = !Options.List;
+            OPT_REF(OPT_OFF_List) = !OPT_REF(OPT_OFF_List);
             break;
         case 'n':
         case 'N':
-            Options.Optimize = !Options.Optimize;
+            OPT_REF(OPT_OFF_Optimize) = !OPT_REF(OPT_OFF_Optimize);
             break;
         case 'o':
         case 'O':
@@ -193,60 +212,60 @@ main(int argc, char **argv)
             break;
         case 'p':
         case 'P':
-            Options.PreComp = 1;
+            OPT_REF(OPT_OFF_PreComp) = 1;
             if (strcmp(optarg, "0") != 0) {
-                Options.PreComp = 2;
+                OPT_REF(OPT_OFF_PreComp) = 2;
                 strcpy(prefile, optarg);
             }
             break;
         case 'q':
         case 'Q':
-            Options.Quiet = !Options.Quiet;
+            OPT_REF(OPT_OFF_Quiet) = !OPT_REF(OPT_OFF_Quiet);
             break;
         case 'r':
         case 'R':
-            Options.MulDiv32 = !Options.MulDiv32;
+            OPT_REF(OPT_OFF_MulDiv32) = !OPT_REF(OPT_OFF_MulDiv32);
             break;
         case 's':
         case 'S':
-            Options.Stack = !Options.Stack;
+            OPT_REF(OPT_OFF_Stack) = !OPT_REF(OPT_OFF_Stack);
             break;
         case 'f':
         case 'F':
             /* Check if it's a format option first */
             if (strcmp(optarg, "gcc") == 0) {
-                Options.OutputFormat = 0;
+                OPT_REF(OPT_OFF_OutputFormat) = 0;
             } else if (strcmp(optarg, "sasc") == 0) {
-                Options.OutputFormat = 1;
+                OPT_REF(OPT_OFF_OutputFormat) = 1;
             } else if (strcmp(optarg, "pdc") == 0) {
-                Options.OutputFormat = 2;
+                OPT_REF(OPT_OFF_OutputFormat) = 2;
             } else {
                 /* Otherwise treat as frame pointer option */
                 i = atoi(optarg);
                 if (i >= 4 || i >= 6)
-                    Options.Frame = i;
+                    OPT_REF(OPT_OFF_Frame) = i;
             }
             break;
         case 'c':
-            Options.CompileOnly = 1;
+            OPT_REF(OPT_OFF_CompileOnly) = 1;
             break;
         case 'E':
-            Options.PreprocessOnly = 1;
+            OPT_REF(OPT_OFF_PreprocessOnly) = 1;
             break;
         case 'L':
             /* Library directory - not implemented yet */
-            fprintf(stderr, "%s: -L option not implemented\n", progname);
+            fprintf(AC_DIAG_STREAM, "%s: -L option not implemented\n", progname);
             break;
         case 'W':
             /* Warning options */
             if (strcmp(optarg, "error") == 0) {
-                Options.WarningsAsErrors = 1;
+                OPT_REF(OPT_OFF_WarningsAsErrors) = 1;
             } else if (strcmp(optarg, "no-error") == 0) {
-                Options.WarningsAsErrors = 0;
+                OPT_REF(OPT_OFF_WarningsAsErrors) = 0;
             } else if (strcmp(optarg, "no-column") == 0) {
-                Options.ShowColumn = 0;
+                OPT_REF(OPT_OFF_ShowColumn) = 0;
             } else if (strcmp(optarg, "column") == 0) {
-                Options.ShowColumn = 1;
+                OPT_REF(OPT_OFF_ShowColumn) = 1;
             }
             break;
         case '?':
@@ -260,13 +279,13 @@ main(int argc, char **argv)
     for (i = 0; i < argc; i++) {
         if (strcmp(argv[i], "-") == 0) {
             if (used_stdin) {
-                fprintf( stderr, "%s: stdin used more than once.\n", progname );
+                fprintf(AC_DIAG_STREAM, "%s: stdin used more than once.\n", progname );
             }
             used_stdin = TRUE;
         }
-#if unix
-        else if (access(argv[i], 4) == -1) {
-            fprintf( stderr, "%s : cannot access %s", progname, argv[i] );
+#if defined(AC_HOST_POSIX)
+        else if (access(argv[i], R_OK) == -1) {
+            fprintf(AC_DIAG_STREAM, "%s : cannot access %s", progname, argv[i] );
             perror("");
             exit(1);
         }
@@ -282,7 +301,7 @@ main(int argc, char **argv)
             lineno = 0;
             initsym();
 
-            if (Options.PreComp == 2)
+            if (OPT_REF(OPT_OFF_PreComp) == 2)
                 read_precomp(prefile);
 
             install_defines();
@@ -290,9 +309,9 @@ main(int argc, char **argv)
             getch();
             getsym();
             compile();
-            getline(1);
+            ac_getline(1);
 
-            if (!fatal && Options.PreComp == 1) {
+            if (!fatal && OPT_REF(OPT_OFF_PreComp) == 1) {
                 strcpy(prefile, infile);
                 makename(prefile, ".pre");
                 dump_precomp(prefile);
@@ -309,11 +328,11 @@ main(int argc, char **argv)
 
     /* Check if no files were successfully processed */
     if (files_processed == 0) {
-        fprintf(stderr, "%s: error: no input files\n", progname);
+        fprintf(AC_DIAG_STREAM, "%s: error: no files compiled\n", progname);
         exit(1);
     }
 
-#ifdef _unix_
+#ifdef AC_HOST_POSIX
     close_stdio();
 #endif
     /* POSIX exit codes: 0=success, 1=error, 2=usage error */
@@ -326,16 +345,11 @@ main(int argc, char **argv)
 void
 usage(void)
 {
-/* #ifdef AZTEC_C */
-#if 1
-    char **cp = HelpMsg;
+    int             i;
 
-    while (*cp) {
-        fprintf( stderr, *cp++ );
-    }
-#else
-    fputs(HelpMsg, stderr);
-#endif
+    /* Index walk — not cp++ — so a zero pointer stride cannot hang. */
+    for (i = 0; HelpMsg[i] != NULL; i++)
+        fputs(HelpMsg[i], AC_DIAG_STREAM);
     exit(1);
 }
 
@@ -354,16 +368,25 @@ formsection(char *buffer, char *name, char *ext)
 int
 openfiles(char *s)
 {
-    if (!Options.Quiet) {
+#if !defined(AC_HOST_POSIX)
+    /*
+     * Optional: free stderr before opening source+output.  Harmless with
+     * cclib.library (large FILE table); was needed for tiny ac.lib _fdevtab.
+     */
+    if (stderr != NULL)
+        fclose(stderr);
+#endif
+
+    if (!OPT_REF(OPT_OFF_Quiet)) {
 #ifdef AZTEC_C
-        fprintf( stderr, VERSION );
-        fprintf( stderr, "\nProduced by Paul Petersen and Lionel Hummel.\n" );
-        fprintf( stderr, "Based upon prior work by Matthew Brandt and Jeff Lydiatt.\n\n" );
+        fprintf(AC_DIAG_STREAM, VERSION );
+        fprintf(AC_DIAG_STREAM, "\nProduced by Paul Petersen and Lionel Hummel.\n" );
+        fprintf(AC_DIAG_STREAM, "Based upon prior work by Matthew Brandt and Jeff Lydiatt.\n\n" );
 #else
         fputs( VERSION
                "\nProduced by Paul Petersen and Lionel Hummel.\n"
                "Based upon prior work by Matthew Brandt and Jeff Lydiatt.\n"
-               "\n", stderr );
+               "\n", AC_DIAG_STREAM );
 #endif
     }
 
@@ -387,24 +410,35 @@ openfiles(char *s)
         }
 
         if ((input = fopen(infile, "r")) == 0) {
-            fputs(" can't open ", stderr);
-            fputs(infile, stderr);
-            fputs("\n", stderr);
+            fputs(" can't open input ", AC_DIAG_STREAM);
+            fputs(infile, AC_DIAG_STREAM);
+            fputs("\n", AC_DIAG_STREAM);
             fatal = TRUE;
             return 0;
         }
 
-        if ((output = fopen(outfile, "w")) == NULL) {
-            fprintf( stderr, " can't open %s\n ", outfile );
-            fclose(input);
-            fatal = TRUE;
-            return 0;
+        /*
+         * Test the fopen return in a local — do not round-trip through the
+         * global (linker name clashes on _output have caused false NULLs
+         * after MODE_NEWFILE already created an empty .s on disk).
+         */
+        {
+            FILE *ofp;
+
+            ofp = fopen(outfile, "w");
+            if (ofp == NULL) {
+                fprintf(AC_DIAG_STREAM, " can't create output %s\n", outfile);
+                fclose(input);
+                fatal = TRUE;
+                return 0;
+            }
+            output = ofp;
         }
     }
 
-    if (Options.List) {
+    if (OPT_REF(OPT_OFF_List)) {
         if ((list = fopen(listfile, "w")) == NULL) {
-            fprintf( stderr, " can't open %s\n", listfile );
+            fprintf(AC_DIAG_STREAM, " can't create listing %s\n", listfile);
             fclose(input);
             fclose(output);
             fatal = TRUE;
@@ -414,7 +448,7 @@ openfiles(char *s)
 
     curfile = infile;
 
-    if (Options.Debug) {
+    if (OPT_REF(OPT_OFF_Debug)) {
         formsection( code_name, infile, "_code" );
         formsection( data_name, infile, "_data" );
         formsection( bss_name, infile, "_bss" );
@@ -444,33 +478,33 @@ makename(char *s, char *e)
 void
 summary(void)
 {
-    if (!Options.Quiet) {
+    if (!OPT_REF(OPT_OFF_Quiet)) {
         /* Print summary in modern format */
         if (total_errors == 0 && total_warnings == 0) {
-            fprintf(stderr, "Compilation successful.\n");
+            fprintf(AC_DIAG_STREAM, "Compilation successful.\n");
         } else {
             if (total_errors > 0) {
                 if (total_errors == 1)
-                    fprintf(stderr, "1 error");
+                    fprintf(AC_DIAG_STREAM, "1 error");
                 else
-                    fprintf(stderr, "%d errors", total_errors);
+                    fprintf(AC_DIAG_STREAM, "%d errors", total_errors);
             }
             if (total_warnings > 0) {
                 if (total_errors > 0)
-                    fprintf(stderr, ", ");
+                    fprintf(AC_DIAG_STREAM, ", ");
                 if (total_warnings == 1)
-                    fprintf(stderr, "1 warning");
+                    fprintf(AC_DIAG_STREAM, "1 warning");
                 else
-                    fprintf(stderr, "%d warnings", total_warnings);
+                    fprintf(AC_DIAG_STREAM, "%d warnings", total_warnings);
             }
-            fprintf(stderr, " generated.\n");
+            fprintf(AC_DIAG_STREAM, " generated.\n");
         }
     }
 
-    if (Options.List)
+    if (OPT_REF(OPT_OFF_List))
         fprintf( list, "\f\n *** global scope symbol table ***\n\n" );
     list_table(&gsyms, 0);
-    if (Options.List)
+    if (OPT_REF(OPT_OFF_List))
         fprintf( list, "\n *** structures and unions ***\n\n" );
     list_table(&tagtable, 0);
     fprintf( output, "\tEND\n" );
@@ -482,6 +516,6 @@ closefiles(void)
 {
     fclose(input);
     fclose(output);
-    if (Options.List)
+    if (OPT_REF(OPT_OFF_List))
         fclose(list);
 }

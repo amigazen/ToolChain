@@ -65,7 +65,7 @@ gen_stabn(node, flags, size)
     struct amode   *ap1, *ap2;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_stabn.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_stabn.\n" );
         return NULL;
     }
 
@@ -90,7 +90,7 @@ gen_stabs(node, flags, size)
     struct amode   *ap1, *ap2;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_stabn.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_stabn.\n" );
         return NULL;
     }
 
@@ -205,7 +205,7 @@ gen_fsunary(node, flags, size, op)
     struct amode   *ap, *ap2;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_fsunary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_fsunary.\n" );
         return NULL;
     }
 
@@ -226,7 +226,7 @@ gen_fsunary(node, flags, size, op)
         call_library(".FSneg");
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded unary float operation\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded unary float operation\n" );
         break;
     }
 
@@ -250,7 +250,7 @@ gen_funary(node, flags, size, op)
     struct amode   *ap;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_funary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_funary.\n" );
         return NULL;
     }
 
@@ -265,7 +265,7 @@ gen_funary(node, flags, size, op)
         call_library(".FDneg");
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded unary float operation\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded unary float operation\n" );
         break;
     }
 
@@ -286,7 +286,7 @@ gen_fsbinary(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_fsbinary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_fsbinary.\n" );
         return NULL;
     }
 
@@ -386,7 +386,7 @@ gen_fsbinary(node, flags, size, op)
         call_library(".FSmod");
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded binary floating operation\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded binary floating operation\n" );
         break;
     }
 
@@ -413,7 +413,7 @@ gen_fbinary(node, flags, size, op)
     struct amode   *ap1, *ap2;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_fbinary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_fbinary.\n" );
         return NULL;
     }
 
@@ -467,11 +467,17 @@ gen_fbinary(node, flags, size, op)
     }
 
     used = FALSE;
+    if (ap2->mode == am_freg)
+        ap2 = check_float(ap2);
+
     if ((ap2->mode != am_areg && ap2->mode != am_indx) ||
         (int) ap2->preg != 0) {
-        if (used = (!avail_addr(0)))
-            gen_code(op_move, 4, makeareg((enum e_am) 0), push);
-        gen_code(op_lea, 0, ap2, makeareg((enum e_am) 0));
+        if (ap2->mode != am_dreg && ap2->mode != am_immed &&
+            ap2->mode != am_freg) {
+            if (used = (!avail_addr(0)))
+                gen_code(op_move, 4, makeareg((enum e_am) 0), push);
+            gen_code(op_lea, 0, ap2, makeareg((enum e_am) 0));
+        }
     }
 
     freeop(ap1);
@@ -503,7 +509,7 @@ gen_fbinary(node, flags, size, op)
         call_library(".FDcmp");
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded binary floating operation\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded binary floating operation\n" );
         break;
     }
 
@@ -529,7 +535,7 @@ gen_fsaincdec(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_fsaincdec.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_fsaincdec.\n" );
         return NULL;
     }
 
@@ -617,7 +623,7 @@ gen_fsaincdec(node, flags, size, op)
         call_library(".FSsub");
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded binary floating operation\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded binary floating operation\n" );
         break;
     }
 
@@ -644,7 +650,7 @@ gen_faincdec(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_faincdec.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_faincdec.\n" );
         return NULL;
     }
 
@@ -672,11 +678,17 @@ gen_faincdec(node, flags, size, op)
     gen_code(op_move, 4, makedreg((enum e_am) 1), push);
 
     used = FALSE;
+    if (ap2->mode == am_freg)
+        ap2 = check_float(ap2);
+
     if ((ap2->mode != am_areg && ap2->mode != am_indx) ||
         (int) ap2->preg != 0) {
-        if (used = (!avail_addr(0)))
-            gen_code(op_move, 4, makeareg((enum e_am) 0), push);
-        gen_code(op_lea, 0, ap2, makeareg((enum e_am) 0));
+        if (ap2->mode != am_dreg && ap2->mode != am_immed &&
+            ap2->mode != am_freg) {
+            if (used = (!avail_addr(0)))
+                gen_code(op_move, 4, makeareg((enum e_am) 0), push);
+            gen_code(op_lea, 0, ap2, makeareg((enum e_am) 0));
+        }
     }
 
     freeop(ap1);
@@ -694,7 +706,7 @@ gen_faincdec(node, flags, size, op)
         call_library(".FDsub");
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded binary floating operation\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded binary floating operation\n" );
         break;
     }
 

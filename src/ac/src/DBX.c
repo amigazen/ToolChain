@@ -76,7 +76,7 @@
 #include        "Expr.h"
 #include        "Gen.h"
 #include        "Cglbdec.h"
-#include        <stab.h>
+#include        "stab.h"
 
 extern char    *litlate();
 extern char    *itoa();
@@ -169,7 +169,7 @@ dbx_install(tp)
             num = dbx_install(tp->btp);
             dbx_num_entries++;
             if (dbx_num_entries >= DBX_ENTRIES) {
-                fprintf( stderr, "DIAG -- dbx_install, No room for types\n" );
+                fprintf(AC_DIAG_STREAM, "DIAG -- dbx_install, No room for types\n" );
                 exit(1);
             }
             if (tp->type == bt_struct || tp->type == bt_union)

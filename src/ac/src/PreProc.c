@@ -39,6 +39,7 @@
 #include    "Expr.h"
 #include    "Gen.h"
 #include    "Cglbdec.h"
+#include    "host_posix.h"
 
 extern char    *itoa(int x);
 
@@ -50,7 +51,7 @@ extern char    *itoa(int x);
 #define BSLASH  '\\'
 
 #ifndef INCLUDE   /* The standard place for include files */
-#ifdef unix
+#if defined(AC_HOST_POSIX)
 #define INCLUDE "/usr/include/"
 #else
 #define INCLUDE "AC:include/"
@@ -69,6 +70,23 @@ int             inclnum = 0;
 unsigned char  *lptr;
 char           *incldir[10];
 char            prepbuffer[1024];
+
+#if !defined(AC_HOST_POSIX)
+/*
+ * Prepend parser-safe bootstrap headers (compinc/) and target includes
+ * (include/) so "ac -c Symbol.c" works without -Icompinc on Amiga.
+ */
+void
+install_bootstrap_includes(void)
+{
+    if (inclnum == 0) {
+        /* Prefer cclib.library headers (shared C lib); fall back to local. */
+        incldir[inclnum++] = "///SDK/cclib.library/SDK/Include_H/";
+        incldir[inclnum++] = "compinc/";
+        incldir[inclnum++] = "include/";
+    }
+}
+#endif
 
 char            __linebuf[10];  /* buffer for __LINE__  */
 char            __filebuf[64];  /* buffer for __FILE__  */
@@ -120,7 +138,7 @@ doinclude()
     FILE           *fp;
 
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -137,11 +155,19 @@ doinclude()
         if (lastst == sconst) {
             strcpy( filename, laststr );
             if (search( filename, cmd_include.head) != NULL) {
-                getline(incldepth == 0);
+                ac_getline(incldepth == 0);
                 return;
             }
             method = FALSE;
             if ((fp = fopen(laststr, "r")) == NULL) {
+                for (num = 0; num < inclnum && fp == NULL; num++) {
+                    strcpy(prepbuffer, incldir[num]);
+                    strcat(prepbuffer, laststr);
+                    if ((fp = fopen(prepbuffer, "r")) != NULL)
+                        strcpy(laststr, prepbuffer);
+                }
+            }
+            if (fp == NULL) {
                 strcpy(prepbuffer, INCLUDE);
                 strcat(prepbuffer, laststr);
                 if ((fp = fopen(prepbuffer, "r")) != NULL) 
@@ -162,32 +188,33 @@ doinclude()
         oneline = FALSE;
         strcpy( filename, laststr );
         if (search( filename, cmd_include.head ) != NULL) {
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
-        strcpy(prepbuffer, INCLUDE);
-        strcat(prepbuffer, laststr);
         method = TRUE;
-        if ((fp = fopen(prepbuffer, "r")) != NULL)
-            strcpy(laststr, prepbuffer);
+        for (num = 0; num < inclnum && fp == NULL; num++) {
+            strcpy(prepbuffer, incldir[num]);
+            strcat(prepbuffer, laststr);
+            if ((fp = fopen(prepbuffer, "r")) != NULL)
+                strcpy(laststr, prepbuffer);
+        }
+        if (fp == NULL) {
+            strcpy(prepbuffer, INCLUDE);
+            strcat(prepbuffer, laststr);
+            if ((fp = fopen(prepbuffer, "r")) != NULL)
+                strcpy(laststr, prepbuffer);
+        }
     }
 
     if (lastst != sconst) {
         fatal_error(ERR_INCLFILE, "file name is not a string");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
-    }
-
-    for (num = 0; num < inclnum && fp == NULL; num++) {
-        strcpy(prepbuffer, incldir[num]);
-        strcat(prepbuffer, laststr);
-        if ((fp = fopen(prepbuffer, "r")) != NULL)
-            strcpy(laststr, prepbuffer);
     }
 
     if (fp == NULL) {
         fatal_error(ERR_CANTOPEN, NULL);
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
     }
     else {
         inclline[incldepth] = dbxlnum;
@@ -202,7 +229,7 @@ doinclude()
         strcpy(__linebuf, "1" );
 
         ++global_flag;
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->value.i = method;
         sp->name = litlate(filename);
         sp->storage_class = sc_library;
@@ -212,7 +239,7 @@ doinclude()
 
         insert(sp, &cmd_local );
         
-        getline(incldepth >= 1);
+        ac_getline(incldepth >= 1);
 
 #ifdef NOLISTINC
         lineno = -32767;            /* don't list include files         */
@@ -233,7 +260,7 @@ dodefine()
     int             valid, in_quote;
 
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -245,7 +272,7 @@ dodefine()
 
     if (lastst != id) {
         error(ERR_DEFINE, "token to define is not an identifier");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -260,21 +287,21 @@ dodefine()
             existing->value.s = NULL; /* Will be set later */
         } else {
             /* Type mismatch - function vs object macro */
-            warning("macro redefinition with different type");
+            warning(0, "macro redefinition with different type");
             existing->value.s = NULL; /* Will be set later */
         }
     }
 
     ++global_flag;      /* always do #define as globals */
 
-    sp = (SYM *) xalloc(sizeof(SYM));
+    sp = (SYM *) xalloc(SZ_SYM);
     sp->name = litlate(lastid);
     sp->storage_class = sc_define;
     sp->storage_type = sc_define;
     sp->tp = NULL;
 
     if (lastch == '(' /*-)-*/ ) {   /* Function macro definition    */
-        sp->tp = (TYP *) xalloc(sizeof(TYP));
+        sp->tp = (TYP *) xalloc(SZ_TYP);
         sp->tp->type = bt_func;
 
         ptr = (unsigned char *) lastid;   /* NULL the parameter name      */
@@ -285,7 +312,7 @@ dodefine()
             getch();
         getid();    /* Get the parameter            */
         if (*lastid) {  /* If we have a parameter       */
-            sp1 = (SYM *) xalloc(sizeof(SYM));
+            sp1 = (SYM *) xalloc(SZ_SYM);
             sp1->name = litlate(lastid);
             sp1->storage_class = sc_define;
             sp1->storage_type = sc_define;
@@ -301,7 +328,7 @@ dodefine()
                     break;
                 else if (strcmp(lastid, "...") == 0) {
                     /* Handle variadic macro parameter */
-                    sp1 = (SYM *) xalloc(sizeof(SYM));
+                    sp1 = (SYM *) xalloc(SZ_SYM);
                     sp1->name = litlate("__VA_ARGS__");
                     sp1->storage_class = sc_define;
                     sp1->storage_type = sc_define;
@@ -310,7 +337,7 @@ dodefine()
                     sp->tp->lst.tail = sp1;
                     break;
                 } else {  /* If we have a parameter    */
-                    sp1 = (SYM *) xalloc(sizeof(SYM));
+                    sp1 = (SYM *) xalloc(SZ_SYM);
                     sp1->name = litlate(lastid);
                     sp1->storage_class = sc_define;
                     sp1->storage_type = sc_define;
@@ -342,12 +369,12 @@ dodefine()
         if (*ptr == '*'  && *(ptr + 1) == '/')
             in_comment = FALSE;
         if (*ptr == '\\' && *(ptr + 1) == '\n') {
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             ptr = lptr;
         }
         *buffer++ = *ptr;
         if (in_comment && (*(ptr + 1) == '\0' || *(ptr + 1) == '\n')) {
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             ptr = lptr;
         }
     }
@@ -366,21 +393,21 @@ dodefine()
         SYM *existing = search(lastid, defsyms.head);
         if (existing->value.s != NULL && sp->value.s != NULL) {
             if (strcmp(existing->value.s, sp->value.s) != 0) {
-                warning("macro redefinition with different value");
+                warning(0, "macro redefinition with different value");
             }
         }
     }
 
     insert(sp, &defsyms);
     --global_flag;
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
 doundef()
 {
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -390,11 +417,11 @@ doundef()
 
     if (lastst != id) {
         error(ERR_DEFINE, "missing identifier");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
     remove_symbol(lastid, &defsyms);
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -406,7 +433,7 @@ doendif()
         premode = inclprep[--prepdepth];
         prestat = inclstat[prepdepth];
     }
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -439,7 +466,7 @@ doelse()
             break;
         }
     }
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -451,14 +478,14 @@ doifdef(mode)
     if (prestat == ps_ignore) {
         if (prepdepth >= 32) {
             error(ERR_PREPROC, "preprocessor nesting too deep");
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
         premode = pr_all;
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -468,13 +495,13 @@ doifdef(mode)
 
     if (lastst != id) {
         error(ERR_DEFINE, "identifier expected");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
     if (prepdepth >= 32) {
         error(ERR_PREPROC, "preprocessor nesting too deep");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
     inclstat[prepdepth] = prestat;
@@ -492,7 +519,7 @@ doifdef(mode)
         if (sp == NULL) /* compile section  */
             prestat = ps_do;
     }
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -503,20 +530,20 @@ doif()
     if (prestat == ps_ignore) {
         if (prepdepth >= 32) {
             error(ERR_PREPROC, "preprocessor nesting too deep");
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
         premode = pr_all;
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
     if (prepdepth >= 32) {
         error(ERR_PREPROC, "preprocessor nesting too deep");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
     inclstat[prepdepth] = prestat;
@@ -536,7 +563,7 @@ doif()
     if (value != 0)     /* compile section  */
         prestat = ps_do;
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 char    *
@@ -736,15 +763,31 @@ reverse_args(args)
 {
     char           *reversed;
     int             len;
-    
+    int             nregs;
+    int             i;
+
+    /*
+     * SAS/C mask form: <arg-regs in reverse order><return-reg><arg-count>.
+     * gen_libcall2 wants arg regs in stack/parameter order.  Only reverse
+     * the register digits; leave return + count nibbles alone.
+     * Example: Write "32103" -> "12303".
+     */
     if (args == NULL)
         return NULL;
-        
+
     len = strlen(args);
-    reversed = (char *)xalloc(len + 1);
-    strcpy(reversed, args);
-    reverse_string(reversed);
-    
+    reversed = (char *) xalloc(len + 1);
+    if (len < 2) {
+        strcpy(reversed, args);
+        return reversed;
+    }
+
+    nregs = len - 2;
+    for (i = 0; i < nregs; i++)
+        reversed[i] = args[nregs - 1 - i];
+    reversed[nregs] = args[nregs];
+    reversed[nregs + 1] = args[nregs + 1];
+    reversed[len] = '\0';
     return reversed;
 }
 
@@ -918,14 +961,14 @@ doasm()
     if (prestat == ps_ignore) {
         if (prepdepth >= 32) {
             error(ERR_PREPROC, "preprocessor nesting too deep");
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
         premode = pr_all;
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -935,7 +978,7 @@ doasm()
     premode = pr_asm;
     prestat = ps_do;
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -948,7 +991,7 @@ doendasm()
         prestat = inclstat[prepdepth];
     }
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -957,7 +1000,7 @@ doline()
     struct snode   *snp;
 
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -966,7 +1009,7 @@ doline()
     oneline = FALSE;
     if (lastst != iconst) {
         error(ERR_PREPROC, "line number missing");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
     else {
@@ -976,7 +1019,7 @@ doline()
         strcpy( __linebuf, itoa(dbxlnum));
         oneline = FALSE;
         if (lastst == eof) {
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         else if (lastst == sconst) {
@@ -987,11 +1030,11 @@ doline()
             if (snp != NULL)
                 addauto(snp);
             --global_flag;
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         error(ERR_PREPROC, "invalid token");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
     }
 }
 
@@ -1031,20 +1074,20 @@ doelif()
     if (prestat == ps_ignore) {
         if (prepdepth >= 32) {
             error(ERR_PREPROC, "preprocessor nesting too deep");
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         inclstat[prepdepth] = prestat;
         inclprep[prepdepth++] = premode;
         prestat = ps_ignore;
         premode = pr_all;
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
     if (prepdepth >= 32) {
         error(ERR_PREPROC, "preprocessor nesting too deep");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
     inclstat[prepdepth] = prestat;
@@ -1064,7 +1107,7 @@ doelif()
     if (value != 0)     /* compile section  */
         prestat = ps_do;
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -1074,7 +1117,7 @@ doerror()
     char *cp, *endp;
 
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -1092,26 +1135,26 @@ doerror()
     switch (Options.OutputFormat) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
-            fprintf(stderr, "%s:%d:%d: error: %s\n", curfile, lineno, current_column, buffer);
+            fprintf(AC_DIAG_STREAM, "%s:%d:%d: error: %s\n", curfile, lineno, current_column, buffer);
         } else {
-            fprintf(stderr, "%s:%d: error: %s\n", curfile, lineno, buffer);
+            fprintf(AC_DIAG_STREAM, "%s:%d: error: %s\n", curfile, lineno, buffer);
         }
         break;
     case 1: /* SASC format */
-        fprintf(stderr, "%s(%d", curfile, lineno);
+        fprintf(AC_DIAG_STREAM, "%s(%d", curfile, lineno);
         if (Options.ShowColumn) {
-            fprintf(stderr, ",%d", current_column);
+            fprintf(AC_DIAG_STREAM, ",%d", current_column);
         }
-        fprintf(stderr, ") : error: %s\n", buffer);
+        fprintf(AC_DIAG_STREAM, ") : error: %s\n", buffer);
         break;
     case 2: /* PDC format */
     default:
-        fprintf(stderr, "Error in %s:%d: %s\n", curfile, lineno, buffer);
+        fprintf(AC_DIAG_STREAM, "Error in %s:%d: %s\n", curfile, lineno, buffer);
         break;
     }
     oneline = FALSE;
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -1121,7 +1164,7 @@ dowarning()
     char *cp, *endp;
 
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -1139,26 +1182,26 @@ dowarning()
     switch (Options.OutputFormat) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
-            fprintf(stderr, "%s:%d:%d: warning: %s\n", curfile, lineno, current_column, buffer);
+            fprintf(AC_DIAG_STREAM, "%s:%d:%d: warning: %s\n", curfile, lineno, current_column, buffer);
         } else {
-            fprintf(stderr, "%s:%d: warning: %s\n", curfile, lineno, buffer);
+            fprintf(AC_DIAG_STREAM, "%s:%d: warning: %s\n", curfile, lineno, buffer);
         }
         break;
     case 1: /* SASC format */
-        fprintf(stderr, "%s(%d", curfile, lineno);
+        fprintf(AC_DIAG_STREAM, "%s(%d", curfile, lineno);
         if (Options.ShowColumn) {
-            fprintf(stderr, ",%d", current_column);
+            fprintf(AC_DIAG_STREAM, ",%d", current_column);
         }
-        fprintf(stderr, ") : warning: %s\n", buffer);
+        fprintf(AC_DIAG_STREAM, ") : warning: %s\n", buffer);
         break;
     case 2: /* PDC format */
     default:
-        fprintf(stderr, "Warning in %s:%d: %s\n", curfile, lineno, buffer);
+        fprintf(AC_DIAG_STREAM, "Warning in %s:%d: %s\n", curfile, lineno, buffer);
         break;
     }
     oneline = FALSE;
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
@@ -1169,7 +1212,7 @@ dopragma_once()
     int i;
     
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
@@ -1177,7 +1220,7 @@ dopragma_once()
     for (i = 0; i < num_included; i++) {
         if (strcmp(included_files[i], curfile) == 0) {
             /* File already included, skip to end of file */
-            while (getline(incldepth == 0) == 0) {
+            while (ac_getline(incldepth == 0) == 0) {
                 /* Skip lines until end of file */
             }
             return;
@@ -1187,7 +1230,7 @@ dopragma_once()
     /* Add current file to included list */
     if (included_files == NULL) {
         included_files = (char **)xalloc(10 * sizeof(char *));
-    } else if (num_included % 10 == 0) {
+    } else if (num_included != 0 && safe_lmod(num_included, 10) == 0) {
         included_files = (char **)xalloc((num_included + 10) * sizeof(char *));
     }
     
@@ -1195,18 +1238,24 @@ dopragma_once()
     strcpy(included_files[num_included], curfile);
     num_included++;
     
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 void
 gettoken()
 {
-    char    *ptr = laststr;
+    char           *ptr;
+    char           *end;
 
-    while (isspace(lastch)) 
+    ptr = laststr;
+    end = laststr + (MAX_IDP1 - 1);
+
+    while (lastch != EOF && isspace(lastch))
         getch();
 
-    while (!isspace(lastch)) {
+    while (lastch != EOF && !isspace(lastch)) {
+        if (ptr >= end)
+            break;
         *ptr++ = lastch;
         getch();
     }
@@ -1232,111 +1281,88 @@ unbuffer_token()
     }
 }
 
+/*
+ * Self-host collapses auto offsets so multiple locals alias one register
+ * (bootstrap/self/PreProc.s pushed D3 five times into libentry_store).
+ * Keep the in-progress pragma record in a global instead.
+ */
+static char    *pragma_entry;
+
+/*
+ * Fill a 5-pointer libcall-shaped record by byte offset.
+ * Layout: next, basename, funcname, args, offset (see Gen.h LIBCALL_*).
+ */
+static void
+libentry_set_field(which, value)
+    int             which;
+    char           *value;
+{
+    if (pragma_entry == NULL)
+        return;
+    if (which == 0)
+        LIBCALL_NEXT(pragma_entry) = value;
+    else if (which == 1)
+        LIBCALL_BASE(pragma_entry) = value;
+    else if (which == 2)
+        LIBCALL_FUNC(pragma_entry) = value;
+    else if (which == 3)
+        LIBCALL_ARGS(pragma_entry) = value;
+    else if (which == 4)
+        LIBCALL_OFF(pragma_entry) = value;
+}
+
+static void
+dopragma_liblike(prefix, listhead)
+    char           *prefix;
+    void          **listhead;
+{
+    ++global_flag;
+    pragma_entry = (char *) xalloc(SZ_LIBCALL);
+    libentry_set_field(0, (char *) (*listhead));
+
+    gettoken();
+    libentry_set_field(1, litlate(laststr));
+    gettoken();
+    libentry_set_field(2, litlate(laststr));
+    gettoken();
+    libentry_set_field(4, litlate(laststr));
+    gettoken();
+    libentry_set_field(3, reverse_args(litlate(laststr)));
+
+    *listhead = (void *) pragma_entry;
+
+    strcpy(laststr, prefix);
+    strcat(laststr, LIBCALL_FUNC(pragma_entry));
+    setdefine(LIBCALL_FUNC(pragma_entry), litlate(laststr));
+    pragma_entry = NULL;
+    --global_flag;
+}
+
 void
 dopragma()
 {
-    struct libcall  *lib;
+    struct msgcall *msg;
+    char           *state_str;
 
     if (prestat == ps_ignore) {
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
         return;
     }
 
     oneline = TRUE;
 
     gettoken();
-    if (strcmp( laststr, "libcall" ) == 0) {
+    if (strcmp(laststr, "libcall") == 0)
+        dopragma_liblike("__LIBCALL_", (void **) &libpragma);
+    else if (strcmp(laststr, "flibcall") == 0)
+        dopragma_liblike("__FLIBCALL_", (void **) &flibpragma);
+    else if (strcmp(laststr, "syscall") == 0)
+        dopragma_liblike("__SYSCALL_", (void **) &syspragma);
+    else if (strcmp(laststr, "tagcall") == 0)
+        dopragma_liblike("__TAGCALL_", (void **) &tagpragma);
+    else if (strcmp(laststr, "msg") == 0) {
         ++global_flag;
-        lib = (struct libcall *) xalloc( sizeof(struct libcall) );
-        gettoken();
-        lib->basename = litlate( laststr );
-        gettoken();
-        lib->funcname = litlate( laststr );
-        gettoken();
-        lib->offset = litlate(laststr);
-        gettoken();
-        /* Reverse args to match SAS/C format */
-        lib->args = reverse_args(litlate( laststr ));
-
-        lib->next = libpragma;
-        libpragma = lib;
-
-        strcpy( laststr, "__LIBCALL_" );
-        strcat( laststr, lib->funcname );
-        setdefine( lib->funcname, litlate(laststr));
-        --global_flag;
-    }
-    else if (strcmp( laststr, "flibcall" ) == 0) {
-        struct flibcall *flib;
-        ++global_flag;
-        flib = (struct flibcall *) xalloc( sizeof(struct flibcall) );
-        gettoken();
-        flib->basename = litlate( laststr );
-        gettoken();
-        flib->funcname = litlate( laststr );
-        gettoken();
-        flib->offset = litlate(laststr);
-        gettoken();
-        /* Reverse args to match SAS/C format */
-        flib->args = reverse_args(litlate( laststr ));
-
-        flib->next = flibpragma;
-        flibpragma = flib;
-
-        strcpy( laststr, "__FLIBCALL_" );
-        strcat( laststr, flib->funcname );
-        setdefine( flib->funcname, litlate(laststr));
-        --global_flag;
-    }
-    else if (strcmp( laststr, "syscall" ) == 0) {
-        struct syscall *sys;
-        ++global_flag;
-        sys = (struct syscall *) xalloc( sizeof(struct syscall) );
-        gettoken();
-        sys->basename = litlate( laststr );
-        gettoken();
-        sys->funcname = litlate( laststr );
-        gettoken();
-        sys->offset = litlate(laststr);
-        gettoken();
-        /* Reverse args to match SAS/C format */
-        sys->args = reverse_args(litlate( laststr ));
-
-        sys->next = syspragma;
-        syspragma = sys;
-
-        strcpy( laststr, "__SYSCALL_" );
-        strcat( laststr, sys->funcname );
-        setdefine( sys->funcname, litlate(laststr));
-        --global_flag;
-    }
-    else if (strcmp( laststr, "tagcall" ) == 0) {
-        struct tagcall *tag;
-        ++global_flag;
-        tag = (struct tagcall *) xalloc( sizeof(struct tagcall) );
-        gettoken();
-        tag->basename = litlate( laststr );
-        gettoken();
-        tag->funcname = litlate( laststr );
-        gettoken();
-        tag->offset = litlate(laststr);
-        gettoken();
-        /* Reverse args to match SAS/C format */
-        tag->args = reverse_args(litlate( laststr ));
-
-        tag->next = tagpragma;
-        tagpragma = tag;
-
-        strcpy( laststr, "__TAGCALL_" );
-        strcat( laststr, tag->funcname );
-        setdefine( tag->funcname, litlate(laststr));
-        --global_flag;
-    }
-    else if (strcmp( laststr, "msg" ) == 0) {
-        struct msgcall *msg;
-        char *state_str;
-        ++global_flag;
-        msg = (struct msgcall *) xalloc( sizeof(struct msgcall) );
+        msg = (struct msgcall *) xalloc(16);
         
         /* Get message number */
         gettoken();
@@ -1357,12 +1383,12 @@ dopragma()
             msg->next = msgpragma;
             msgpragma = msg;
             --global_flag;
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         } else {
             error(ERR_PREPROC, "invalid msg state");
             --global_flag;
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
             return;
         }
         
@@ -1402,7 +1428,7 @@ dopragma()
 
     oneline = FALSE;
 
-    getline(incldepth == 0);
+    ac_getline(incldepth == 0);
 }
 
 int
@@ -1459,7 +1485,7 @@ setdefine(name, value)
         sp->value.s = value;    /* Update the value      */
     else {
         ++global_flag;  /* always do #define as globals */
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->name = name;
         sp->value.s = value;
         --global_flag;
@@ -1485,7 +1511,7 @@ preprocess()
         doelse();
     else if (lastst != id && lastst != iconst) {
         error(ERR_PREPROC, "unknown type of command");
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
     }
     else if (lastst == iconst) { /* Ignore line labels   */
         dbxlnum = ival - 1; /* set the line number   */
@@ -1504,7 +1530,7 @@ preprocess()
         }
         else if (lastst != eof) 
             error(ERR_PREPROC, NULL);
-        getline(incldepth == 0);
+        ac_getline(incldepth == 0);
     }
     else {
         if (strcmp(lastid, "include") == 0) 
@@ -1535,7 +1561,7 @@ preprocess()
             dopragma();
         else {
             error(ERR_PREPROC, "unknown command");
-            getline(incldepth == 0);
+            ac_getline(incldepth == 0);
         }
     }
 }

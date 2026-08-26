@@ -114,7 +114,7 @@ copynode(struct enode *node)
 
     if (node == NULL)
         return NULL;
-    temp = (struct enode *) xalloc(sizeof(struct enode));
+    temp = (struct enode *) xalloc(SZ_ENODE);
     temp->nodetype = node->nodetype;
     temp->v.p[0] = node->v.p[0];
     temp->v.p[1] = node->v.p[1];
@@ -461,7 +461,7 @@ allocate(void)
     for (csp = olist; csp != NULL; csp = csp->next) {
         csp->reg = -1;
         if (desire(csp) >= 3) {
-            if (csp->duses > (csp->uses / 5)) {
+            if (csp->duses > safe_ldiv(csp->uses, 5)) {
                 if (lvalue(csp->exp) && datareg < 8)
                     csp->reg = datareg++;
                 else if (addreg < 8 + Options.Frame)

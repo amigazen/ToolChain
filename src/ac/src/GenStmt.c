@@ -34,7 +34,7 @@
 #include    "Expr.h"
 #include    "Gen.h"
 #include    "Cglbdec.h"
-#include    <stab.h>
+#include    "stab.h"
 
 int             breaklab;
 int             contlab;
@@ -438,7 +438,7 @@ call_library(lib_name)
     sp = gsearch(lib_name);
     if (sp == NULL) {
         ++global_flag;
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->tp = &stdfunc;
         sp->name = lib_name;
         sp->storage_class = sc_external;
@@ -770,16 +770,8 @@ genstmt(stmt)
                 gencomment(stmt);
             break;
         case st_stabn:
-#ifdef GENERATE_DBX
-            if (Options.Debug)
-                genstabn(stmt);
-#endif
             break;
         case st_stabs:
-#ifdef GENERATE_DBX
-            if (Options.Debug)
-                genstabs(stmt);
-#endif
             break;
         case st_asm:
             genasm(stmt);
@@ -819,7 +811,7 @@ genstmt(stmt)
             gendo(stmt);
             break;
         default:
-            fprintf( stderr, "DIAG - unknown statement.\n" );
+            fprintf(AC_DIAG_STREAM, "DIAG - unknown statement.\n" );
             break;
         }
         stmt = stmt->next;
@@ -853,7 +845,7 @@ genfunc(stmt)
     if (Options.Stack) {
         ap = (struct amode *) xalloc(sizeof(struct amode));
         ap->mode = am_immed;
-        ap->offset = (struct enode *) xalloc(sizeof(struct enode));
+        ap->offset = (struct enode *) xalloc(SZ_ENODE);
         ap->offset->nodetype = en_labcon;
         ap->offset->v.i = maxlabel;
         
@@ -865,7 +857,7 @@ genfunc(stmt)
         call_library( ".entry" );
     }
 
-    lnode = (struct enode *) xalloc(sizeof(struct enode));
+    lnode = (struct enode *) xalloc(SZ_ENODE);
     lnode->nodetype = en_labcon;
     lnode->v.i = autolabel;
     ap = (struct amode *) xalloc(sizeof(struct amode));
@@ -901,5 +893,5 @@ genfunc(stmt)
         fprintf( output, "L%d\tEQU\t%d\n", maxlabel , maxparmsize+lc_auto );
     }
 
-    fprintf( output, "L%d\tEQU\t%d\n", autolabel , -lc_auto );
+    fprintf( output, "L%d\tEQU\t%d\n", autolabel , -(int)ICON16L((long)lc_auto) );
 }

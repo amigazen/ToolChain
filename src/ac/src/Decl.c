@@ -40,14 +40,17 @@ TYP            *head = NULL;
 TYP            *tail = NULL;
 char           *declid = NULL;
 TABLE           tagtable = {NULL, NULL};
-TYP             stdconst = {bt_long, 1, 4, {NULL, NULL}, 0, "const", QUAL_CONST};
+TYP             stdconst = {bt_long, 1, 0, 4, {NULL, NULL}, 0, "const", QUAL_CONST};
 
 void    decl2(), declenum(), enumbody(), declstruct(), structbody();
 void    apply_qualifiers();
+void    decl_callconv(void);
 
 extern SYM      *search();
 extern long     intexpr();
 extern int      fatal;
+extern int      castbegin();
+extern void     needpunc();
 
 #ifdef  GENERATE_DBX
 extern int      dbx_ident();
@@ -55,6 +58,83 @@ extern int      dbx_ident();
 
 extern struct snode *asmstmt();
 extern char    *xalloc();
+
+static int
+typesize_mul(count, elemsize)
+    int count, elemsize;
+{
+    /*
+     * Incomplete types have tp->size == -1 while a tag is being defined.
+     * Skip the scale when the element size is not yet known.
+     *
+     * Product via u16_product() — never calls ac.lib .lmuls at runtime.
+     * Mask elemsize: poisoned (e_sc<<16)|n must not zero the product.
+     */
+    if (elemsize > 65535 || elemsize < -1)
+        elemsize = (int) ICON16L((long) elemsize);
+    if (elemsize <= 0)
+        return count;
+    if (count <= 0)
+        return 0;
+    return (int) u16_product((long) count, (long) elemsize);
+}
+
+int
+type_size(tp)
+    TYP            *tp;
+{
+    long            sz;
+    int             t;
+
+    /*
+     * Arrays are bt_pointer nodes with val_flag set; only real pointers
+     * are always four bytes on the 680x0.
+     *
+     * Never trust a raw tp->size through ICON16L alone: SAS/C/ac-self can
+     * leave (e_sc<<16) in the high word.  ICON16L(393216)==0, which made
+     * every struct member offset 0, emptied BSS, and produced ac-self2
+     * RELOC32 to hunk 2099356 ("not executable").
+     */
+    if (tp == NULL)
+        return 0;
+
+    t = (int) tp->type;
+    if (t == bt_pointer && tp->val_flag == 0)
+        return 4;
+
+    switch (t) {
+    case bt_char:
+    case bt_uchar:
+    case bt_bool:
+        return 1;
+    case bt_short:
+    case bt_ushort:
+    case bt_enum:
+        return 2;
+    case bt_long:
+    case bt_unsigned:
+    case bt_ulong:
+    case bt_float:
+        return 4;
+    case bt_longlong:
+    case bt_ulonglong:
+    case bt_double:
+        return 8;
+    case bt_func:
+    case bt_ifunc:
+    case bt_void:
+        return 0;
+    default:
+        break;
+    }
+
+    sz = (long) tp->size;
+    if (sz > 65535L || sz < -1L)
+        sz = ICON16L(sz);
+    if (sz <= 0)
+        return 0;
+    return (int) sz;
+}
 
 int
 imax(int i, int j)
@@ -78,7 +158,7 @@ copysym(SYM *sp)
     SYM            *esp;
     int             siz;
 
-    siz = sizeof(SYM);
+    siz = SZ_SYM;
     ++global_flag;
     esp = (SYM *) xalloc(siz);
     --global_flag;
@@ -96,8 +176,9 @@ maketype(enum e_bt bt, int siz)
 {
     TYP            *tp;
 
-    tp = (TYP *) xalloc(sizeof(TYP));
+    tp = (TYP *) xalloc(SZ_TYP);
     tp->val_flag = 0;
+    tp->_pad_typ = 0;
     tp->size = siz;
     tp->type = bt;
     tp->sname = NULL;
@@ -160,9 +241,13 @@ decl(TABLE *table)
     switch (lastst) {
     case kw_typedef:
         getsym();
-        fprintf( stderr, "DIAG -- SHOULD NEVER HAPPEN\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- SHOULD NEVER HAPPEN\n" );
         break;
     case kw_auto:
+        getsym();
+        decl(table);
+        break;
+    case kw_register:
         getsym();
         decl(table);
         break;
@@ -177,6 +262,13 @@ decl(TABLE *table)
         decl(table);
         if (head != NULL)
             head->qualifiers |= QUAL_VOLATILE;
+        break;
+    case kw_restrict:
+    case kw_inline:
+    case kw_noreturn:
+        /* Accepted as no-ops; no codegen effect yet. */
+        getsym();
+        decl(table);
         break;
     case kw_chip:
         getsym();
@@ -258,6 +350,67 @@ decl(TABLE *table)
         break;
     case kw_bool:
         head = tail = maketype(bt_bool, 1);
+        getsym();
+        is_class_error();
+        break;
+    /* Exact-width names map onto the same base types as char/short/long/ll */
+    case kw_int8:
+        head = tail = maketype(bt_char, 1);
+        getsym();
+        is_class_error();
+        break;
+    case kw_uint8:
+        head = tail = maketype(bt_uchar, 1);
+        getsym();
+        is_class_error();
+        break;
+    case kw_int16:
+        head = tail = maketype(bt_short, 2);
+        getsym();
+        is_class_error();
+        break;
+    case kw_uint16:
+        head = tail = maketype(bt_ushort, 2);
+        getsym();
+        is_class_error();
+        break;
+    case kw_int32:
+        head = tail = maketype(bt_long, 4);
+        getsym();
+        is_class_error();
+        break;
+    case kw_uint32:
+        head = tail = maketype(bt_unsigned, 4);
+        getsym();
+        is_class_error();
+        break;
+    case kw_int64:
+        head = tail = maketype(bt_longlong, 8);
+        getsym();
+        is_class_error();
+        break;
+    case kw_uint64:
+        head = tail = maketype(bt_ulonglong, 8);
+        getsym();
+        is_class_error();
+        break;
+    case kw_intptr:
+        head = tail = maketype(bt_long, 4);
+        getsym();
+        is_class_error();
+        break;
+    case kw_uintptr:
+        head = tail = maketype(bt_unsigned, 4);
+        getsym();
+        is_class_error();
+        break;
+    case kw_intmax:
+        head = tail = maketype(bt_longlong, 8);
+        getsym();
+        is_class_error();
+        break;
+    case kw_uintmax:
+        head = tail = maketype(bt_ulonglong, 8);
         getsym();
         is_class_error();
         break;
@@ -343,10 +496,35 @@ decl(TABLE *table)
     }
 }
 
+/*
+ * SAS/C allows calling-convention keywords between the base type and the
+ * declarator:  void __stdargs (*f)(long);  void __saveds foo(void);
+ */
+void
+decl_callconv(void)
+{
+    while (lastst == kw_stdargs || lastst == kw_regargs
+           || lastst == kw_saveds || lastst == kw_interrupt) {
+        if (head != NULL) {
+            if (lastst == kw_stdargs)
+                head->qualifiers |= QUAL_STDARGS;
+            else if (lastst == kw_regargs)
+                head->qualifiers |= QUAL_REGARGS;
+            else if (lastst == kw_saveds)
+                head->qualifiers |= QUAL_SAVEDS;
+            else if (lastst == kw_interrupt)
+                head->qualifiers |= QUAL_INTERRUPT;
+        }
+        getsym();
+    }
+}
+
 void
 decl1(void)
 {
     TYP            *temp1, *temp2, *temp3, *temp4;
+
+    decl_callconv();
 
     switch (lastst) {
     case id:
@@ -379,7 +557,7 @@ decl1(void)
             temp4->btp = head;
             if (temp4->type == bt_pointer && temp4->val_flag != 0
                 && head != NULL)
-                temp4->size *= head->size;
+                temp4->size = typesize_mul(temp4->size, head->size);
         }
         head = temp3;
         break;
@@ -410,7 +588,7 @@ decl2(void)
         }
         decl2();
         if (head != NULL) {
-            temp1->size *= head->size;
+            temp1->size = typesize_mul(temp1->size, head->size);
         }
         temp1->btp = head;
         head = temp1;
@@ -428,7 +606,37 @@ decl2(void)
             if (lastst == begin)
                 temp1->type = bt_ifunc;
         }
+        else if (castbegin(lastst)) {
+            /*
+             * ANSI prototype parameter list: void (*f)(long), atexit(void (*)(void)),
+             * int foo(int);  Parse now so tokens are not left for needpunc(';').
+             * declproto() clobbers global head/tail/declid — restore the function
+             * type in temp1 afterward so the outer declarator stays consistent.
+             */
+            {
+                SYM            *save_h;
+                SYM            *save_t;
+                char           *save_declid;
+
+                save_h = lsyms.head;
+                save_t = lsyms.tail;
+                save_declid = declid;
+                declproto(&temp1->lst);
+                needpunc(closepa);
+                head = temp1;
+                tail = temp1;
+                declid = save_declid;
+                if (lastst == begin)
+                    temp1->type = bt_ifunc;
+                else {
+                    temp1->type = bt_func;
+                    lsyms.head = save_h;
+                    lsyms.tail = save_t;
+                }
+            }
+        }
         else
+            /* K&R identifier list — leave tokens for funcbody(). */
             temp1->type = bt_ifunc;
         break;
     }
@@ -438,7 +646,7 @@ int
 alignment(TYP *tp)
 {
     if (tp == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to alignment.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to alignment.\n" );
         return (AL_CHAR);
     }
     switch (tp->type) {
@@ -504,7 +712,7 @@ declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
             declid = NULL;
             decl1();
             if (declid != NULL) {
-                sp = (SYM *) xalloc(sizeof(SYM));
+                sp = (SYM *) xalloc(SZ_SYM);
                 sp->name = declid;
                 sp->storage_class = sc_type;
                 sp->value.i = 0;
@@ -559,19 +767,24 @@ declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
         }
 
         if (declid != NULL) {   /* otherwise just struct tag... */
-            sp = (SYM *) xalloc(sizeof(SYM));
+            sp = (SYM *) xalloc(SZ_SYM);
             sp->name = declid;
             sp->storage_class = al;
             sp->storage_type = ral;
             sp->next = NULL;
             sp->value.i = 0;
             num = alignment(head);
-            if ((ilc + nbytes) % num != 0) {
-                if (al != sc_member && al != sc_external && al != sc_auto) {
-                    dseg();
-                    genalignment(num);
-                }
-                while ((ilc + nbytes) % num != 0)
+            if (num <= 0)
+                num = 1;
+            /*
+             * Only bump nbytes here so lc_static stays accurate.
+             * CNOP must be emitted in doinit() in the object's real
+             * section (BSS vs DATA).  A DATA-section CNOP left BSS
+             * odd; ac-self then skipped the pad when lc tracking
+             * drifted, and A68k rejected move.l to odd _optarg.
+             */
+            if (safe_lmod(ilc + nbytes, num) != 0) {
+                while (safe_lmod(ilc + nbytes, num) != 0)
                     ++nbytes;
             }
             sp->tp = head;
@@ -585,11 +798,11 @@ declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
                 }
             }
             else if (ztype == bt_union)
-                sp->value.i = ilc;
+                sp->value.i = ICON16L((long)ilc);
             else if (al != sc_auto)
-                sp->value.i = ilc + nbytes;
+                sp->value.i = ICON16L((long)(ilc + nbytes));
             else
-                sp->value.i = -(ilc + nbytes + head->size);
+                sp->value.i = ICON16L((long)-(ilc + nbytes + type_size(head)));
 
             if (sp->tp->type == bt_func) {
                 if (sp->storage_class == sc_global || 
@@ -598,10 +811,22 @@ declare(TABLE *table, enum e_sc al, int ilc, enum e_bt ztype, enum e_sc ral)
                 }
             }
 
-            if (ztype == bt_union)
-                nbytes = imax(nbytes, sp->tp->size);
-            else if (al != sc_external)
-                nbytes += sp->tp->size;
+            if (ztype == bt_union) {
+                {
+                    int tsz;
+
+                    tsz = type_size(sp->tp);
+                    if (tsz > 0)
+                        nbytes = imax(nbytes, tsz);
+                }
+            }
+            else if (al != sc_external) {
+                int tsz;
+
+                tsz = type_size(head);
+                if (tsz > 0)
+                    nbytes += tsz;
+            }
 
             if (sp->tp->type != bt_ifunc) 
                 insert(sp, table);
@@ -676,11 +901,11 @@ declenum(TABLE *table)
 
     if (lastst == id) {
         if ((sp = search(lastid, tagtable.head)) == NULL) {
-            sp = (SYM *) xalloc(sizeof(SYM));
-            memset( (char *)sp, 0, sizeof(SYM));
+            sp = (SYM *) xalloc(SZ_SYM);
+            memset( (char *)sp, 0, SZ_SYM);
             sp->storage_class = sc_type;
             sp->name = litlate(lastid);
-            sp->tp = (TYP *) xalloc(sizeof(TYP));
+            sp->tp = (TYP *) xalloc(SZ_TYP);
             sp->tp->type = bt_enum;
             sp->tp->size = 2;
             sp->tp->lst.head = NULL;
@@ -704,11 +929,11 @@ declenum(TABLE *table)
         head = sp->tp;
     }
     else {
-        sp = (SYM *) xalloc(sizeof(SYM));
-        memset( (char *)sp, 0, sizeof(SYM) );
+        sp = (SYM *) xalloc(SZ_SYM);
+        memset( (char *)sp, 0, SZ_SYM );
         sp->storage_class = sc_type;
         sp->name = NULL;
-        sp->tp = (TYP *) xalloc(sizeof(TYP));
+        sp->tp = (TYP *) xalloc(SZ_TYP);
         sp->tp->type = bt_short;
         sp->tp->size = 2;
         sp->tp->lst.head = NULL;
@@ -738,7 +963,7 @@ enumbody(SYM *sym_sp, TABLE *table)
 
     evalue = 0;
     while (lastst == id) {
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->name = litlate(lastid);
         sp->storage_class = sc_const;
         sp->value.i = evalue++;
@@ -774,29 +999,31 @@ declstruct(enum e_bt ztype)
 
     if (lastst == id) {
         if ((sp = search(lastid, tagtable.head)) == NULL) {
-            sp = (SYM *) xalloc(sizeof(SYM));
-            memset((char *)sp, 0, sizeof(SYM));
+            sp = (SYM *) xalloc(SZ_SYM);
+            memset((char *)sp, 0, SZ_SYM);
             sp->name = litlate(lastid);
             sp->storage_class = sc_type;
             sp->next = NULL;
-            sp->tp = (TYP *) xalloc(sizeof(TYP));
+            sp->tp = (TYP *) xalloc(SZ_TYP);
             sp->tp->type = ztype;
             sp->tp->lst.head = NULL;
             sp->tp->sname = sp->name;
             getsym();
-            if (lastst == star || lastst == semicolon) {
-                sp->tp->size = 0;   /* Forward declaration */
-                insert(sp, &tagtable);
-            }
-            else if (lastst != begin)
-                error(ERR_INCOMPLETE, NULL);
-            else {
+            if (lastst == begin) {
                 insert(sp, &tagtable);
                 getsym();
                 structbody(sp->tp, ztype);
 #ifdef  GENERATE_DBX
                 dbx_ident(sp);
 #endif
+            }
+            else {
+                /*
+                 * Incomplete tag OK: struct T;  struct T *p;
+                 * typedef struct T Name;  (definition may come later)
+                 */
+                sp->tp->size = 0;
+                insert(sp, &tagtable);
             }
         }
         else {
@@ -808,27 +1035,25 @@ declstruct(enum e_bt ztype)
                 sp->storage_class = sc_type;
                 sp->tp->sname = sp->name;
                 getsym();
-                if (lastst == star || lastst == semicolon)
-                    sp->tp->size = 0;   /* Forward declaration */
-                else if (lastst != begin)
-                    error(ERR_INCOMPLETE, NULL);
-                else {
+                if (lastst == begin) {
                     getsym();
                     structbody(sp->tp, ztype);
 #ifdef  GENERATE_DBX
                     dbx_ident(sp);
 #endif
                 }
+                else
+                    sp->tp->size = 0;   /* still incomplete */
             }
         }
         head = sp->tp;
     }
     else {
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->name = NULL;
         sp->storage_class = sc_type;
         sp->next = NULL;
-        sp->tp = (TYP *) xalloc(sizeof(TYP));
+        sp->tp = (TYP *) xalloc(SZ_TYP);
         sp->tp->type = ztype;
         sp->tp->sname = NULL;
         sp->tp->lst.head = NULL;
@@ -854,9 +1079,10 @@ structbody(TYP *tp, enum e_bt ztype)
     int             slc;
 
     if (tp == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to structbody.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to structbody.\n" );
         return;
     }
+    tp->lst.head = tp->lst.tail = NULL;
     slc = 0;
     tp->val_flag = 1;
     tp->size = -1;
@@ -929,7 +1155,24 @@ dodecl(enum e_sc defclass)
         case kw_int:
         case kw_short:
         case kw_unsigned:
+        case kw_signed:
         case kw_long:
+        case kw_bool:
+        case kw_int8:
+        case kw_uint8:
+        case kw_int16:
+        case kw_uint16:
+        case kw_int32:
+        case kw_uint32:
+        case kw_int64:
+        case kw_uint64:
+        case kw_intptr:
+        case kw_uintptr:
+        case kw_intmax:
+        case kw_uintmax:
+        case kw_restrict:
+        case kw_inline:
+        case kw_noreturn:
         case kw_struct:
         case kw_union:
         case kw_enum:
@@ -1021,18 +1264,44 @@ declproto(TABLE *table)  /* table is the argument table for the function */
     nbytes = 8;     /* return block */
     global_flag++;
 
+    /*
+     * ISO C: a parameter list that is exactly (void) means no parameters.
+     * Do not invent a void-typed argument (broke main(void) / atexit decls).
+     */
+    if (lastst == kw_void) {
+        getsym();
+        if (lastst == closepa) {
+            global_flag--;
+            return nbytes;
+        }
+        /*
+         * void was the parameter type (e.g. void *p).  Mirror decl(kw_void)
+         * and continue into the normal parameter body once.
+         */
+        head = tail = maketype(bt_long, 4);
+        declid = NULL;
+        decl1();
+        goto declproto_one;
+    }
+
     for (;;) {
         declid = NULL;
 
         decl(&lsyms);   /* Set the base type of the variable */
         decl1();
 
+        if (head == NULL) {
+            error(ERR_SYNTAX, "unknown type");
+            break;
+        }
+
+declproto_one:
         /* Make *argv[] work */
 
         if (head->size == 0 || head->type == bt_pointer)
             head->val_flag = 0;
 
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->name = declid;
         sp->storage_class = sc_auto;
         sp->storage_type = sc_proto;
@@ -1041,12 +1310,28 @@ declproto(TABLE *table)  /* table is the argument table for the function */
         sp->value.i = nbytes;
         sp->tp = head;
 
-        if (sp->tp->size >= 4)
-            nbytes += sp->tp->size;
-        else {
-            if (sp->tp->size == 1)  /* byte reference */
-                sp->tp->size += 1;
-            nbytes += 2;
+        /*
+         * Advance with type_size(), not raw tp->size.  Poisoned size (high
+         * word set / zero) made every parameter share offset 8 — ac-self2
+         * then did getopt(argc,argc) and hung on argv[0].
+         */
+        {
+            int psz;
+
+            if (sp->tp->type == bt_pointer && sp->tp->val_flag == 0)
+                psz = 4;
+            else {
+                psz = type_size(sp->tp);
+                if (psz <= 0)
+                    psz = 4;
+            }
+            if (psz < 4) {
+                if (psz == 1)
+                    sp->value.i += 1;
+                nbytes += 2;
+            }
+            else
+                nbytes += psz;
         }
 
         sp2 = copysym(sp);

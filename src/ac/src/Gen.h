@@ -95,6 +95,17 @@ struct tagcall {
     char            *offset;
 };
 
+/*
+ * Fixed 68000 layout for the five-pointer pragma records above.
+ * Self-host may collapse C member offsets to 0; always access via these.
+ */
+#define SZ_LIBCALL       20
+#define LIBCALL_NEXT(p)  (*(void **) ((char *)(p) + 0))
+#define LIBCALL_BASE(p)  (*(char **) ((char *)(p) + 4))
+#define LIBCALL_FUNC(p)  (*(char **) ((char *)(p) + 8))
+#define LIBCALL_ARGS(p)  (*(char **) ((char *)(p) + 12))
+#define LIBCALL_OFF(p)   (*(char **) ((char *)(p) + 16))
+
 struct msgcall {
     struct msgcall  *next;
     int             msg_num;

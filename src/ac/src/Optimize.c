@@ -43,6 +43,135 @@ extern long     floatlit();
 
 void            fold_const();
 
+static long
+icon_mul(a, b)
+    long a, b;
+{
+    return u16_product(a, b);
+}
+
+/*
+ * opt0 icon folding must stay within 16-bit range.  Otherwise ac-self folds
+ * 192*2048 into 393216 and emits invalid displacements (393218(A0), -65546(A5)).
+ */
+static int
+icon16(v)
+    long v;
+{
+    v = ICON16L(v);
+    return v >= -32768L && v <= 32767L;
+}
+
+/*
+ * dooper must not fold address arithmetic into en_icon values outside the
+ * 680x0 (d16,An) range.  opt0 still calls dooper for en_lsh/en_rsh/en_and
+ * (192<<11 -> 393216) and for en_div/en_mod without icons_fold_* guards.
+ */
+static int
+icon_fold_result(r)
+    long r;
+{
+    return r >= -32768L && r <= 32767L;
+}
+
+void            dooper();
+
+/*
+ * opt0 calls dooper on dual-en_icon trees for several opcodes.  Guard here
+ * so a folded result outside (d16,An) range is never stored as en_icon.
+ */
+static void
+icons_fold_dooper(node)
+    struct enode  **node;
+{
+    struct enode   *ep;
+    long            r;
+
+    ep = *node;
+    if (ep->v.p[0]->nodetype != en_icon || ep->v.p[1]->nodetype != en_icon)
+        return;
+    switch (ep->nodetype) {
+    case en_add:
+        r = ICON16L(ep->v.p[0]->v.i) + ICON16L(ep->v.p[1]->v.i);
+        break;
+    case en_sub:
+        r = ICON16L(ep->v.p[0]->v.i) - ICON16L(ep->v.p[1]->v.i);
+        break;
+    case en_mul:
+        r = icon_mul(ep->v.p[0]->v.i, ep->v.p[1]->v.i);
+        break;
+    case en_div:
+        r = safe_ldiv(ep->v.p[0]->v.i, ep->v.p[1]->v.i);
+        break;
+    case en_mod:
+        r = safe_lmod(ep->v.p[0]->v.i, ep->v.p[1]->v.i);
+        break;
+    case en_lsh:
+        r = ep->v.p[0]->v.i << ep->v.p[1]->v.i;
+        break;
+    case en_rsh:
+        r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
+        break;
+    case en_and:
+        r = ep->v.p[0]->v.i & ep->v.p[1]->v.i;
+        break;
+    case en_or:
+        r = ep->v.p[0]->v.i | ep->v.p[1]->v.i;
+        break;
+    case en_xor:
+        r = ep->v.p[0]->v.i ^ ep->v.p[1]->v.i;
+        break;
+    default:
+        dooper(node);
+        return;
+    }
+    if (!icon_fold_result(r))
+        return;
+    dooper(node);
+}
+
+static int
+icons_fold_add(a, b)
+    long a, b;
+{
+    long r;
+
+    a = ICON16L(a);
+    b = ICON16L(b);
+    if (!icon16(a) || !icon16(b))
+        return 0;
+    r = a + b;
+    return icon16(r);
+}
+
+static int
+icons_fold_sub(a, b)
+    long a, b;
+{
+    long r;
+
+    a = ICON16L(a);
+    b = ICON16L(b);
+    if (!icon16(a) || !icon16(b))
+        return 0;
+    r = a - b;
+    return icon16(r);
+}
+
+static int
+icons_fold_mul(a, b)
+    long a, b;
+{
+    long r;
+
+    a = ICON16L(a);
+    b = ICON16L(b);
+    if (!icon16(a) || !icon16(b))
+        return 0;
+    r = icon_mul(a, b);
+    return icon16(r);
+}
+
 int
 fetchdouble(node, result)
     struct enode   *node;
@@ -81,52 +210,129 @@ dooper(node)
     ep = *node;
     switch (ep->nodetype) {
     case en_uminus:
-        ep->nodetype = en_icon;
-        ep->v.i = -ep->v.p[0]->v.i;
+        {
+            long r;
+
+            r = -ep->v.p[0]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_not:
         ep->nodetype = en_icon;
         ep->v.i = !ep->v.p[0]->v.i;
         break;
     case en_compl:
-        ep->nodetype = en_icon;
-        ep->v.i = ~ep->v.p[0]->v.i;
+        {
+            long r;
+
+            r = ~ep->v.p[0]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_add:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i + ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i + ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_sub:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i - ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i - ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_mul:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i * ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = icon_mul(ep->v.p[0]->v.i, ep->v.p[1]->v.i);
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_div:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i / ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = safe_ldiv(ep->v.p[0]->v.i, ep->v.p[1]->v.i);
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_lsh:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i << ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i << ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_rsh:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_and:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i & ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i & ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_or:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i | ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i | ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_xor:
-        ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.i ^ ep->v.p[1]->v.i;
+        {
+            long r;
+
+            r = ep->v.p[0]->v.i ^ ep->v.p[1]->v.i;
+            if (!icon_fold_result(r))
+                break;
+            ep->nodetype = en_icon;
+            ep->v.i = r;
+        }
         break;
     case en_land:
         ep->nodetype = en_icon;
@@ -362,10 +568,15 @@ opt0(node)
         opt0(&(ep->v.p[1]));
         if (ep->v.p[0]->nodetype == en_icon) {
             if (ep->v.p[1]->nodetype == en_icon) {
-                dooper(node);
+                if (ep->nodetype == en_sub) {
+                    if (icons_fold_sub(ep->v.p[0]->v.i, ep->v.p[1]->v.i))
+                        dooper(node);
+                }
+                else if (icons_fold_add(ep->v.p[0]->v.i, ep->v.p[1]->v.i))
+                    dooper(node);
                 return;
             }
-            if (ep->v.p[0]->v.i == 0) {
+            if (ICON16L(ep->v.p[0]->v.i) == 0) {
                 if (ep->nodetype == en_sub) {
                     ep->v.p[0] = ep->v.p[1];
                     ep->nodetype = en_uminus;
@@ -376,7 +587,7 @@ opt0(node)
             }
         }
         else if (ep->v.p[1]->nodetype == en_icon) {
-            if (ep->v.p[1]->v.i == 0) {
+            if (ICON16L(ep->v.p[1]->v.i) == 0) {
                 *node = ep->v.p[0];
                 return;
             }
@@ -387,7 +598,8 @@ opt0(node)
         opt0(&(ep->v.p[1]));
         if (ep->v.p[0]->nodetype == en_icon) {
             if (ep->v.p[1]->nodetype == en_icon) {
-                dooper(node);
+                if (icons_fold_mul(ep->v.p[0]->v.i, ep->v.p[1]->v.i))
+                    dooper(node);
                 return;
             }
             val = ep->v.p[0]->v.i;
@@ -428,7 +640,7 @@ opt0(node)
         opt0(&(ep->v.p[1]));
         if (ep->v.p[0]->nodetype == en_icon) {
             if (ep->v.p[1]->nodetype == en_icon) {
-                dooper(node);
+                icons_fold_dooper(node);
                 return;
             }
             if (ep->v.p[0]->v.i == 0) { /* 0/x */
@@ -457,7 +669,7 @@ opt0(node)
         opt0(&(ep->v.p[1]));
         if (ep->v.p[1]->nodetype == en_icon) {
             if (ep->v.p[0]->nodetype == en_icon) {
-                dooper(node);
+                icons_fold_dooper(node);
                 return;
             }
             if (! Options.MulDiv32) {
@@ -486,7 +698,7 @@ opt0(node)
         opt0(&(ep->v.p[1]));
         if (ep->v.p[0]->nodetype == en_icon &&
             ep->v.p[1]->nodetype == en_icon)
-            dooper(node);
+            icons_fold_dooper(node);
         break;
     case en_asand:
     case en_asor:
@@ -708,24 +920,20 @@ xfold(node)
  */
     struct enode   *node;
 {
-    long            i;
-
     if (node == NULL)
         return 0;
     switch (node->nodetype) {
     case en_icon:
-        i = node->v.i;
-        node->v.i = 0;
-        return i;
+        return node->v.i;
     case en_add:
         return xfold(node->v.p[0]) + xfold(node->v.p[1]);
     case en_sub:
         return xfold(node->v.p[0]) - xfold(node->v.p[1]);
     case en_mul:
         if (node->v.p[0]->nodetype == en_icon)
-            return xfold(node->v.p[1]) * node->v.p[0]->v.i;
+            return icon_mul(xfold(node->v.p[1]), node->v.p[0]->v.i);
         else if (node->v.p[1]->nodetype == en_icon)
-            return xfold(node->v.p[0]) * node->v.p[1]->v.i;
+            return icon_mul(xfold(node->v.p[0]), node->v.p[1]->v.i);
         else
             return 0;
     case en_uminus:
@@ -793,42 +1001,13 @@ void
 fold_const(node)
 
 /*
- * reorganize an expression for optimal constant grouping.
+ * Disabled: legacy fold_const merged xfold(lvalue) sums into neighbouring
+ * en_icon nodes (393216 poison on struct member addresses).  opt0() still
+ * folds pure icon trees safely.
  */
     struct enode  **node;
 {
-    struct enode   *ep;
-    long            i;
-
-    ep = *node;
-    if (ep == NULL)
-        return;
-    if (ep->nodetype == en_add) {
-        if (ep->v.p[0]->nodetype == en_icon) {
-            ep->v.p[0]->v.i += xfold(ep->v.p[1]);
-            return;
-        }
-        else if (ep->v.p[1]->nodetype == en_icon) {
-            ep->v.p[1]->v.i += xfold(ep->v.p[0]);
-            return;
-        }
-    }
-    else if (ep->nodetype == en_sub) {
-        if (ep->v.p[0]->nodetype == en_icon) {
-            ep->v.p[0]->v.i -= xfold(ep->v.p[1]);
-            return;
-        }
-        else if (ep->v.p[1]->nodetype == en_icon) {
-            ep->v.p[1]->v.i -= xfold(ep->v.p[0]);
-            return;
-        }
-    }
-    i = xfold(ep);
-    if (i != 0) {
-        ep = makenode(en_icon, i, NULL);
-        ep = makenode(en_add, ep, *node);
-        *node = ep;
-    }
+    (void)node;
 }
 
 void
@@ -836,9 +1015,15 @@ opt4(node)
 
 /*
  * apply all constant optimizations.
+ *
+ * Skip when Options.Optimize is off (ac-self -n self-host).  opt0() still ran
+ * unconditionally here and folded address arithmetic into out-of-range en_icon
+ * values (393216, -65540, etc.) even though opt1/CSE was already disabled.
  */
     struct enode  **node;
 {
+    if (!Options.Optimize)
+        return;
     opt0(node);
     fold_const(node);
     opt0(node);

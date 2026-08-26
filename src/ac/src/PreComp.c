@@ -335,7 +335,7 @@ dump_precomp(name)
     char           *name;
 {
     if ((fp = fopen(name, "w")) == NULL) {
-        fprintf(stderr, "Error in opening precomp file '%s' !\n", name );
+        fprintf(AC_DIAG_STREAM, "Error in opening precomp file '%s' !\n", name );
         exit(1);
     }
 
@@ -363,7 +363,7 @@ read_recur(comp)
     ctype = getcomp1();
 
     if ((enum e_comp) ctype != comp) {
-        fprintf(stderr, "Reading a RECUR, got [%d]\n", ctype );
+        fprintf(AC_DIAG_STREAM, "Reading a RECUR, got [%d]\n", ctype );
     }
 
     return (get_recur(index));
@@ -392,14 +392,14 @@ read_type(tp)
     }
     else if ((enum e_comp) ctype == TOPLEV_TYP) {
         ++global_flag;
-        tp->btp = (TYP *) xalloc(sizeof(TYP));
+        tp->btp = (TYP *) xalloc(SZ_TYP);
         --global_flag;
-        memset((char *)tp->btp, 0, sizeof(TYP));
+        memset((char *)tp->btp, 0, SZ_TYP);
         read_type(tp->btp);
         ctype = getcomp1();
     }
     if ((enum e_comp) ctype != ENDOF_TYP) {
-        fprintf( stderr, "Reading a TYPE, got [%d]\n", ctype );
+        fprintf(AC_DIAG_STREAM, "Reading a TYPE, got [%d]\n", ctype );
     }
 }
 
@@ -439,14 +439,14 @@ read_symbol(sp)
     }
     else if ((enum e_comp) ctype == TOPLEV_TYP) {
         ++global_flag;
-        sp->tp = (TYP *) xalloc(sizeof(TYP));
+        sp->tp = (TYP *) xalloc(SZ_TYP);
         --global_flag;
-        memset((char *)sp->tp, 0, sizeof(TYP));
+        memset((char *)sp->tp, 0, SZ_TYP);
         read_type(sp->tp);
         ctype = getcomp1();
     }
     if ((enum e_comp) ctype != ENDOF_SYM) {
-        fprintf(stderr, "Reading a SYMBOL, got [%d]\n", ctype );
+        fprintf(AC_DIAG_STREAM, "Reading a SYMBOL, got [%d]\n", ctype );
     }
 }
 
@@ -464,7 +464,7 @@ read_libentry( lb )
     ctype = getcomp1();
 
     if ((enum e_comp) ctype != ENDOF_LIBENTRY) {
-        fprintf(stderr, "Reading a LIBENTRY, got [%d]\n", ctype );
+        fprintf(AC_DIAG_STREAM, "Reading a LIBENTRY, got [%d]\n", ctype );
     }
 }
 
@@ -478,7 +478,7 @@ read_libcall()
     ctype = getcomp1();
 
     if ((enum e_comp) ctype != TOPLEV_LIBCALL) {
-        fprintf(stderr, "Reading a LIBCALL start, got [%d]\n", ctype );
+        fprintf(AC_DIAG_STREAM, "Reading a LIBCALL start, got [%d]\n", ctype );
         exit(1);
     }
 
@@ -501,7 +501,7 @@ read_libcall()
 
             break;
         default:
-            fprintf(stderr, "Reading a LIBCALL, got [%d]\n", ctype );
+            fprintf(AC_DIAG_STREAM, "Reading a LIBCALL, got [%d]\n", ctype );
             return;
         }
     }
@@ -518,7 +518,7 @@ read_tbl(tbl)
     ctype = getcomp1();
 
     if ((enum e_comp) ctype != TOPLEV_TBL) {
-        fprintf(stderr, "Reading a TABLE start, got [%d]\n", ctype );
+        fprintf(AC_DIAG_STREAM, "Reading a TABLE start, got [%d]\n", ctype );
         exit(1);
     }
 
@@ -539,9 +539,9 @@ read_tbl(tbl)
             break;
         case TOPLEV_SYM:
             ++global_flag;
-            sp = (SYM *) xalloc(sizeof(SYM));
+            sp = (SYM *) xalloc(SZ_SYM);
             --global_flag;
-            memset((char *)sp, 0, sizeof(SYM));
+            memset((char *)sp, 0, SZ_SYM);
             read_symbol(sp);
             if (tbl->head == NULL)
                 tbl->head = tbl->tail = sp;
@@ -551,7 +551,7 @@ read_tbl(tbl)
                 tbl->tail = tbl->tail->next;
             break;
         default:
-            fprintf(stderr, "Reading a TABLE, got [%d]\n", ctype );
+            fprintf(AC_DIAG_STREAM, "Reading a TABLE, got [%d]\n", ctype );
             return;
         }
     }
@@ -562,7 +562,7 @@ read_precomp(name)
     char           *name;
 {
     if ((fp = fopen(name, "r")) == NULL) {
-        fprintf(stderr, "Error in opening precomp file '%s'!\n", name );
+        fprintf(AC_DIAG_STREAM, "Error in opening precomp file '%s'!\n", name );
         exit(1);
     }
 
@@ -677,7 +677,7 @@ fmt_type(tp, prev)
                 append("[]");
             else {
                 prepbuffer[len] = '[';
-                strcpy( &prepbuffer[len+1], itoa( tp->size / tp->btp->size ));
+                strcpy( &prepbuffer[len+1], itoa( safe_ldiv((long) tp->size, (long) tp->btp->size) ));
                 strcat( &prepbuffer[len], "]" );
             }
             fmt_type(tp->btp, bt_unknown);
@@ -1023,7 +1023,7 @@ fmt_precomp(name)
     char *comment_string = "\n/* ------------------------------ */\n\n" ;
 
     if ((fp = fopen(name, "w")) == NULL) {
-        fprintf( stderr, "Error in opening precomp file '%s' !\n", name );
+        fprintf(AC_DIAG_STREAM, "Error in opening precomp file '%s' !\n", name );
         exit(1);
     }
     fprintf( fp, comment_string );

@@ -27,22 +27,36 @@
  */
 
 enum e_sym {
-    and, asand, asdivide, aseor, aslshift, asmconst, asminus, asmodop,
+    sym_and, asand, asdivide, aseor, aslshift, asmconst, asminus, asmodop,
     asor, asplus, asrshift, assign, astimes, autodec, autoinc, begin,
-    cconst, closebr, closepa, colon, comma, compl, divide, dot, end,
+    cconst, closebr, closepa, colon, comma, sym_compl, divide, dot, end,
     ellipsis, eq, geq, gt, hook, iconst, id, land, lconst, llconst, leq, lor,
-    lshift, lt, lxor, minus, modop, neq, not, openbr, openpa, or, plus,
+    lshift, lt, lxor, minus, modop, neq, sym_not, openbr, openpa, sym_or, plus,
     pointsto, rconst, rshift, sconst, semicolon, star, uparrow,
     kw_auto, kw_break, kw_case, kw_char, kw_const, kw_continue, kw_default,
     kw_defined, kw_do, kw_double, kw_else, kw_enum, kw_extern, kw_float,
     kw_for, kw_goto, kw_if, kw_int, kw_long, kw_register, kw_return,
     kw_short, kw_signed, kw_sizeof, kw_static, kw_struct, kw_switch,
     kw_typedef, kw_union, kw_unsigned, kw_void, kw_volatile, kw_while,
-    kw_bool,  /* C99 _Bool keyword */
+    kw_bool,  /* C99 _Bool / C23 bool */
     /* SAS/C keywords */
     kw_asm, kw_regargs, kw_stdargs, kw_saveds, kw_far, kw_near, kw_chip, 
-    kw_fast, kw_interrupt, kw_aligned, eof
+    kw_fast, kw_interrupt, kw_aligned,
+    /* C23-style exact-width names: aliases of char/short/long/long long */
+    kw_int8, kw_uint8, kw_int16, kw_uint16,
+    kw_int32, kw_uint32, kw_int64, kw_uint64,
+    kw_intptr, kw_uintptr, kw_intmax, kw_uintmax,
+    /* C23 constants / no-op aliases of existing behaviour */
+    kw_true, kw_false, kw_nullptr,
+    kw_restrict, kw_inline, kw_noreturn,
+    eof
 };
+
+/*
+ * C23 spellings (and, or, not, compl, …) are lexer keywords for user code.
+ * Implementation sources use sym_* names above — do not #define and/or back:
+ * the self-hosted compiler rejects #define on keyword tokens.
+ */
 
 enum e_sc {
     sc_static, sc_auto, sc_global, sc_external, sc_type, sc_const,
@@ -72,35 +86,62 @@ struct slit {
     char       *str;
 };
 
+struct sym;     /* forward */
+
+struct stab {
+    struct sym     *head, *tail;
+};
+
+struct typ {
+    short       type;       /* enum e_bt — word at 0, int size at 4 (Decl.s) */
+    char        val_flag;   /* is it a value type */
+    char        _pad_typ;   /* pad so int size sits at offset 4 */
+    int         size;
+    struct stab lst;
+    struct typ *btp;
+    char       *sname;
+    char        qualifiers; /* type qualifiers: const=1, volatile=2 */
+    char        mem_section; /* memory section: chip=1, far=2, near=3, fast=4 */
+};
+
 struct sym {
     struct sym     *next;
     char       *name;
     int         key;
-    enum e_sc       storage_class;
-    enum e_sc       storage_type;
+    short       storage_class;  /* enum e_sc — word in bootstrap/ac/Func.s */
+    short       storage_type;   /* enum e_sc — word in bootstrap/ac/Func.s */
     union {
     long        i;
     unsigned long   u;
     double      f;
     char           *s;
     }           value;
-    struct typ {
-    enum e_bt   type;
-    char        val_flag;   /* is it a value type */
-    int     size;
-    struct stab {
-        struct sym     *head, *tail;
-    }       lst;
-    struct typ     *btp;
-    char           *sname;
-    char        qualifiers; /* type qualifiers: const=1, volatile=2 */
-    char        mem_section; /* memory section: chip=1, far=2, near=3, fast=4 */
-    }          *tp;
+    struct typ     *tp;
 };
 
 #define SYM struct sym
 #define TYP struct typ
 #define TABLE   struct stab
+
+/*
+ * SAS/C m68k bootstrap layout (bootstrap/ac/*.s).  ac-self must not use
+ * sizeof(SYM/TYP/enode): compile-time sizeof folds to (e_sc<<16)|offset.
+ * ICON16L keeps only the low 16 bits for displacements and en_icon nodes.
+ *
+ * On POSIX/LP64 hosts, allocate the real struct sizes so tp/next pointers
+ * are not truncated (Mac crash in list_var with multiple globals).
+ */
+#include "host_posix.h"
+#if defined(AC_HOST_POSIX)
+#define SZ_SYM      ((int)sizeof(struct sym))
+#define SZ_TYP      ((int)sizeof(struct typ))
+#define SZ_ENODE    24
+#else
+#define SZ_SYM      28
+#define SZ_TYP      26
+#define SZ_ENODE    16
+#endif
+#define ICON16L(v)  ((long)((short)((unsigned long)(v) & (unsigned long)65535)))
 
 /* Type qualifier constants */
 #define QUAL_CONST     1
@@ -115,6 +156,8 @@ struct sym {
 #define MEM_FAR        2
 #define MEM_NEAR       3
 #define MEM_FAST       4
+
+struct enode;
 
 /* Type system function declarations */
 extern TYP *integer_promote(TYP *tp, struct enode **node);
@@ -171,6 +214,19 @@ extern TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node
 #define AL_DOUBLE   2
 #define AL_STRUCT   2
 
+/*
+ * Diagnostic stream: Amiga shells expect messages on stdout (ac -c f.c >log).
+ * POSIX host builds keep stderr for conventional Unix tooling.
+ */
+#ifndef AC_DIAG_STREAM
+#include <stdio.h>
+#if defined(AC_HOST_POSIX)
+#define AC_DIAG_STREAM stderr
+#else
+#define AC_DIAG_STREAM stdout
+#endif
+#endif
+
 #define TRUE    1
 #define FALSE   0
 
@@ -180,3 +236,16 @@ extern void warning_at_line(int n, char *msg, char *filename, int line, int colu
 extern void warning(int n, char *msg);
 extern int total_warnings;
 extern int current_column;
+
+/*
+ * Integer math without ac.lib .lmuls / .ldivs / .lmods (ac-self on Amiga).
+ */
+extern long u16_product(long a, long b);
+extern long safe_lmul(long a, long b);
+extern long safe_ldiv(long a, long b);
+extern long safe_lmod(long a, long b);
+extern long imod2(long n);
+extern long imod3(long n);
+extern int type_size(TYP *tp);
+extern int alignment(TYP *tp);
+extern int genalignment(int align);

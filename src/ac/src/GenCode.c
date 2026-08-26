@@ -43,6 +43,7 @@ extern TYP      stdint;
 extern int      gen_flibcall(struct enode *node, int argbytes);
 extern int      gen_syscall(struct enode *node, int argbytes);
 extern int      gen_tagcall(struct enode *node, int argbytes);
+extern void     call_library();
 
 #define MAX_SHIFT   8
 
@@ -52,6 +53,7 @@ struct amode   *temp_data(), *temp_addr(), *makeareg(), *makedreg();
 struct amode   *copy_addr(), *temp_float();
 struct amode   *request_addr(), *request_data(), *request_float();
 struct amode   *request_reg();
+struct amode   *make_autocon();
 struct enode   *makenode();
 
 struct amode   *gen_fsconvert(), *gen_fconvert();
@@ -89,7 +91,7 @@ make_label(lab)
     struct enode   *lnode;
     struct amode   *ap;
 
-    lnode = (struct enode *) xalloc(sizeof(struct enode));
+    lnode = (struct enode *) xalloc(SZ_ENODE);
     lnode->signedflag = 0;
     lnode->nodetype = en_labcon;
     lnode->v.i = lab;
@@ -111,7 +113,7 @@ make_immed(i)
     struct amode   *ap;
     struct enode   *ep;
 
-    ep = (struct enode *) xalloc(sizeof(struct enode));
+    ep = (struct enode *) xalloc(SZ_ENODE);
     ep->signedflag = 1;
     ep->nodetype = en_icon;
     ep->v.i = i;
@@ -133,7 +135,7 @@ make_offset(node)
     struct amode   *ap;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in make_offset.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in make_offset.\n" );
         return NULL;
     }
 
@@ -156,19 +158,38 @@ make_delta(ap1, delta)
     case am_immed:
         ap1 = make_offset(ap1->offset); /* FALL THROUGH */
     case am_direct:
-        ap1->offset = makenode(en_add, ap1->offset,
-                       makenode(en_icon, delta, NULL));
+        {
+            struct enode   *sumnode;
+
+            if (ap1->offset != NULL && ap1->offset->nodetype == en_icon) {
+                long sum;
+
+                sum = ICON16L(ap1->offset->v.i) + (long) delta;
+                if (sum >= -32768L && sum <= 32767L) {
+                    ap1->offset = makenode(en_icon, sum, NULL);
+                    break;
+                }
+            }
+            sumnode = makenode(en_add, ap1->offset,
+                makenode(en_icon, delta, NULL));
+            ap1->offset = sumnode;
+        }
         break;
     case am_ind:
         ap1->mode = am_indx;    /* 0(Ax) */
         ap1->offset = makenode(en_icon, delta, NULL);
         break;
     case am_indx:
-        if (ap1->offset->nodetype == en_icon)
-            ap1->offset = makenode(en_icon, (ap1->offset->v.i) + delta, NULL);
+        if (ap1->offset->nodetype == en_icon) {
+            long sum;
+
+            sum = ICON16L(ap1->offset->v.i) + (long) delta;
+            if (sum >= -32768L && sum <= 32767L)
+                ap1->offset = makenode(en_icon, sum, NULL);
+        }
         break;
     default:
-        fprintf( stderr, "DIAG -- uncoded operand in make_delta\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded operand in make_delta\n" );
         break;
     }
     return (ap1);
@@ -187,7 +208,7 @@ make_legal(ap, flags, size)
     struct amode   *ap2, *ap3;
 
     if (ap == NULL) {
-        fprintf( stderr, "DIAG -- NULL pointer in make_legal\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL pointer in make_legal\n" );
         return;
     }
 
@@ -250,12 +271,41 @@ make_legal(ap, flags, size)
     }
 
     if (flags & F_FREG) {
-        if (ap->mode == am_areg || ap->mode == am_dreg)
-            fprintf( stderr, "DIAG -- Error in make_legal\n" );
-        else {
-            ap3 = temp_float();
+        if (ap->mode == am_dreg || ap->mode == am_immed) {
+            /*
+             * Integer in a double expression: convert with .Fl2d and keep
+             * the result on the stack so gen_fbinary can pass A0 to FD*.
+             */
+            if (ap->mode == am_immed) {
+                gen_code(op_move, 4, ap, makedreg((enum e_am) 0));
+            } else if ((int) ap->preg != 0) {
+                gen_code(op_move, 4, ap, makedreg((enum e_am) 0));
+            }
+            PdcFlags |= PDC_IEEEDOUBLE;
+            call_library(".Fl2d");
+            if (float_auto == 0) {
+                lc_auto += 8;
+                float_auto = lc_auto;
+            }
+            ap2 = make_autocon(-float_auto);
+            gen_code(op_move, 4, makedreg((enum e_am) 0), ap2);
+            ap2 = make_delta(ap2, 4);
+            gen_code(op_move, 4, makedreg((enum e_am) 1), ap2);
             freeop(ap);
+            ap3 = make_autocon(-float_auto);
+            ap->mode = ap3->mode;
+            ap->preg = ap3->preg;
+            ap->sreg = ap3->sreg;
+            ap->deep = ap3->deep;
+            ap->offset = ap3->offset;
+            ap->signedflag = ap3->signedflag;
+            ap->tempflag = 1;
+        } else if (ap->mode == am_areg) {
+            fprintf(AC_DIAG_STREAM, "DIAG -- Error in make_legal\n" );
+        } else {
+            ap3 = temp_float();
             ap2 = copy_addr(ap);
+            freeop(ap);
             gen_code(op_move, 4, ap2, makedreg((enum e_am) 0));
             ap2 = make_delta(ap2, 4);
             gen_code(op_move, 4, ap2, makedreg((enum e_am) 1));
@@ -322,7 +372,7 @@ do_extend(ap, isize, osize, flags, is_signed)
     struct amode   *ap1;
 
     if (ap == NULL) {
-        fprintf( stderr, "DIAG -- null node in do_extend.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in do_extend.\n" );
         return;
     }
 
@@ -365,6 +415,15 @@ do_extend(ap, isize, osize, flags, is_signed)
     }
 }
 
+static void
+fixicon(node)
+    struct enode   *node;
+{
+    /* SAS/C folds sizeof(SYM/TYP/...) to (e_sc<<16)|offset in ac-self output. */
+    if (node != NULL && node->nodetype == en_icon)
+        node->v.i = ICON16L(node->v.i);
+}
+
 int
 isshort(node)
 
@@ -373,12 +432,16 @@ isshort(node)
  */
     struct enode   *node;
 {
+    long            v;
+
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in isshort.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in isshort.\n" );
         return FALSE;
     }
-    return node->nodetype == en_icon &&
-        (node->v.i >= -32767 && node->v.i <= 32767);
+    if (node->nodetype != en_icon)
+        return FALSE;
+    v = ICON16L(node->v.i);
+    return (v >= -32767L && v <= 32767L);
 }
 
 int
@@ -389,12 +452,16 @@ isbyte(node)
  */
     struct enode   *node;
 {
+    long            v;
+
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in isbyte.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in isbyte.\n" );
         return FALSE;
     }
-    return node->nodetype == en_icon &&
-        (-128 <= node->v.i && node->v.i <= 127);
+    if (node->nodetype != en_icon)
+        return FALSE;
+    v = ICON16L(node->v.i);
+    return (-128 <= v && v <= 127);
 }
 
 struct amode   *
@@ -406,7 +473,7 @@ gen_extend(node, flags, size)
     int             siz1, siz2, is_signed;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_extend.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_extend.\n" );
         return NULL;
     }
 
@@ -462,7 +529,7 @@ gen_index(node)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_index.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_index.\n" );
         return NULL;
     }
     if (node->v.p[0]->nodetype == en_tempref &&
@@ -501,6 +568,7 @@ gen_index(node)
     if (ap1->mode == am_immed && isshort(ap1->offset)) {
         ap2 = gen_expr(node->v.p[1], F_AREG, 4);
         make_legal( ap2, F_AREG, 4 );
+        fixicon(ap1->offset);
         ap2->mode = am_indx;
         ap2->offset = ap1->offset;
         return ap2;
@@ -511,11 +579,15 @@ gen_index(node)
 
     if ((ap2->mode == am_immed && isshort(ap2->offset))
          && ap1->mode == am_areg) { /* make am_indx */
+        struct enode   *offset_node;
+
+        offset_node = ap2->offset;
+        fixicon(offset_node);
         freeop(ap2);
         freeop(ap1);
         ap1 = request_reg(ap1);
         ap1->mode = am_indx;
-        ap1->offset = ap2->offset;
+        ap1->offset = offset_node;
         return ap1;
     }
 
@@ -532,7 +604,6 @@ gen_index(node)
         make_legal(ap2, F_AREG, 4);
         gen_code(op_add, 4, ap1, ap2);  /* add right to address reg */
         ap2->mode = am_ind; /* make indirect        */
-        freeop(ap2);
         freeop(ap1);
         ap1 = request_reg(ap2);
         return ap1; /* return indirect      */
@@ -542,7 +613,6 @@ gen_index(node)
         gen_code(op_move, 4, ap1, ap3);
         gen_code(op_add, 4, ap2, ap3);  /* add left to address reg  */
         ap3->mode = am_ind;             /* make indirect        */
-        freeop(ap3);
         freeop(ap2);                    /* release any temps in ap2 */
         freeop(ap1);
         ap1 = request_reg(ap3);
@@ -581,7 +651,7 @@ gen_deref(node, flags, size)
     int             is_signed;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_deref.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_deref.\n" );
         return NULL;
     }
 
@@ -644,7 +714,7 @@ gen_deref(node, flags, size)
         ap1->mode = am_indx;
         ap1->preg = (enum e_am) Options.Frame;
         ap1->deep = 0;
-        ap1->offset = makenode(en_icon, (long) (node->v.p[0]->v.i), NULL);
+        ap1->offset = makenode(en_icon, ICON16L(node->v.p[0]->v.i), NULL);
         do_extend(ap1, siz1, size, flags, is_signed);
         make_legal(ap1, flags, size);
         return ap1;
@@ -678,7 +748,7 @@ gen_unary(node, flags, size, op)
     struct amode   *ap, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_unary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_unary.\n" );
         return NULL;
     }
 
@@ -714,7 +784,7 @@ gen_binary(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_binary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_binary.\n" );
         return NULL;
     }
 
@@ -776,7 +846,7 @@ gen_llbinary(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_llbinary.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llbinary.\n" );
         return NULL;
     }
 
@@ -854,7 +924,7 @@ gen_llmul(node, flags, size)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_llmul.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llmul.\n" );
         return NULL;
     }
 
@@ -913,7 +983,7 @@ gen_lldiv(node, flags, size)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_lldiv.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_lldiv.\n" );
         return NULL;
     }
 
@@ -972,7 +1042,7 @@ gen_llmod(node, flags, size)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_llmod.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llmod.\n" );
         return NULL;
     }
 
@@ -1031,7 +1101,7 @@ gen_llextend(node, flags, size)
     struct amode   *ap1, *ap2;
     
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_llextend.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llextend.\n" );
         return NULL;
     }
 
@@ -1087,7 +1157,7 @@ gen_xbin(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_xbin.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_xbin.\n" );
         return NULL;
     }
 
@@ -1131,7 +1201,7 @@ gen_shift(node, flags, size, op)
     struct enode   *ep1;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_shift.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_shift.\n" );
         return NULL;
     }
 
@@ -1186,7 +1256,7 @@ swap_nodes(node)
     struct enode   *temp;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in swap_nodes.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in swap_nodes.\n" );
         return;
     }
     temp = node->v.p[0];
@@ -1209,7 +1279,7 @@ gen_modiv(node, flags, size, op )
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_modiv.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_modiv.\n" );
         return NULL;
     }
 
@@ -1314,7 +1384,7 @@ gen_mul(node, flags, size, op)
     int             i, b2, bits, mask, last;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_mul.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_mul.\n" );
         return NULL;
     }
 
@@ -1420,7 +1490,7 @@ gen_hook(node, flags, size)
     int             false_label, end_label;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_hook.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_hook.\n" );
         return NULL;
     }
 
@@ -1482,7 +1552,7 @@ gen_asadd(node, flags, size, op)
     int             ssize;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_asadd.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asadd.\n" );
         return NULL;
     }
     ssize = natural_size(node->v.p[0]);
@@ -1513,7 +1583,7 @@ gen_aslogic(node, flags, size, op)
     int             ssize;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_aslogic.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_aslogic.\n" );
         return NULL;
     }
     ssize = natural_size(node->v.p[0]);
@@ -1554,7 +1624,7 @@ gen_asshift(node, flags, size, op)
     struct enode   *ep1;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_asshift.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asshift.\n" );
         return NULL;
     }
 
@@ -1600,7 +1670,7 @@ gen_asmul(node, flags, size)
     int             mask, b2, bits, i, last, numbits;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_asmul.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asmul.\n" );
         return NULL;
     }
 
@@ -1709,7 +1779,7 @@ gen_asmodiv(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_asmodiv.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asmodiv.\n" );
         return NULL;
     }
 
@@ -1851,12 +1921,12 @@ gen_massign(node, flags, size)
         }
     }
     else {
-        gen_code(op_move, 4, make_immed((long) ssize / 4), ap3);
+        gen_code(op_move, 4, make_immed(safe_ldiv((long) ssize, 4)), ap3);
         begin_label = nextlabel++;
         gen_label(begin_label);
         gen_code(op_move, 4, ap4, ap5);
         gen_code(op_dbra, 0, ap3, make_label(begin_label));
-        ssize %= 4;
+        ssize = (int)safe_lmod((long) ssize, 4L);
     }
     if (ssize >= 2) {
         gen_code(op_move, 2, ap4, ap5);
@@ -1890,7 +1960,7 @@ gen_assign(node, flags, size)
     int             ssize, is_signed, size1, size2;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_assign.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_assign.\n" );
         return NULL;
     }
 
@@ -1920,7 +1990,7 @@ gen_assign(node, flags, size)
 		is_signed = 1;
         break;
 	default:
-		fprintf( stderr, "DIAG -- Uncoded LHS\n" );
+		fprintf(AC_DIAG_STREAM, "DIAG -- Uncoded LHS\n" );
 		break;
     }
 
@@ -2002,7 +2072,7 @@ gen_aincdec(node, flags, size, op)
     int             siz1, amount;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_aincdec.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_aincdec.\n" );
         return NULL;
     }
 
@@ -2143,7 +2213,7 @@ getsize(node)
     case en_cond:
         return getsize(node->v.p[1]);
     default:
-        fprintf( stderr, "DIAG -- getsize error.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- getsize error.\n" );
         break;
     }
     return 0;
@@ -2161,7 +2231,7 @@ push_param(ep, size)
     struct amode   *ap1, *ap2;
 
     if (ep == NULL) {
-        fprintf( stderr, "DIAG -- NULL pointer in push_param\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL pointer in push_param\n" );
         return (0);
     }
 
@@ -2231,7 +2301,7 @@ gen_fcall(node, flags)
     int             i;
 
     if (node == NULL) {
-        fprintf( stderr, "DIAG -- null node in gen_fcall.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_fcall.\n" );
         return NULL;
     }
 
@@ -2517,7 +2587,7 @@ gen_expr(node, flags, size)
     case en_fcall:
         return gen_fcall(node, flags);
     default:
-        fprintf( stderr, "DIAG -- uncoded node in gen_expr.\n");
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded node in gen_expr.\n");
         return NULL;
     }
     return NULL;
@@ -2563,7 +2633,7 @@ natural_size(node)
         return 8;
     case en_m_ref:
         ep1 = node->v.p[1];
-        return (ep1->v.i);
+        return (int)ICON16L(ep1->v.i);
         break;
     case en_icon:
         if (-128 <= node->v.i && node->v.i <= 127)
@@ -2649,7 +2719,7 @@ natural_size(node)
     case en_cond:
         return natural_size(node->v.p[1]);
     default:
-        fprintf( stderr, "DIAG -- natural size error.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- natural size error.\n" );
         break;
     }
     return 0;

@@ -407,7 +407,7 @@ checkcases(head)
         while (cur != NULL) {
             if ((!(cur->s1 || cur->s2) && cur->label == top->label)
                 || (cur->s2 && top->s2)) {
-                fprintf(stderr, " duplicate case label %d\n", cur->label);
+                fprintf(AC_DIAG_STREAM, " duplicate case label %d\n", cur->label);
                 return TRUE;
             }
             cur = cur->next;
@@ -631,7 +631,7 @@ labelstmt()
 
     snp = makesnode(st_label);
     if ((sp = search(lastid, lsyms.head)) == NULL) {
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->name = litlate(lastid);
         sp->storage_class = sc_label;
         sp->tp = NULL;
@@ -672,7 +672,7 @@ gotostmt()
     }
     snp = makesnode(st_goto);
     if ((sp = search(lastid, lsyms.head)) == NULL) {
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->name = litlate(lastid);
         sp->value.i = nextlabel++;
         sp->storage_class = sc_ulabel;

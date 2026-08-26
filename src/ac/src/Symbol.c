@@ -106,8 +106,8 @@ gsearch(str)
     SYM            *ptr;
 
 
-    if ((ptr = search(str, &lsyms.head)) == NULL)
-        ptr = search(str, &gsyms.head);
+    if ((ptr = search(str, lsyms.head)) == NULL)
+        ptr = search(str, gsyms.head);
     return (ptr);
 }
 

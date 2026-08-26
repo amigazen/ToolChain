@@ -33,8 +33,16 @@
 
 FILE *input = NULL;
 FILE *list = NULL;
-FILE *output = NULL;
+/*
+ * Named ac_output (not "output") so the symbol is not _output.
+ */
+FILE *ac_output = NULL;
 
+/*
+ * Struct and Options in one declaration (no separate "struct OptTab Options;").
+ * No member assignments here — ac-self fails on Options.field in this file.
+ * Defaults applied in default_options() in Cmain.c (has Cglbdec.h).
+ */
 struct OptTab {
     int             Optimize;
     int             List;
@@ -51,27 +59,12 @@ struct OptTab {
     int             OutputFormat;  /* 0=GCC, 1=SASC, 2=PDC */
     int             WarningsAsErrors;
     int             ShowColumn;
-};
-
-/*
- *  Optimize    ON 
- *  List        OFF 
- *  Quiet       OFF 
- *  Annote      OFF 
- *  Frame       A5
- *  Debug       OFF 
- *  MulDiv32    ON
- *  Builtin     OFF
- *  PreComp     OFF
- *  Stack       OFF
- */
-
-struct OptTab   Options = {1, 0, 0, 0, 5, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1};
+} Options;
 
 int             lineno = 0;
 int             nextlabel = 0;
 int             lastch = 0;
-enum e_sym      lastst = id;
+int             lastst = (int) id; /* int: A68k link needs DC.l; enum is DC.w + leaks into lastid */
 char            lastid[MAX_IDP1] = "";
 char            laststr[MAX_STLP1] = "";
 char           *curfile;

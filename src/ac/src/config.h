@@ -7,6 +7,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include "host_posix.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -22,7 +23,7 @@
 #define CONST       const
 #endif
 
-#ifndef UNIXERR
+#if defined(AC_HOST_POSIX)
 #define UNIXERR
 #endif
 

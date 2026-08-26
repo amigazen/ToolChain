@@ -228,12 +228,12 @@ itoa(x)
     }
 
     do {
-        d = x % 10;
+        d = safe_lmod(x, 10);
         if (d < 0 || d > 9) {
-            fprintf(stderr, "DIAG -- itoa has a problem\n");
+            fprintf(AC_DIAG_STREAM, "DIAG -- itoa has a problem\n");
             return (ptr);
         }
-        x = x / 10;
+        x = safe_ldiv(x, 10);
         *(--ptr) = '0' + d;
     } while (x > 0);
 
@@ -313,7 +313,7 @@ putop(op, len)
     high = opl_len - 1;
 
     do {
-        mid = (low + high) / 2;
+        mid = low + safe_ldiv(high - low, 2);
         ptr = &opl[mid];
 
         if (ptr->ov == op) {
@@ -335,7 +335,7 @@ putop(op, len)
                 break;
             default:
                 lenstr = ".x";
-                fprintf( stderr, "DIAG -- illegal length field.\n" );
+                fprintf(AC_DIAG_STREAM, "DIAG -- illegal length field.\n" );
                 break;
             }
             fprintf( output, "\t%s%s", ptr->s, lenstr );
@@ -349,7 +349,7 @@ putop(op, len)
         }
     } while (low <= high);
 
-    fprintf( stderr, "DIAG -- illegal opcode.\n" );
+    fprintf(AC_DIAG_STREAM, "DIAG -- illegal opcode.\n" );
 }
 
 /*
@@ -361,15 +361,18 @@ putconst(offset)
     struct enode   *offset;
 {
     if (offset == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to putconst.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to putconst.\n" );
         return;
     }
     switch (offset->nodetype) {
     case en_autocon:
-        fprintf(output, "%d(A%d)", offset->v.i, Options.Frame);
+        fprintf(output, "%d(A%d)", (int)ICON16L(offset->v.i), Options.Frame);
+        break;
+    case en_tempref:
+        fprintf(output, "%d", offset->v.i);
         break;
     case en_icon:
-        fprintf(output, "%d", offset->v.i);
+        fprintf(output, "%d", (int)ICON16L(offset->v.i));
         break;
     case en_fcon:
         putdouble(offset->v.f);
@@ -398,7 +401,7 @@ putconst(offset)
         putconst(offset->v.p[0]);
         break;
     default:
-        fprintf( stderr, "DIAG -- illegal constant node (%d)\n", 
+        fprintf(AC_DIAG_STREAM, "DIAG -- illegal constant node (%d)\n", 
                          offset->nodetype );
         break;
     }
@@ -413,7 +416,7 @@ putamode(ap)
     struct amode   *ap;
 {
     if (ap == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to putamode.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to putamode.\n" );
         return;
     }
     switch (ap->mode) {
@@ -462,7 +465,7 @@ putamode(ap)
         put_mask((long) (ap->offset));
         break;
     default:
-        fprintf( stderr, "DIAG -- illegal address mode.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- illegal address mode.\n" );
         fprintf( output, "<DIAG -- illegal address mode.>" );
         break;
     }
@@ -501,8 +504,6 @@ put_code(op, len, aps, apd)
         return;
     case op_stabs:
         dp = aps->offset->v.dp;
-        if (dp->ref->nodetype == en_autocon || dp->ref->nodetype == en_tempref)
-            dp->ref->nodetype = en_icon;
         comment = dp->sp;
         do {
             fprintf( output, "\tSTABS\t\"" );
@@ -573,7 +574,7 @@ void
 startRange(bit)
     int    bit;
 {
-    register int bit_mod8 = bit % 8;
+    register int bit_mod8 = bit & 7;
 
     if (bit <= 7)
         fprintf( output, dreg_format, bit_mod8);
@@ -761,7 +762,7 @@ genref(sp, offset)
     char            sign;
 
     if (sp == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to genref.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to genref.\n" );
         return;
     }
     if (offset >= 0) 
@@ -820,7 +821,7 @@ genalignment(align)
         fprintf( output, "\tCNOP\t0,%d\n", align);
         break;
     default:
-        fprintf( stderr, "DIAG -- invalid alignment\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- invalid alignment\n" );
         break;
     }
     return (align);
@@ -876,7 +877,7 @@ stringconcat(index, s)
     struct slit    *lp;
 
     if (s == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to stringconcat.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to stringconcat.\n" );
         return (0);
     }
 
@@ -913,7 +914,7 @@ stringlit(s)
     struct slit    *lp;
 
     if (s == NULL) {
-        fprintf( stderr, "DIAG -- NULL argument to stringlit.\n" );
+        fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to stringlit.\n" );
         return (0);
     }
     ++global_flag;      /* always allocate from global space. */
@@ -1035,7 +1036,7 @@ dumplits()
             ++count;
             genbyte(0);
         }
-        if ((count % 2) != 0) {
+        if ((count & 1) != 0) {
             genbyte(0);
         }
         strtab = strtab->next;

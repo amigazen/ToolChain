@@ -50,21 +50,62 @@ extern struct amode push[], pop[];
 void            gen_strlen(), gen_strcmp(), gen_strcpy(), gen_strcat();
 void            gen_memset(), gen_memcpy();
 
+/*
+ * Builtin dispatch ids replace function pointers in bfuncs_table so AC can
+ * bootstrap this file without parsing (*func)() types.
+ */
+#define BF_STRLEN  0
+#define BF_STRCMP  1
+#define BF_STRCAT  2
+#define BF_STRCPY  3
+#define BF_BZERO   4
+#define BF_BCOPY   5
+#define BF_NONE   -1
+
 struct bfuncs {
     int             args;
     char           *name;
-    void            (*func) ();
+    int             id;
 };
 
 struct bfuncs   bfuncs_table[] = {
-    {4, "__BUILTIN_strlen", gen_strlen},
-    {8, "__BUILTIN_strcmp", gen_strcmp},
-    {8, "__BUILTIN_strcat", gen_strcat},
-    {8, "__BUILTIN_strcpy", gen_strcpy},
-    {8, "__BUILTIN_bzero", gen_memset},
-    {12, "__BUILTIN_bcopy", gen_memcpy},
-    {0, NULL, NULL}
+    {4, "__BUILTIN_strlen", BF_STRLEN},
+    {8, "__BUILTIN_strcmp", BF_STRCMP},
+    {8, "__BUILTIN_strcat", BF_STRCAT},
+    {8, "__BUILTIN_strcpy", BF_STRCPY},
+    {8, "__BUILTIN_bzero", BF_BZERO},
+    {12, "__BUILTIN_bcopy", BF_BCOPY},
+    {0, (char *)0, BF_NONE}
 };
+
+static void
+call_builtin(id, argbytes)
+    int id;
+    int argbytes;
+{
+    switch (id) {
+    case BF_STRLEN:
+        gen_strlen(argbytes);
+        break;
+    case BF_STRCMP:
+        gen_strcmp(argbytes);
+        break;
+    case BF_STRCAT:
+        gen_strcat(argbytes);
+        break;
+    case BF_STRCPY:
+        gen_strcpy(argbytes);
+        break;
+    case BF_BZERO:
+        gen_memset(argbytes);
+        break;
+    case BF_BCOPY:
+        gen_memcpy(argbytes);
+        break;
+    default:
+        break;
+    }
+}
 
 void
 gen_strcat(int arg)
@@ -243,7 +284,6 @@ int
 gen_builtins(struct enode *node, int argbytes)
 {
     char           *fname;
-    void            (*xfunc)(int);
     struct bfuncs  *ptr;
 
     if (node->v.p[0]->nodetype == en_nacon) {
@@ -251,8 +291,7 @@ gen_builtins(struct enode *node, int argbytes)
         if (strncmp( "__BUILTIN_", fname, 10) == 0) {
             for (ptr = bfuncs_table; ptr->name != NULL; ++ptr) {
                 if (strcmp(fname, ptr->name) == 0) {
-                    xfunc = ptr->func;
-                    (*xfunc) (argbytes);
+                    call_builtin(ptr->id, argbytes);
                     return TRUE;
                 }
             }
@@ -278,18 +317,25 @@ ref_base(char *base_name)
 {
     SYM            *sp;
 
+    /*
+     * Libcall bases (CCLibBase, DOSBase, …) are often already declared
+     * extern by proto/*.h with value.i == 0.  Without marking them used,
+     * list_var skips XREF and A68k reports Undefined Symbol.
+     */
     sp = gsearch(base_name);
     if (sp == NULL) {
         ++global_flag;
-        sp = (SYM *) xalloc(sizeof(SYM));
+        sp = (SYM *) xalloc(SZ_SYM);
         sp->tp = NULL;
         sp->name = base_name;
         sp->storage_class = sc_external;
         sp->storage_type = sc_external;
-        sp->value.i = 1;/* Make it referenced   */
+        sp->value.i = 1;
         insert(sp, &gsyms);
         --global_flag;
     }
+    else
+        sp->value.i = 1;
 }
 
 void
@@ -300,17 +346,20 @@ gen_libcall2(struct enode *node, int argbytes, struct libcall *ptr)
     int             i, len;
     int             count, mask, reg, liboffset, num, ret;
 
-    len = strlen( ptr->args );
+    /*
+     * Do not cache LIBCALL_* into locals — self-host aliases autos.
+     */
+    len = strlen(LIBCALL_ARGS(ptr));
 
-    num = hexval( ptr->args[len-1] );
-    ret = hexval( ptr->args[len-2] );
+    num = hexval(LIBCALL_ARGS(ptr)[len - 1]);
+    ret = hexval(LIBCALL_ARGS(ptr)[len - 2]);
 
     num &= 0x7;
 
-    cp = ptr->args;
+    cp = LIBCALL_ARGS(ptr);
     mask = count = 0;
     for (i = 0; i < num; ++i) {
-        reg = hexval( *cp++ );
+        reg = hexval(*cp++);
         if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
             ++count;
             mask |= 1 << reg;
@@ -321,52 +370,52 @@ gen_libcall2(struct enode *node, int argbytes, struct libcall *ptr)
         mask |= 1 << 14;
     }
 
-    if (mask != 0) 
-        gen_code( op_movem, 4, make_mask(mask), push );
-    
+    if (mask != 0)
+        gen_code(op_movem, 4, make_mask(mask), push);
+
     ap1 = makeareg(7);
     ap1->mode = am_indx;
 
     ap2 = makeareg(0);
 
     for (i = 0; i < num; ++i) {
-        reg = hexval( ptr->args[i] );
-        ap1->offset = makenode( en_icon, 4*(i+count), NULL );
-        ap2->mode = (reg < 8 ? am_dreg : am_areg );
-        ap2->preg = (enum e_am) (reg % 8);
-        gen_code( op_move, 4, ap1, ap2 );
+        reg = hexval(LIBCALL_ARGS(ptr)[i]);
+        ap1->offset = makenode(en_icon, 4 * (i + count), NULL);
+        ap2->mode = (reg < 8 ? am_dreg : am_areg);
+        ap2->preg = (enum e_am) (reg & 7);
+        gen_code(op_move, 4, ap1, ap2);
     }
 
-    ref_base( ptr->basename );
+    ref_base(LIBCALL_BASE(ptr));
 
     ap1->mode = am_direct;
-    ap1->offset = makenode( en_nacon, ptr->basename, NULL );
+    ap1->offset = makenode(en_nacon, LIBCALL_BASE(ptr), NULL);
     ap2 = makeareg(6);
 
-    gen_code(op_move, 4, ap1, ap2 );
+    gen_code(op_move, 4, ap1, ap2);
 
-    liboffset =  0;
-    for (cp = ptr->offset; *cp; ++cp) 
-        liboffset = (liboffset * 16) + hexval( *cp );
+    liboffset = 0;
+    for (cp = LIBCALL_OFF(ptr); *cp; ++cp)
+        liboffset = (liboffset * 16) + hexval(*cp);
 
     ap1 = makeareg(6);
     ap1->mode = am_indx;
-    ap1->offset = makenode( en_icon, -liboffset, NULL );
+    ap1->offset = makenode(en_icon, -liboffset, NULL);
 
-    gen_code( op_jsr, 0, ap1, NULL );
+    gen_code(op_jsr, 0, ap1, NULL);
 
     if (ret != 0) {
         if (ret < 8)
-            gen_code( op_move, 4, makedreg(ret), makedreg(0));
+            gen_code(op_move, 4, makedreg(ret), makedreg(0));
         else
-            gen_code( op_move, 4, makeareg(ret-8), makedreg(0));
+            gen_code(op_move, 4, makeareg(ret - 8), makedreg(0));
     }
 
     if (mask != 0)
-        gen_code( op_movem, 4, pop, make_mask(mask));
+        gen_code(op_movem, 4, pop, make_mask(mask));
 
     if (num > 0)
-        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+        gen_code(op_add, 2, make_immed(num * 4), makeareg(7));
 }
 
 void
@@ -374,52 +423,57 @@ gen_tagcall2(struct enode *node, int argbytes, struct tagcall *ptr)
 {
     struct amode    *ap1, *ap2;
     char            *cp;
+    char           *args;
+    char           *basename;
     int             i, len;
-    int             count, mask, reg, liboffset, num, ret;
+    int             count, mask, reg, num, ret;
 
-    len = strlen( ptr->args );
+    args = LIBCALL_ARGS(ptr);
+    basename = LIBCALL_BASE(ptr);
 
-    num = hexval( ptr->args[len-1] );
-    ret = hexval( ptr->args[len-2] );
+    ref_base(basename);
+
+    len = strlen(args);
+
+    num = hexval(args[len - 1]);
+    ret = hexval(args[len - 2]);
 
     num &= 0x7;
 
-    cp = ptr->args;
+    cp = args;
     mask = count = 0;
     for (i = 0; i < num; ++i) {
-        reg = hexval( *cp++ );
+        reg = hexval(*cp++);
         if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
             ++count;
             mask |= 1 << reg;
         }
     }
 
-    liboffset = hexval( ptr->offset );
-
     if (count > 0) {
-        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
-        gen_code( op_sub, 2, make_immed(count*4), makeareg(7));
+        gen_code(op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code(op_sub, 2, make_immed(count * 4), makeareg(7));
     }
 
-    ap1 = gen_expr( node->v.p[1], F_DREG, 4 );
-    make_legal( ap1, F_DREG, 4 );
-    gen_code( op_move, 4, ap1, makedreg(0) );
-    freeop( ap1 );
+    ap1 = gen_expr(node->v.p[1], F_DREG, 4);
+    make_legal(ap1, F_DREG, 4);
+    gen_code(op_move, 4, ap1, makedreg(0));
+    freeop(ap1);
 
-    ap2 = gen_expr( node->v.p[2], F_DREG, 4 );
-    make_legal( ap2, F_DREG, 4 );
-    gen_code( op_move, 4, ap2, makedreg(1) );
-    freeop( ap2 );
+    ap2 = gen_expr(node->v.p[2], F_DREG, 4);
+    make_legal(ap2, F_DREG, 4);
+    gen_code(op_move, 4, ap2, makedreg(1));
+    freeop(ap2);
 
-    gen_code( op_jsr, 0, make_offset(ptr->basename), NULL );
+    gen_code(op_jsr, 0, make_offset(basename), NULL);
 
     if (count > 0) {
-        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
-        gen_code( op_add, 2, make_immed(count*4), makeareg(7));
+        gen_code(op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code(op_add, 2, make_immed(count * 4), makeareg(7));
     }
 
     if (num > 0)
-        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+        gen_code(op_add, 2, make_immed(num * 4), makeareg(7));
 }
 
 void
@@ -427,52 +481,57 @@ gen_flibcall2(struct enode *node, int argbytes, struct flibcall *ptr)
 {
     struct amode    *ap1, *ap2;
     char            *cp;
+    char           *args;
+    char           *basename;
     int             i, len;
-    int             count, mask, reg, liboffset, num, ret;
+    int             count, mask, reg, num, ret;
 
-    len = strlen( ptr->args );
+    args = LIBCALL_ARGS(ptr);
+    basename = LIBCALL_BASE(ptr);
 
-    num = hexval( ptr->args[len-1] );
-    ret = hexval( ptr->args[len-2] );
+    ref_base(basename);
+
+    len = strlen(args);
+
+    num = hexval(args[len - 1]);
+    ret = hexval(args[len - 2]);
 
     num &= 0x7;
 
-    cp = ptr->args;
+    cp = args;
     mask = count = 0;
     for (i = 0; i < num; ++i) {
-        reg = hexval( *cp++ );
+        reg = hexval(*cp++);
         if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
             ++count;
             mask |= 1 << reg;
         }
     }
 
-    liboffset = hexval( ptr->offset );
-
     if (count > 0) {
-        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
-        gen_code( op_sub, 2, make_immed(count*4), makeareg(7));
+        gen_code(op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code(op_sub, 2, make_immed(count * 4), makeareg(7));
     }
 
-    ap1 = gen_expr( node->v.p[1], F_DREG, 4 );
-    make_legal( ap1, F_DREG, 4 );
-    gen_code( op_move, 4, ap1, makedreg(0) );
-    freeop( ap1 );
+    ap1 = gen_expr(node->v.p[1], F_DREG, 4);
+    make_legal(ap1, F_DREG, 4);
+    gen_code(op_move, 4, ap1, makedreg(0));
+    freeop(ap1);
 
-    ap2 = gen_expr( node->v.p[2], F_DREG, 4 );
-    make_legal( ap2, F_DREG, 4 );
-    gen_code( op_move, 4, ap2, makedreg(1) );
-    freeop( ap2 );
+    ap2 = gen_expr(node->v.p[2], F_DREG, 4);
+    make_legal(ap2, F_DREG, 4);
+    gen_code(op_move, 4, ap2, makedreg(1));
+    freeop(ap2);
 
-    gen_code( op_jsr, 0, make_offset(ptr->basename), NULL );
+    gen_code(op_jsr, 0, make_offset(basename), NULL);
 
     if (count > 0) {
-        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
-        gen_code( op_add, 2, make_immed(count*4), makeareg(7));
+        gen_code(op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code(op_add, 2, make_immed(count * 4), makeareg(7));
     }
 
     if (num > 0)
-        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+        gen_code(op_add, 2, make_immed(num * 4), makeareg(7));
 }
 
 void
@@ -480,66 +539,72 @@ gen_syscall2(struct enode *node, int argbytes, struct syscall *ptr)
 {
     struct amode    *ap1, *ap2;
     char            *cp;
+    char           *args;
+    char           *basename;
     int             i, len;
-    int             count, mask, reg, liboffset, num, ret;
+    int             count, mask, reg, num, ret;
 
-    len = strlen( ptr->args );
+    args = LIBCALL_ARGS(ptr);
+    basename = LIBCALL_BASE(ptr);
 
-    num = hexval( ptr->args[len-1] );
-    ret = hexval( ptr->args[len-2] );
+    ref_base(basename);
+
+    len = strlen(args);
+
+    num = hexval(args[len - 1]);
+    ret = hexval(args[len - 2]);
 
     num &= 0x7;
 
-    cp = ptr->args;
+    cp = args;
     mask = count = 0;
     for (i = 0; i < num; ++i) {
-        reg = hexval( *cp++ );
+        reg = hexval(*cp++);
         if ((reg >= 3 && reg <= 7) || (reg >= 10 && reg <= 15)) {
             ++count;
             mask |= 1 << reg;
         }
     }
 
-    liboffset = hexval( ptr->offset );
-
     if (count > 0) {
-        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
-        gen_code( op_sub, 2, make_immed(count*4), makeareg(7));
+        gen_code(op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code(op_sub, 2, make_immed(count * 4), makeareg(7));
     }
 
-    ap1 = gen_expr( node->v.p[1], F_DREG, 4 );
-    make_legal( ap1, F_DREG, 4 );
-    gen_code( op_move, 4, ap1, makedreg(0) );
-    freeop( ap1 );
+    ap1 = gen_expr(node->v.p[1], F_DREG, 4);
+    make_legal(ap1, F_DREG, 4);
+    gen_code(op_move, 4, ap1, makedreg(0));
+    freeop(ap1);
 
-    ap2 = gen_expr( node->v.p[2], F_DREG, 4 );
-    make_legal( ap2, F_DREG, 4 );
-    gen_code( op_move, 4, ap2, makedreg(1) );
-    freeop( ap2 );
+    ap2 = gen_expr(node->v.p[2], F_DREG, 4);
+    make_legal(ap2, F_DREG, 4);
+    gen_code(op_move, 4, ap2, makedreg(1));
+    freeop(ap2);
 
-    gen_code( op_jsr, 0, make_offset(ptr->basename), NULL );
+    gen_code(op_jsr, 0, make_offset(basename), NULL);
 
     if (count > 0) {
-        gen_code( op_movem, 2, make_immed(mask), makeareg(7));
-        gen_code( op_add, 2, make_immed(count*4), makeareg(7));
+        gen_code(op_movem, 2, make_immed(mask), makeareg(7));
+        gen_code(op_add, 2, make_immed(count * 4), makeareg(7));
     }
 
     if (num > 0)
-        gen_code( op_add, 2, make_immed(num*4), makeareg(7));
+        gen_code(op_add, 2, make_immed(num * 4), makeareg(7));
 }
 
 int
 gen_libcall(struct enode *node, int argbytes)
 {
     char           *fname;
-    struct libcall  *ptr = libpragma;
+    struct libcall *ptr;
 
     if (node->v.p[0]->nodetype == en_nacon) {
         fname = node->v.p[0]->v.sp;
-        if (strncmp( "__LIBCALL_", fname, 10) == 0) {
-            for (ptr = libpragma; ptr != NULL; ptr = ptr->next) {
-                if (strcmp(&fname[10], ptr->funcname) == 0) {
-                    gen_libcall2( node, argbytes, ptr );
+        if (strncmp("__LIBCALL_", fname, 10) == 0) {
+            for (ptr = libpragma; ptr != NULL;
+                 ptr = (struct libcall *) LIBCALL_NEXT(ptr)) {
+                if (strcmp(&fname[10], LIBCALL_FUNC(ptr)) == 0) {
+                    gen_libcall2(node, argbytes, ptr);
                     return TRUE;
                 }
             }
@@ -552,14 +617,15 @@ int
 gen_flibcall(struct enode *node, int argbytes)
 {
     char           *fname;
-    struct flibcall *ptr = flibpragma;
+    struct flibcall *ptr;
 
     if (node->v.p[0]->nodetype == en_nacon) {
         fname = node->v.p[0]->v.sp;
-        if (strncmp( "__FLIBCALL_", fname, 11) == 0) {
-            for (ptr = flibpragma; ptr != NULL; ptr = ptr->next) {
-                if (strcmp(&fname[11], ptr->funcname) == 0) {
-                    gen_flibcall2( node, argbytes, ptr );
+        if (strncmp("__FLIBCALL_", fname, 11) == 0) {
+            for (ptr = flibpragma; ptr != NULL;
+                 ptr = (struct flibcall *) LIBCALL_NEXT(ptr)) {
+                if (strcmp(&fname[11], LIBCALL_FUNC(ptr)) == 0) {
+                    gen_flibcall2(node, argbytes, ptr);
                     return TRUE;
                 }
             }
@@ -572,14 +638,15 @@ int
 gen_syscall(struct enode *node, int argbytes)
 {
     char           *fname;
-    struct syscall *ptr = syspragma;
+    struct syscall *ptr;
 
     if (node->v.p[0]->nodetype == en_nacon) {
         fname = node->v.p[0]->v.sp;
-        if (strncmp( "__SYSCALL_", fname, 10) == 0) {
-            for (ptr = syspragma; ptr != NULL; ptr = ptr->next) {
-                if (strcmp(&fname[10], ptr->funcname) == 0) {
-                    gen_syscall2( node, argbytes, ptr );
+        if (strncmp("__SYSCALL_", fname, 10) == 0) {
+            for (ptr = syspragma; ptr != NULL;
+                 ptr = (struct syscall *) LIBCALL_NEXT(ptr)) {
+                if (strcmp(&fname[10], LIBCALL_FUNC(ptr)) == 0) {
+                    gen_syscall2(node, argbytes, ptr);
                     return TRUE;
                 }
             }
@@ -592,14 +659,15 @@ int
 gen_tagcall(struct enode *node, int argbytes)
 {
     char           *fname;
-    struct tagcall  *ptr = tagpragma;
+    struct tagcall *ptr;
 
     if (node->v.p[0]->nodetype == en_nacon) {
         fname = node->v.p[0]->v.sp;
-        if (strncmp( "__TAGCALL_", fname, 10) == 0) {
-            for (ptr = tagpragma; ptr != NULL; ptr = ptr->next) {
-                if (strcmp(&fname[10], ptr->funcname) == 0) {
-                    gen_tagcall2( node, argbytes, ptr );
+        if (strncmp("__TAGCALL_", fname, 10) == 0) {
+            for (ptr = tagpragma; ptr != NULL;
+                 ptr = (struct tagcall *) LIBCALL_NEXT(ptr)) {
+                if (strcmp(&fname[10], LIBCALL_FUNC(ptr)) == 0) {
+                    gen_tagcall2(node, argbytes, ptr);
                     return TRUE;
                 }
             }
