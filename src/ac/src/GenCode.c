@@ -195,6 +195,72 @@ make_delta(ap1, delta)
     return (ap1);
 }
 
+/*
+ * High / low halves of a 64-bit integer constant node.
+ * Layout in memory and on the stack is m68k big-endian: hi at +0, lo at +4.
+ */
+static long
+llcon_lo(ep)
+    struct enode   *ep;
+{
+    if (ep == NULL)
+        return 0L;
+    return ep->v.i;
+}
+
+static long
+llcon_hi(ep)
+    struct enode   *ep;
+{
+    if (ep == NULL)
+        return 0L;
+    if (ep->size == 8 && ep->v.p[1] != NULL && ep->v.p[1]->nodetype == en_icon)
+        return ep->v.p[1]->v.i;
+    if (!ep->signedflag)
+        return 0L;
+    return (ep->v.i < 0) ? -1L : 0L;
+}
+
+/*
+ * Spill a 64-bit value (immediate or otherwise) to an 8-byte stack slot
+ * and return a memory addressing mode for it.  Used so long long stays
+ * a two-word memory object rather than a single D-register.
+ */
+struct amode *
+ll_to_mem(ap)
+    struct amode   *ap;
+{
+    struct amode   *mem, *dst;
+
+    if (ap == NULL)
+        return NULL;
+    if (ap->mode == am_ind || ap->mode == am_indx || ap->mode == am_indx2
+        || ap->mode == am_indx3 || ap->mode == am_direct || ap->mode == am_xpc)
+        return ap;
+
+    lc_auto += 8;
+    mem = make_autocon(-lc_auto);
+    dst = copy_addr(mem);
+
+    if (ap->mode == am_immed && ap->offset != NULL
+        && ap->offset->nodetype == en_icon) {
+        gen_code(op_move, 4, make_immed(llcon_hi(ap->offset)), dst);
+        dst = make_delta(dst, 4);
+        gen_code(op_move, 4, make_immed(llcon_lo(ap->offset)), dst);
+    } else if (ap->mode == am_dreg) {
+        /* Single D-reg held only a 32-bit view — zero-extend into the pair. */
+        gen_code(op_move, 4, make_immed(0L), dst);
+        dst = make_delta(dst, 4);
+        gen_code(op_move, 4, ap, dst);
+    } else {
+        gen_code(op_move, 4, ap, dst);
+        dst = make_delta(dst, 4);
+        gen_code(op_move, 4, make_immed(0L), dst);
+    }
+    freeop(ap);
+    return mem;
+}
+
 void
 make_legal(ap, flags, size)
 
@@ -205,7 +271,7 @@ make_legal(ap, flags, size)
     struct amode   *ap;
     int             flags, size;
 {
-    struct amode   *ap2, *ap3;
+    struct amode   *ap2, *ap3, *mem;
 
     if (ap == NULL) {
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL pointer in make_legal\n" );
@@ -241,6 +307,22 @@ make_legal(ap, flags, size)
                 return;
             break;
         }
+    }
+    /*
+     * 64-bit integers must not be forced into a single D-register
+     * (move.f).  Prefer memory; F_FREG path below handles FP.
+     */
+    if (size == 8 && (flags & F_DREG) && !(flags & F_FREG)) {
+        mem = ll_to_mem(ap);
+        ap->mode = mem->mode;
+        ap->preg = mem->preg;
+        ap->sreg = mem->sreg;
+        ap->deep = mem->deep;
+        ap->offset = mem->offset;
+        ap->tempflag = 1;
+        if (flags & F_MEM)
+            return;
+        /* Fall through only if caller insisted on a register result. */
     }
     if (flags & F_DREG) {
         freeop(ap); /* maybe we can use it... */
@@ -745,11 +827,34 @@ gen_unary(node, flags, size, op)
     int             flags, size;
     enum e_op       op;
 {
-    struct amode   *ap, *ap3;
+    struct amode   *ap, *ap3, *hi, *lo, *d0, *d1;
 
     if (node == NULL) {
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_unary.\n" );
         return NULL;
+    }
+
+    if (size == 8) {
+        /* Negate/complement a 64-bit value as hi/lo words in memory. */
+        ap = gen_expr(node->v.p[0], F_ALL | F_IMMED | F_MEM, 8);
+        ap = ll_to_mem(ap);
+        hi = copy_addr(ap);
+        lo = make_delta(copy_addr(ap), 4);
+        d0 = makedreg((enum e_am) 0);
+        d1 = makedreg((enum e_am) 1);
+        gen_code(op_move, 4, hi, d0);
+        gen_code(op_move, 4, lo, d1);
+        if (op == op_neg) {
+            gen_code(op_neg, 4, d1, NULL);
+            gen_code(op_negx, 4, d0, NULL);
+        } else {
+            gen_code(op_not, 4, d1, NULL);
+            gen_code(op_not, 4, d0, NULL);
+        }
+        gen_code(op_move, 4, d0, hi);
+        gen_code(op_move, 4, d1, lo);
+        make_legal(ap, flags, 8);
+        return ap;
     }
 
     ap = gen_expr(node->v.p[0], F_DREG, size);
@@ -834,8 +939,8 @@ gen_binary(node, flags, size, op)
 }
 
 /*
- * Generate 64-bit binary operations (addition, subtraction)
- * Uses register pairs (D0/D1, D2/D3) for 64-bit operations
+ * Generate 64-bit binary operations (addition, subtraction).
+ * Operands live in memory as (hi,lo); compute in D0:D1 / D2:D3.
  */
 struct amode   *
 gen_llbinary(node, flags, size, op)
@@ -843,73 +948,58 @@ gen_llbinary(node, flags, size, op)
     int             flags, size;
     enum e_op       op;
 {
-    struct amode   *ap1, *ap2, *ap3;
-    
+    struct amode   *ap1, *ap2, *res, *a1h, *a1l, *a2h, *a2l;
+    struct amode   *d0, *d1, *d2, *d3;
+
+    (void)size;
     if (node == NULL) {
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llbinary.\n" );
         return NULL;
     }
 
-    /* Generate 64-bit operands - low 32 bits in D0/D2, high 32 bits in D1/D3 */
-    ap1 = gen_expr(node->v.p[0], F_DREG, 8);  /* First operand in D0/D1 */
-    ap2 = gen_expr(node->v.p[1], F_DREG | F_IMMED | F_MEM, 8);  /* Second operand in D2/D3 */
-    
-    /* Implement proper 64-bit arithmetic using register pairs */
-    if (istemp(ap1)) {
-        validate(ap1);
-        /* For 64-bit operations, we need to handle both low and high parts */
-        if (op == op_add) {
-            /* 64-bit addition: result = operand1 + operand2 */
-            /* Low part: D0 = D0 + D2, with carry */
-            gen_code(op_add, 4, ap2, ap1);
-            /* High part: D1 = D1 + D3 + carry */
-            /* Use ADDX instruction for carry propagation */
-            gen_code(op_addx, 4, ap2, ap1);  /* D1 = D1 + D3 + X flag */
-        } else if (op == op_sub) {
-            /* 64-bit subtraction: result = operand1 - operand2 */
-            /* Low part: D0 = D0 - D2, with borrow */
-            gen_code(op_sub, 4, ap2, ap1);
-            /* High part: D1 = D1 - D3 - borrow */
-            /* Use SUBX instruction for borrow propagation */
-            gen_code(op_subx, 4, ap2, ap1);  /* D1 = D1 - D3 - X flag */
-        }
-        freeop(ap2);
-        make_legal(ap1, flags, 8);
-        return ap1;
-    }
-
-    if (flags & F_DREG)
-        ap3 = temp_data();
-    else
-        ap3 = temp_addr();
-
+    ap1 = gen_expr(node->v.p[0], F_ALL | F_IMMED | F_MEM, 8);
+    ap2 = gen_expr(node->v.p[1], F_ALL | F_IMMED | F_MEM, 8);
+    ap1 = ll_to_mem(ap1);
+    ap2 = ll_to_mem(ap2);
     validate(ap1);
-    gen_code(op_move, 4, ap1, ap3);
-    
-    if (op == op_add) {
-        /* 64-bit addition: result = operand1 + operand2 */
-        gen_code(op_add, 4, ap2, ap3);
-        /* High part: D1 = D1 + D3 + carry */
-        gen_code(op_addx, 4, ap2, ap3);  /* D1 = D1 + D3 + X flag */
-    } else if (op == op_sub) {
-        /* 64-bit subtraction: result = operand1 - operand2 */
-        gen_code(op_sub, 4, ap2, ap3);
-        /* High part: D1 = D1 - D3 - borrow */
-        gen_code(op_subx, 4, ap2, ap3);  /* D1 = D1 - D3 - X flag */
-    }
+    validate(ap2);
 
-    if (istemp(ap2)) {
-        gen_code(op_move, 4, ap3, ap2);
-        freeop(ap3);
-        freeop(ap2);
-        freeop(ap1);
-        return ap2;
+    a1h = copy_addr(ap1);
+    a1l = make_delta(copy_addr(ap1), 4);
+    a2h = copy_addr(ap2);
+    a2l = make_delta(copy_addr(ap2), 4);
+
+    d0 = makedreg((enum e_am) 0);
+    d1 = makedreg((enum e_am) 1);
+    d2 = makedreg((enum e_am) 2);
+    d3 = makedreg((enum e_am) 3);
+
+    /* D0=hi1, D1=lo1, D2=hi2, D3=lo2 */
+    gen_code(op_move, 4, a1h, d0);
+    gen_code(op_move, 4, a1l, d1);
+    gen_code(op_move, 4, a2h, d2);
+    gen_code(op_move, 4, a2l, d3);
+
+    if (op == op_add) {
+        gen_code(op_add, 4, d3, d1);    /* lo */
+        gen_code(op_addx, 4, d2, d0);   /* hi + X */
+    } else {
+        gen_code(op_sub, 4, d3, d1);
+        gen_code(op_subx, 4, d2, d0);
     }
 
     freeop(ap1);
     freeop(ap2);
-    make_legal(ap3, flags, 8);
-    return ap3;
+
+    lc_auto += 8;
+    res = make_autocon(-lc_auto);
+    gen_code(op_move, 4, d0, copy_addr(res));
+    gen_code(op_move, 4, d1, make_delta(copy_addr(res), 4));
+
+    if (flags & F_MEM || flags & F_ALL)
+        return res;
+    make_legal(res, flags, 8);
+    return res;
 }
 
 /*
@@ -1998,20 +2088,29 @@ gen_assign(node, flags, size)
         size = ssize;
 
     if (ssize == 8) {
-        ap1 = gen_expr(node->v.p[1], F_ALL | F_FREG, size);
-        ap2 = gen_expr(node->v.p[0], F_ALL, size);
+        ap1 = gen_expr(node->v.p[1], F_ALL | F_FREG | F_IMMED, size);
+        ap2 = gen_expr(node->v.p[0], F_ALL | F_MEM, size);
 
         validate(ap2);
         validate(ap1);
 
         ap4 = copy_addr(ap2);
         if (ap1->mode == am_freg) {
+            /* D0=high, D1=low (same as soft-float double return) */
             gen_code(op_move, 4, makedreg((enum e_am) 0), ap4);
             ap4 = make_delta(ap4, 4);
             gen_code(op_move, 4, makedreg((enum e_am) 1), ap4);
             freeop(ap2);
         }
+        else if (ap1->mode == am_immed && ap1->offset != NULL
+                 && ap1->offset->nodetype == en_icon) {
+            gen_code(op_move, 4, make_immed(llcon_hi(ap1->offset)), ap4);
+            ap4 = make_delta(ap4, 4);
+            gen_code(op_move, 4, make_immed(llcon_lo(ap1->offset)), ap4);
+            freeop(ap2);
+        }
         else {
+            ap1 = ll_to_mem(ap1);
             ap3 = copy_addr(ap1);
             gen_code(op_move, 4, ap3, ap4);
             ap3 = make_delta(ap3, 4);
@@ -2114,6 +2213,8 @@ getsize(node)
         return 0;
     switch (node->nodetype) {
     case en_icon:
+        if (node->size == 8)
+            return 8;
         return 4;
     case en_d_ref:
     case en_cld:
@@ -2126,6 +2227,18 @@ getsize(node)
     case en_fnegd:
     case en_faincd:
     case en_fadecd:
+    case en_ll_ref:
+    case en_ull_ref:
+    case en_lladd:
+    case en_ulladd:
+    case en_llsub:
+    case en_ullsub:
+    case en_llmul:
+    case en_ullmul:
+    case en_lldiv:
+    case en_ulldiv:
+    case en_llmod:
+    case en_ullmod:
         return 8;
     case en_fcall:
         return (node->size) < stdint.size ? stdint.size : (node->size);
@@ -2134,8 +2247,6 @@ getsize(node)
     case en_autocon:
     case en_l_ref:
     case en_ul_ref:
-    case en_ll_ref:
-    case en_ull_ref:
     case en_tempref:
     case en_cbl:
     case en_cwl:
@@ -2334,6 +2445,17 @@ gen_fcall(node, flags)
     if (flags & F_FREG) {
         result = temp_float();
     }
+    else if (node->size >= 8) {
+        /*
+         * long long / double-sized return: callee leaves hi in D0, lo in D1.
+         * Spill to a stack slot so callers see a normal two-word memory value.
+         */
+        lc_auto += 8;
+        result = make_autocon(-lc_auto);
+        gen_code(op_move, 4, makedreg((enum e_am) 0), copy_addr(result));
+        gen_code(op_move, 4, makedreg((enum e_am) 1),
+                 make_delta(copy_addr(result), 4));
+    }
     else {
         if (flags & F_DREG)
             result = temp_data();
@@ -2380,6 +2502,12 @@ gen_expr(node, flags, size)
         ap1->signedflag = node->signedflag;
         ap1->mode = am_immed;
         ap1->offset = node;
+        if (node->nodetype == en_icon && (node->size == 8 || size == 8)) {
+            /* Materialize 64-bit constant as hi/lo memory words. */
+            ap1 = ll_to_mem(ap1);
+            make_legal(ap1, flags, 8);
+            return ap1;
+        }
         if (!(flags & F_IMMED))
             make_legal(ap1, flags, size);
         return (ap1);
@@ -2636,25 +2764,41 @@ natural_size(node)
         return (int)ICON16L(ep1->v.i);
         break;
     case en_icon:
+        if (node->size == 8)
+            return 8;
         if (-128 <= node->v.i && node->v.i <= 127)
             return 1;
         if (-32767 <= node->v.i && node->v.i <= 32767)
             return 2;
         return 4;
     case en_fcall:
+        if (node->size >= 8)
+            return 8;
+        /* fall through */
     case en_labcon:
     case en_nacon:
     case en_autocon:
     case en_l_ref:
     case en_ul_ref:
-    case en_ll_ref:
-    case en_ull_ref:
     case en_tempref:
     case en_cbl:
     case en_cwl:
     case en_cdl:
     case en_cfl:
         return 4;
+    case en_ll_ref:
+    case en_ull_ref:
+    case en_lladd:
+    case en_ulladd:
+    case en_llsub:
+    case en_ullsub:
+    case en_llmul:
+    case en_ullmul:
+    case en_lldiv:
+    case en_ulldiv:
+    case en_llmod:
+    case en_ullmod:
+        return 8;
     case en_b_ref:
     case en_ub_ref:
         return 1;

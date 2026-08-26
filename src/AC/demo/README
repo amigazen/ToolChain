@@ -1,0 +1,35 @@
+AC demo / regression suite
+==========================
+
+Runnable suite emits **DejaGnu / GCC `.sum` style** results (PASS/FAIL +
+Summary) — the usual format for C compiler test reporting.
+
+Amiga (from `src`)
+------------------
+  make demo-self2
+  demo-out/ac-self2/ac_tests
+
+Or build and run in one step:
+
+  make demo-run-self2
+
+Also: `make demo-ac`, `make demo-self`, `make demo`.
+
+What gets built
+---------------
+- `demo-out/<cc>/*.s` — compile-only smokes for each `test_*.c`
+- `demo-out/<cc>/ac_tests` — linked DejaGnu driver (`/demo/ac_tests.c`)
+
+Example output
+--------------
+  PASS: smoke/global_answer
+  PASS: literal/binary_or
+  FAIL: some_test (got 0 want 1)
+  ...
+                === ac demo Summary ===
+
+  # of expected passes            28
+  # of unexpected failures        0
+  # of untested testcases         2
+
+Exit status 0 = all PASS; 1 = any FAIL.

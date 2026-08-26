@@ -48,6 +48,9 @@ extern struct amode *make_label();
 extern struct amode *make_offset();
 extern struct amode *make_immed();
 extern struct amode *gen_expr();
+extern struct amode *ll_to_mem();
+extern struct amode *copy_addr();
+extern struct amode *make_delta();
 extern struct snode *makesnode();
 extern SYM     *gsearch();
 extern char    *itoa(), *litlate(), *in_line;
@@ -719,6 +722,16 @@ genreturn(stmt)
         if (lastfunc->tp->btp->type == bt_double) {
             ap = gen_expr(ep, F_FREG, 8);
             make_legal(ap, F_FREG, 8);
+        }
+        else if (lastfunc->tp->btp->type == bt_longlong
+                 || lastfunc->tp->btp->type == bt_ulonglong) {
+            /* Return hi in D0, lo in D1 (m68k two-word convention). */
+            ap = gen_expr(ep, F_ALL | F_MEM | F_IMMED, 8);
+            ap = ll_to_mem(ap);
+            gen_code(op_move, 4, copy_addr(ap), makedreg((enum e_am) 0));
+            gen_code(op_move, 4, make_delta(copy_addr(ap), 4),
+                     makedreg((enum e_am) 1));
+            freeop(ap);
         }
         else {
             ap = gen_expr(ep, F_ALL, 4);

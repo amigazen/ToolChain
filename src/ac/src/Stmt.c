@@ -727,6 +727,10 @@ statement2()
     case asmconst:
         snp = asmstmt();
         break;
+    case kw_static_assert:
+        do_static_assert();
+        snp = NULL;
+        break;
     case kw_if:
         snp = ifstmt();
         break;

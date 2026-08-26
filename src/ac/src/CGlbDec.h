@@ -71,8 +71,11 @@ extern struct OptTab {
 
 extern void default_options(void);
 extern void dodecl(int defclass);
+extern void do_static_assert(void);
 
 extern long ival;
+extern long ival_hi;
+extern int ival_unsigned;
 extern double   rval;
 extern int  lineno;
 extern int  nextlabel;

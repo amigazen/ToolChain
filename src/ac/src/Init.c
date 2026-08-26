@@ -46,6 +46,7 @@
 extern SYM     *gsearch();
 extern SYM     *gsearch();
 extern TYP     *exprnc(), *asforcefit(), *deref();
+extern void     opt4();
 extern long     intexpr(), stringlit();
 extern char    *xalloc();
 extern double   floatexpr();
@@ -234,6 +235,40 @@ initlong()
     return 4;
 }
 
+/*
+ * Emit an 8-byte long long initializer (m68k big-endian: high then low).
+ */
+int
+initlonglong()
+{
+    TYP            *tp;
+    struct enode   *node;
+    long            hi;
+    long            lo;
+
+    tp = exprnc(&node);
+    if (tp != NULL && node != NULL) {
+        opt4(&node);
+        if (node->nodetype == en_icon) {
+            lo = node->v.i;
+            if (node->size == 8 && node->v.p[1] != NULL
+                && node->v.p[1]->nodetype == en_icon)
+                hi = node->v.p[1]->v.i;
+            else if (node->signedflag && lo < 0)
+                hi = -1L;
+            else
+                hi = 0L;
+            genlong(hi);
+            genlong(lo);
+            return 8;
+        }
+    }
+    error(ERR_SYNTAX, NULL);
+    genlong(0L);
+    genlong(0L);
+    return 8;
+}
+
 int
 initsingle()
 {
@@ -367,13 +402,15 @@ inittype(tp)
         break;
     case bt_long:
     case bt_unsigned:
-    case bt_longlong:
-    case bt_ulonglong:
 #ifdef OLD_tfunc
         nbytes = initlong();
 #else
         nbytes = initpointer();
 #endif
+        break;
+    case bt_longlong:
+    case bt_ulonglong:
+        nbytes = initlonglong();
         break;
     case bt_struct:
         nbytes = initstruct(tp);

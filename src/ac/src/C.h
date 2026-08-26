@@ -49,6 +49,9 @@ enum e_sym {
     /* C23 constants / no-op aliases of existing behaviour */
     kw_true, kw_false, kw_nullptr,
     kw_restrict, kw_inline, kw_noreturn,
+    kw_static_assert,  /* C11 _Static_assert / C23 static_assert */
+    kw_alignof,        /* C11 _Alignof / C23 alignof */
+    kw_alignas,        /* C11 _Alignas / C23 alignas */
     eof
 };
 
@@ -95,7 +98,7 @@ struct stab {
 struct typ {
     short       type;       /* enum e_bt — word at 0, int size at 4 (Decl.s) */
     char        val_flag;   /* is it a value type */
-    char        _pad_typ;   /* pad so int size sits at offset 4 */
+    char        _pad_typ;   /* forced alignas (0=none); also pads size to off 4 */
     int         size;
     struct stab lst;
     struct typ *btp;
@@ -203,6 +206,7 @@ extern TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node
 #define ERR_CANTOPEN    27
 #define ERR_DEFINE  28
 #define ERR_PROTO   29
+#define ERR_STATICASSERT 30
 
 /* alignment sizes     */
 

@@ -218,6 +218,15 @@ scanexpr(struct enode *node, int duse)
             scanexpr(node->v.p[0], 1);
         break;
 
+    /*
+     * long long is an 8-byte value (hi/lo words), like double/struct —
+     * never CSE into a single D-register.
+     */
+    case en_ll_ref:
+    case en_ull_ref:
+        scanexpr(node->v.p[0], 1);
+        break;
+
     case en_cbl:
     case en_cbw:
     case en_cwl:
@@ -543,6 +552,12 @@ repexpr(struct enode *node)
         }
         else
             repexpr(node->v.p[0]);
+        break;
+
+    case en_ll_ref:
+    case en_ull_ref:
+        /* Keep as memory operand; do not replace with tempref. */
+        repexpr(node->v.p[0]);
         break;
 
     case en_cbl:

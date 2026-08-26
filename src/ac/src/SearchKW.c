@@ -43,8 +43,13 @@ struct kwblk {
 };
 
 struct kwblk    keywords[] = {
+    {"_Alignas", kw_alignas},
+    {"_Alignof", kw_alignof},
     {"_Bool", kw_bool},
     {"_Noreturn", kw_noreturn},
+    {"_Static_assert", kw_static_assert},
+    {"alignas", kw_alignas},
+    {"alignof", kw_alignof},
     {"and", land},
     {"and_eq", asand},
     {"auto", kw_auto},
@@ -90,6 +95,7 @@ struct kwblk    keywords[] = {
     {"signed", kw_signed},
     {"sizeof", kw_sizeof},
     {"static", kw_static},
+    {"static_assert", kw_static_assert},
     {"struct", kw_struct},
     {"switch", kw_switch},
     {"true", kw_true},

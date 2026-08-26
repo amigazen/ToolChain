@@ -528,21 +528,31 @@ primary(node)
         tptr = nameref(&pnode);
         break;
     case iconst:
-        tptr = &stdint;
+        tptr = ival_unsigned ? &stdunsigned : &stdint;
         pnode = makenode(en_icon, (long) ival, NULL);
         pnode->constflag = 1;
         getsym();
         break;
     case lconst:
-        tptr = &stdint;
+        /* long and unsigned long are both 4 bytes on Amiga */
+        tptr = ival_unsigned ? &stdunsigned : &stdint;
         pnode = makenode(en_icon, (long) ival, NULL);
         pnode->constflag = 1;
         getsym();
         break;
     case llconst:
-        tptr = &stdlonglong;
-        pnode = makenode(en_icon, (long) ival, NULL);
+        /*
+         * 64-bit constant: low in v.i, high in a child en_icon at v.p[1].
+         * Memory / ABI layout is m68k big-endian (hi then lo).
+         */
+        tptr = ival_unsigned ? &stdulonglong : &stdlonglong;
+        pnode = makenode(en_icon, (long) ival,
+                         makenode(en_icon, (long) ival_hi, NULL));
+        pnode->size = 8;
         pnode->constflag = 1;
+        pnode->signedflag = !ival_unsigned;
+        if (pnode->v.p[1] != NULL)
+            pnode->v.p[1]->constflag = 1;
         getsym();
         break;
     case cconst:
@@ -744,6 +754,8 @@ lvalue(node)
     case en_uw_ref:
     case en_l_ref:
     case en_ul_ref:
+    case en_ll_ref:
+    case en_ull_ref:
     case en_m_ref:
     case en_f_ref:
     case en_d_ref:
@@ -756,6 +768,10 @@ lvalue(node)
     case en_cfl:
     case en_cdl:
     case en_cfd:
+    case en_cbll:
+    case en_cwll:
+    case en_clll:
+    case en_cull:
         return lvalue(node->v.p[0]);
     }
     return FALSE;
@@ -925,6 +941,38 @@ unary(node)
         if (seen)
             needpunc(closepa);
         break;
+    case kw_alignof:
+        /*
+         * C11/C23: _Alignof(type) / alignof(type).  Parentheses are required
+         * by the standard; we also accept the sizeof-like optional form.
+         */
+        getsym();
+        if (seen = (lastst == openpa))
+            needpunc(openpa);
+        if (castbegin(lastst)) {
+            decl(NULL);
+            decl1();
+            if (head != NULL)
+                ep1 = makenode(en_icon, (long) alignment(head), NULL);
+            else {
+                error(ERR_IDEXPECT, NULL);
+                ep1 = makenode(en_icon, 1L, NULL);
+            }
+        }
+        else {
+            head = exprnc(&ep2);
+            if (head != NULL)
+                ep1 = makenode(en_icon, (long) alignment(head), NULL);
+            else {
+                error(ERR_IDEXPECT, NULL);
+                ep1 = makenode(en_icon, 1L, NULL);
+            }
+        }
+        ep1->constflag = 1;
+        tp = &stdint;
+        if (seen)
+            needpunc(closepa);
+        break;
 
     default:
         tp = primary(&ep1);
@@ -1038,6 +1086,13 @@ multops(node)
             case bt_double:
                 ep1 = makenode(en_fmuld, ep1, ep2);
                 break;
+            case bt_ulonglong:
+                ep1 = makenode(en_ullmul, ep1, ep2);
+                ep1->signedflag = 0;
+                break;
+            case bt_longlong:
+                ep1 = makenode(en_llmul, ep1, ep2);
+                break;
             case bt_unsigned:
             case bt_uchar:
             case bt_ushort:
@@ -1057,6 +1112,13 @@ multops(node)
             case bt_double:
                 ep1 = makenode(en_fdivd, ep1, ep2);
                 break;
+            case bt_ulonglong:
+                ep1 = makenode(en_ulldiv, ep1, ep2);
+                ep1->signedflag = 0;
+                break;
+            case bt_longlong:
+                ep1 = makenode(en_lldiv, ep1, ep2);
+                break;
             case bt_unsigned:
             case bt_uchar:
             case bt_ushort:
@@ -1075,6 +1137,13 @@ multops(node)
                 break;
             case bt_double:
                 ep1 = makenode(en_fmodd, ep1, ep2);
+                break;
+            case bt_ulonglong:
+                ep1 = makenode(en_ullmod, ep1, ep2);
+                ep1->signedflag = 0;
+                break;
+            case bt_longlong:
+                ep1 = makenode(en_llmod, ep1, ep2);
                 break;
             case bt_unsigned:
             case bt_uchar:
@@ -1153,6 +1222,13 @@ addops(node)
             break;
         case bt_double:
             ep1 = makenode(oper ? en_faddd : en_fsubd, ep1, ep2);
+            break;
+        case bt_ulonglong:
+            ep1 = makenode(oper ? en_ulladd : en_ullsub, ep1, ep2);
+            ep1->signedflag = 0;
+            break;
+        case bt_longlong:
+            ep1 = makenode(oper ? en_lladd : en_llsub, ep1, ep2);
             break;
         default:
             ep1 = makenode(oper ? en_add : en_sub, ep1, ep2);

@@ -92,7 +92,7 @@ int             current_column = 1;  /* Current column position */
 unsigned char  *linstack[LINDEPTH]; /* stack for substitutions      */
 unsigned char   chstack[LINDEPTH];  /* place to save lastch     */
 
-#define MAXERR  29
+#define MAXERR  30
 
 static char    *errmsg[] =
 {
@@ -126,6 +126,7 @@ static char    *errmsg[] =
     "Can't open include file",
     "Define error",
     "Prototype mismatch",
+    "static assertion failed",
 };
 
 #ifdef GENERATE_TIME
@@ -164,6 +165,11 @@ install_defines()
     setdefine("__FUNC__", __funcbuf);
     setdefine("__STDC__", " 1 ");
     setdefine("__STDC_VERSION__", " 199409L ");
+    /* Freestanding / unsupported C11+ features on Amiga AC */
+    setdefine("__STDC_NO_ATOMICS__", " 1 ");
+    setdefine("__STDC_NO_THREADS__", " 1 ");
+    setdefine("__STDC_NO_COMPLEX__", " 1 ");
+    setdefine("__STDC_NO_VLA__", " 1 ");
     setdefine("__PDC__", " 1 ");
     setdefine("pdc", " 1 ");
     setdefine("amiga", " 1 ");
@@ -627,26 +633,56 @@ radix36(c)
 
 /*
  * getbase - get an integer in any base.
+ *
+ * Accumulates into the 64-bit pair (ival_hi, ival) using only 32-bit
+ * arithmetic so SAS/C / Amiga hosts without long long still work.
  */
 
 void
 getbase(b)
     char            b;
 {
-    register long   i, j;
-    long            base;
+    register long   j;
+    unsigned long   base;
+    unsigned long   lo, hi;
+    unsigned long   a0, a1, b0, b1, p0, p1, p2, c;
 
-    base = (long) b;
-    i = 0;
-    while (isalnum(lastch)) {
+    base = (unsigned long) b;
+    lo = 0;
+    hi = 0;
+    while (isalnum(lastch) || lastch == '\'') {
+        /* C23 digit separators: skip ' between digits (1'000, 0xFF'FF). */
+        if (lastch == '\'') {
+            getch();
+            if (!isalnum(lastch))
+                break;
+            continue;
+        }
         if ((j = radix36(lastch)) < b) {
-            i = safe_lmul(i, base) + j;
+            /*
+             * (hi:lo) = (hi:lo) * base + digit  via 16-bit partial products.
+             */
+            a0 = lo & 0xffffUL;
+            a1 = (lo >> 16) & 0xffffUL;
+            b0 = base & 0xffffUL;
+            b1 = (base >> 16) & 0xffffUL;
+            p0 = a0 * b0;
+            p1 = a0 * b1 + a1 * b0;
+            p2 = a1 * b1;
+            c = (p0 >> 16) + (p1 & 0xffffUL);
+            lo = (p0 & 0xffffUL) | ((c & 0xffffUL) << 16);
+            c = (c >> 16) + (p1 >> 16) + p2;
+            hi = hi * base + c;
+            lo += (unsigned long) j;
+            if (lo < (unsigned long) j)
+                hi++;
             getch();
         }
         else
             break;
     }
-    ival = i;
+    ival = (long) lo;
+    ival_hi = (long) hi;
     lastst = iconst;
 }
 
@@ -706,12 +742,14 @@ getexp()
  * getnumber - get a number from input.
  * 
  * getnumber handles all of the numeric input. it accepts decimal, octal,
- * hexidecimal, and floating point numbers.
+ * hexadecimal, binary (0b/0B), and floating point numbers.  Digit
+ * separators (') are accepted inside integer digit runs.
  */
 
 void
 getnumber()
 {
+    ival_hi = 0;
     if (lastch != '0')
         getbase(10);
     else {
@@ -719,6 +757,10 @@ getnumber()
         if (lastch == 'x' || lastch == 'X') {
             getch();
             getbase(16);
+        }
+        else if (lastch == 'b' || lastch == 'B') {
+            getch();
+            getbase(2);
         }
         else if (lastch == '.')
             ival = 0;
@@ -737,17 +779,39 @@ getnumber()
         getexp();   /* get the exponent */
     }
 
-    if (lastst == iconst && (lastch == 'l' || lastch == 'L')) {
-        getch();
-        if (lastch == 'l' || lastch == 'L') {
-            /* long long constant */
-            lastst = llconst;
-            getch();
-        } else {
-            /* long constant */
-            lastst = lconst;
+    /*
+     * C89/C99 integer suffixes in any order: U/u with L/l or LL/ll
+     * (e.g. 10U, 10L, 10UL, 10LU, 10ULL, 10LLU).  Floating constants
+     * leave lastst as rconst and skip this.
+     */
+    if (lastst == iconst) {
+        int             have_u;
+        int             nlong;
+        int             more;
+
+        have_u = 0;
+        nlong = 0;
+        more = 1;
+        ival_unsigned = 0;
+        while (more) {
+            more = 0;
+            if (!have_u && (lastch == 'u' || lastch == 'U')) {
+                have_u = 1;
+                getch();
+                more = 1;
+            } else if (nlong < 2 && (lastch == 'l' || lastch == 'L')) {
+                getch();
+                nlong++;
+                more = 1;
+            }
         }
-    }
+        ival_unsigned = have_u;
+        if (nlong >= 2)
+            lastst = llconst;
+        else if (nlong == 1)
+            lastst = lconst;
+    } else
+        ival_unsigned = 0;
 }
 
 void

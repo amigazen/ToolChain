@@ -43,8 +43,14 @@ TABLE           tagtable = {NULL, NULL};
 TYP             stdconst = {bt_long, 1, 0, 4, {NULL, NULL}, 0, "const", QUAL_CONST};
 
 void    decl2(), declenum(), enumbody(), declstruct();
+void    decl1(void);
 void    apply_qualifiers();
 void    decl_callconv(void);
+void    parse_alignas(void);
+void    apply_decl_alignas(TYP *tp);
+
+/* Pending _Alignas/alignas value for the current declaration (0 = none). */
+static int      decl_alignas = 0;
 
 /*
  * Enum parameters must be declared as int.  Callers push 4-byte ints
@@ -260,6 +266,125 @@ is_class_error(void)
     return (0);
 }
 
+/*
+ * Collect C integer type-specifier lists in any order (C89/C99/C23):
+ * signed/unsigned, short, long/long long, int, char; also long double.
+ * Sets head/tail.  Returns 1 on success, 0 if no specifiers were seen.
+ */
+static int
+decl_int_specs()
+{
+    int             sign;       /* 0 none, 1 signed, 2 unsigned */
+    int             nshort;
+    int             nlong;
+    int             saw_char;
+    int             saw_int;
+    int             cont;
+    int             bad;
+
+    sign = 0;
+    nshort = 0;
+    nlong = 0;
+    saw_char = 0;
+    saw_int = 0;
+    cont = 1;
+    bad = 0;
+
+    while (cont) {
+        switch (lastst) {
+        case kw_signed:
+            if (sign)
+                bad = 1;
+            else
+                sign = 1;
+            getsym();
+            break;
+        case kw_unsigned:
+            if (sign)
+                bad = 1;
+            else
+                sign = 2;
+            getsym();
+            break;
+        case kw_short:
+            if (nshort || nlong)
+                bad = 1;
+            else
+                nshort = 1;
+            getsym();
+            break;
+        case kw_long:
+            if (nshort || nlong >= 2)
+                bad = 1;
+            else
+                nlong++;
+            getsym();
+            break;
+        case kw_int:
+            if (saw_int || saw_char)
+                bad = 1;
+            else
+                saw_int = 1;
+            getsym();
+            break;
+        case kw_char:
+            if (saw_char || saw_int || nshort || nlong)
+                bad = 1;
+            else
+                saw_char = 1;
+            getsym();
+            break;
+        case kw_double:
+            /* long double — map to double (8 bytes) on Amiga */
+            if (nlong == 1 && !nshort && !saw_char && !saw_int && sign == 0) {
+                head = tail = maketype(bt_double, 8);
+                getsym();
+                return 1;
+            }
+            cont = 0;
+            break;
+        default:
+            cont = 0;
+            break;
+        }
+    }
+
+    if (bad)
+        error(ERR_SYNTAX, "invalid type specifier combination");
+
+    if (!(sign || nshort || nlong || saw_char || saw_int))
+        return 0;
+
+    if (saw_char) {
+        if (sign == 2)
+            head = tail = maketype(bt_uchar, 1);
+        else
+            head = tail = maketype(bt_char, 1);
+    } else if (nshort) {
+        if (sign == 2)
+            head = tail = maketype(bt_ushort, 2);
+        else
+            head = tail = maketype(bt_short, 2);
+    } else if (nlong >= 2) {
+        if (sign == 2)
+            head = tail = maketype(bt_ulonglong, 8);
+        else
+            head = tail = maketype(bt_longlong, 8);
+    } else if (nlong == 1) {
+        if (sign == 2)
+            head = tail = maketype(bt_unsigned, 4);
+        else
+            head = tail = maketype(bt_long, 4);
+    } else {
+        /* int / signed / unsigned [int] */
+        if (sign == 2)
+            head = tail = maketype(bt_unsigned, 4);
+        else
+            head = tail = maketype(bt_long, 4);
+    }
+    return 1;
+}
+
 void
 decl(TABLE *table)
 {
@@ -296,6 +421,12 @@ decl(TABLE *table)
         /* Accepted as no-ops; no codegen effect yet. */
         getsym();
         decl(table);
+        break;
+    case kw_alignas:
+        /* C11/C23: alignas(N) / alignas(type) as a declaration specifier. */
+        parse_alignas();
+        decl(table);
+        apply_decl_alignas(head);
         break;
     case kw_chip:
         getsym();
@@ -351,26 +482,17 @@ decl(TABLE *table)
         is_class_error();
         break;
     case kw_short:
-        head = tail = maketype(bt_short, 2);
-        getsym();
-        if (lastst == kw_int)
-            getsym();
-        is_class_error();
-        break;
     case kw_long:
-        head = tail = maketype(bt_long, 4);
-        getsym();
-        if (lastst == kw_int)
-            getsym();
-        else if (lastst == kw_long) {
-            /* long long - 64-bit integer */
-            head = tail = maketype(bt_longlong, 8);
-            getsym();
-        }
+    case kw_int:
+    case kw_signed:
+    case kw_unsigned:
+        /* Any-order C type-specifier lists (unsigned long int, long unsigned, ...) */
+        if (!decl_int_specs())
+            head = tail = maketype(bt_long, 4);
         is_class_error();
         break;
-    case kw_int:
     case kw_void:
+        /* Historically treated as 4-byte int for void * / void returns */
         head = tail = maketype(bt_long, 4);
         getsym();
         is_class_error();
@@ -441,52 +563,6 @@ decl(TABLE *table)
         getsym();
         is_class_error();
         break;
-    case kw_signed:
-        getsym();
-        switch (lastst) {
-        case kw_char:
-            head = tail = maketype(bt_char, 1);
-            getsym();
-            break;
-        case kw_short:
-            head = tail = maketype(bt_short, 2);
-            getsym();
-            break;
-        case kw_int:
-        case kw_long:
-            head = tail = maketype(bt_long, 4);
-            getsym();
-            break;
-        }
-        is_class_error();
-        break;
-    case kw_unsigned:
-        getsym();
-        switch (lastst) {
-        case kw_char:
-            head = tail = maketype(bt_uchar, 1);
-            getsym();
-            break;
-        case kw_short:
-            head = tail = maketype(bt_ushort, 2);
-            getsym();
-            break;
-        case kw_int:
-        case kw_long:
-            head = tail = maketype(bt_unsigned, 4);
-            getsym();
-            if (lastst == kw_long) {
-                /* unsigned long long - 64-bit unsigned integer */
-                head = tail = maketype(bt_ulonglong, 8);
-                getsym();
-            }
-            break;
-        default:
-            head = tail = maketype(bt_unsigned, 4);
-            break;
-        }
-        is_class_error();
-        break;
     case id:        /* no type declarator, or could be a typedef  */
         if ((tp = istypedef(table)) != NULL) {
             head = tail = tp;
@@ -544,6 +620,72 @@ decl_callconv(void)
         }
         getsym();
     }
+    /* alignas may appear after the type: int alignas(8) x; */
+    while (lastst == kw_alignas) {
+        parse_alignas();
+        apply_decl_alignas(head);
+    }
+}
+
+/*
+ * Parse _Alignas(const-expr) / alignas(type-name).  Updates decl_alignas
+ * to the maximum requested alignment (powers of two; 0 is ignored).
+ */
+void
+parse_alignas(void)
+{
+    long            val;
+    int             a;
+    TYP            *save_head;
+    TYP            *save_tail;
+    char           *save_declid;
+
+    getsym();
+    needpunc(openpa);
+    if (castbegin(lastst)) {
+        save_head = head;
+        save_tail = tail;
+        save_declid = declid;
+        head = tail = NULL;
+        declid = NULL;
+        decl(NULL);
+        decl1();
+        if (head != NULL)
+            a = alignment(head);
+        else
+            a = 0;
+        head = save_head;
+        tail = save_tail;
+        declid = save_declid;
+    } else {
+        val = intexpr();
+        a = (int) val;
+    }
+    needpunc(closepa);
+    if (a < 0)
+        a = 0;
+    /* alignas(0) is a no-op; otherwise require a power of two. */
+    if (a != 0 && (a & (a - 1)) != 0) {
+        error(ERR_SYNTAX, "alignas requires a power-of-two alignment");
+        a = 0;
+    }
+    if (a > 8) {
+        /* Amiga CNOP supports 2/4/8; larger requests are capped. */
+        warning(ERR_SYNTAX, "alignas capped at 8 for m68k");
+        a = 8;
+    }
+    if (a > decl_alignas)
+        decl_alignas = a;
+}
+
+void
+apply_decl_alignas(tp)
+    TYP            *tp;
+{
+    if (tp == NULL || decl_alignas <= 0)
+        return;
+    if ((unsigned char) tp->_pad_typ < (unsigned) decl_alignas)
+        tp->_pad_typ = (char) decl_alignas;
 }
 
 void
@@ -672,6 +814,9 @@ decl2(void)
 int
 alignment(TYP *tp)
 {
+    int             a;
+    int             forced;
+
     if (tp == NULL) {
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to alignment.\n" );
         return (AL_CHAR);
@@ -680,33 +825,48 @@ alignment(TYP *tp)
     case bt_char:
     case bt_uchar:
     case bt_bool:
-        return AL_CHAR;
+        a = AL_CHAR;
+        break;
     case bt_short:
     case bt_ushort:
-        return AL_SHORT;
+        a = AL_SHORT;
+        break;
     case bt_long:
     case bt_unsigned:
-        return AL_LONG;
+        a = AL_LONG;
+        break;
     case bt_longlong:
     case bt_ulonglong:
-        return AL_LONG;  /* 8-byte alignment on 68000 */
+        a = AL_LONG;  /* 8-byte objects still 2-byte-aligned on 68000 */
+        break;
     case bt_enum:
-        return AL_SHORT;
+        a = AL_SHORT;
+        break;
     case bt_pointer:
         if (tp->val_flag)
-            return alignment(tp->btp);
+            a = alignment(tp->btp);
         else
-            return AL_POINTER;
+            a = AL_POINTER;
+        break;
     case bt_float:
-        return AL_FLOAT;
+        a = AL_FLOAT;
+        break;
     case bt_double:
-        return AL_DOUBLE;
+        a = AL_DOUBLE;
+        break;
     case bt_struct:
     case bt_union:
-        return AL_STRUCT;
+        a = AL_STRUCT;
+        break;
     default:
-        return AL_CHAR;
+        a = AL_CHAR;
+        break;
     }
+    /* _Alignas / alignas stored in _pad_typ (0 = none). */
+    forced = (unsigned char) tp->_pad_typ;
+    if (forced > a)
+        a = forced;
+    return a;
 }
 
 int
@@ -740,6 +900,7 @@ declare(table, al, ilc, ztype, ral)
         getsym();
         decl(table);
         dhead = head;
+        apply_decl_alignas(dhead);
         for (;;) {
             declid = NULL;
             decl1();
@@ -764,11 +925,13 @@ declare(table, al, ilc, ztype, ral)
             head = dhead;
         }
         needpunc(semicolon);
+        decl_alignas = 0;
         return (0);
     }
 
     decl(table);
     dhead = head;
+    apply_decl_alignas(dhead);
     for (;;) {
         declid = NULL;
         decl1();
@@ -902,6 +1065,7 @@ declare(table, al, ilc, ztype, ral)
 
             if (sp->tp->type == bt_ifunc) { /* function body follows */
                 funcbody(sp);
+                decl_alignas = 0;
                 return nbytes;
             }
         }
@@ -916,6 +1080,7 @@ declare(table, al, ilc, ztype, ral)
         head = dhead;
     }
     getsym();
+    decl_alignas = 0;
     return nbytes;
 }
 
@@ -1144,6 +1309,50 @@ structbody(tp, ztype)
 }
 
 void
+do_static_assert()
+{
+    long            val;
+    char           *msg;
+    int             assert_line;
+
+    /*
+     * C11/C23: _Static_assert(const-expr) or _Static_assert(const-expr, "msg");
+     * static_assert is the same keyword spelling in AC.
+     */
+    assert_line = lineno;
+    getsym();
+    needpunc(openpa);
+    val = intexpr();
+    msg = NULL;
+    if (lastst == comma) {
+        getsym();
+        if (lastst != sconst) {
+            error(ERR_SYNTAX, "static_assert message must be a string literal");
+            while (lastst != closepa && lastst != semicolon && lastst != (int) eof
+                   && !fatal)
+                getsym();
+        } else {
+            msg = litlate(laststr);
+            getsym();
+        }
+    }
+    needpunc(closepa);
+    needpunc(semicolon);
+    if (val == 0L) {
+        if (msg == NULL)
+            msg = "static assertion failed";
+        {
+            int             saved_line;
+
+            saved_line = lineno;
+            lineno = assert_line;
+            error(ERR_STATICASSERT, msg);
+            lineno = saved_line;
+        }
+    }
+}
+
+void
 dodecl(defclass)
     int             defclass;   /* enum e_sc — must be int (see prototype) */
 {
@@ -1153,6 +1362,13 @@ dodecl(defclass)
         if (fatal)
             return;
         switch (lastst) {
+        case kw_static_assert:
+            do_static_assert();
+            break;
+        case kw_alignas:
+            /* Prefix form: alignas(8) int x; — stay in loop for the type. */
+            parse_alignas();
+            break;
         case asmconst:
             addauto(asmstmt());
             break;
@@ -1251,6 +1467,7 @@ dodecl(defclass)
             --global_flag;
             break;
         default:
+            decl_alignas = 0;
             return;
         }
     }

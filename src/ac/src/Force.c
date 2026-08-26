@@ -268,11 +268,13 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_short:
         case bt_enum:
         case bt_long:
+        case bt_longlong:
         case bt_bool:
             return( tp1 );
         case bt_uchar:
         case bt_ushort:
         case bt_unsigned:
+        case bt_ulonglong:
             return( tp1 );
         case bt_float:
             conv_unsigned( node2, en_cfl );
@@ -296,6 +298,8 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_enum:
         case bt_long:
         case bt_unsigned:
+        case bt_longlong:
+        case bt_ulonglong:
             return( tp1 );
         case bt_float:
             conv_unsigned( node2, en_cfl );
@@ -320,6 +324,8 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_enum:
         case bt_long:
         case bt_unsigned:
+        case bt_longlong:
+        case bt_ulonglong:
             return( tp1 );
         case bt_float:
             conv_signed( node2, en_cfl );
@@ -334,6 +340,8 @@ asforcefit(node1, tp1, node2, tp2)
         case bt_pointer:
         case bt_unsigned:
         case bt_long:
+        case bt_longlong:
+        case bt_ulonglong:
             return( tp1 );
         case bt_char:
         case bt_bool:
@@ -364,7 +372,8 @@ asforcefit(node1, tp1, node2, tp2)
             return tp1;
         break;
     case bt_unsigned:
-        if (isscalar(tp2) || tp2->type == bt_pointer)
+        if (isscalar(tp2) || tp2->type == bt_pointer ||
+            tp2->type == bt_longlong || tp2->type == bt_ulonglong)
             return tp1;
         break;
     case bt_longlong:

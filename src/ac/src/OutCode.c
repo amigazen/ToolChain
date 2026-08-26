@@ -77,7 +77,7 @@ struct oplst    opl[] = {
     {"add", op_adda},
     {"add", op_addi},
     {"addq", op_addq},
-    {"add", op_addx},
+    {"addx", op_addx},
     {"and", op_and},
     {"andi", op_andi},
     {"asl", op_asl},
@@ -194,7 +194,7 @@ struct oplst    opl[] = {
     {"sub", op_suba},
     {"sub", op_subi},
     {"subq", op_subq},
-    {"sub", op_subx},
+    {"subx", op_subx},
     {"svc", op_svc},
     {"svs", op_svs},
     {"swap", op_swap},
@@ -372,7 +372,8 @@ putconst(offset)
         fprintf(output, "%d", offset->v.i);
         break;
     case en_icon:
-        fprintf(output, "%d", (int)ICON16L(offset->v.i));
+        /* Full 32-bit immediates; ICON16L is only for frame displacements. */
+        fprintf(output, "%ld", (long) offset->v.i);
         break;
     case en_fcon:
         putdouble(offset->v.f);

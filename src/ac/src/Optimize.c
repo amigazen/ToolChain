@@ -531,6 +531,9 @@ opt0(node)
     case en_w_ref:      /* optimize unary node */
     case en_uw_ref:
     case en_l_ref:
+    case en_ul_ref:
+    case en_ll_ref:
+    case en_ull_ref:
     case en_m_ref:
     case en_d_ref:
     case en_f_ref:
@@ -995,6 +998,9 @@ xfold(node)
     case en_w_ref:
     case en_uw_ref:
     case en_l_ref:
+    case en_ul_ref:
+    case en_ll_ref:
+    case en_ull_ref:
     case en_m_ref:
     case en_compl:
     case en_not:

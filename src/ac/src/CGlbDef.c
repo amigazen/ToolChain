@@ -69,6 +69,8 @@ char            lastid[MAX_IDP1] = "";
 char            laststr[MAX_STLP1] = "";
 char           *curfile;
 long            ival = 0;
+long            ival_hi = 0;   /* high 32 bits of integer constant (LL/ULL) */
+int             ival_unsigned = 0;  /* set by getnumber for U/u integer suffixes */
 double          rval;
 
 TABLE           gsyms = {NULL, NULL},
