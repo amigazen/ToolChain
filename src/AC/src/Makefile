@@ -84,12 +84,16 @@ A68K        = $(SDKC)/A68k
 LINKER      ?= $(SDKC)/Blink
 
 # AC-native CRT (cclib SetupSTDIO contract). ac_start.o must be first.
+# ac_math0.o supplies _math=0; float apps omit it and define _math=1.
 CRT_DIR     = crt
 CRT_START   = $(CRT_DIR)/ac_start.o
-CRT_OBJS    = \
+CRT_MATH0   = $(CRT_DIR)/ac_math0.o
+CRT_OBJS_BASE = \
 	$(CRT_START) \
 	$(CRT_DIR)/ac_crt.o \
-	$(CRT_DIR)/ac_lvos.o
+	$(CRT_DIR)/ac_lvos.o \
+	$(CRT_DIR)/ac_fdopen.o
+CRT_OBJS    = $(CRT_OBJS_BASE) $(CRT_MATH0)
 
 LIBS        = $(SDKLIB)/amiga.lib $(SDKLIB)/math.lib
 
@@ -282,6 +286,13 @@ $(CRT_DIR)/ac_start.o: $(CRT_DIR)/ac_start.s
 $(CRT_DIR)/ac_lvos.o: $(CRT_DIR)/ac_lvos.s
 	$(A68K) -o$@ $(CRT_DIR)/ac_lvos.s
 
+$(CRT_DIR)/ac_fdopen.o: $(CRT_DIR)/ac_fdopen.s
+	$(A68K) -o$@ $(CRT_DIR)/ac_fdopen.s
+
+$(CRT_DIR)/ac_math0.o: $(CRT_DIR)/ac_math0.c ./ac
+	$(ACC) $(ACFLAGS) -c -o $(CRT_DIR)/ac_math0.s $(CRT_DIR)/ac_math0.c
+	$(A68K) -o$@ $(CRT_DIR)/ac_math0.s
+
 # Compile+assemble in one rule. Do not delete ac_crt.o from a separate
 # ac_crt.s recipe: Amiga make caches "file exists" and then skips A68k
 # (Blink Error 426: Cannot find object crt/ac_crt.o).
@@ -296,7 +307,7 @@ $(LINKWITH_AC): $(CRT_OBJS) $(OBJECTS_AC)
 	-delete $(LINKWITH_AC) QUIET
 	-delete $(LINKLOG_AC) QUIET
 	@echo from $(CRT_START) + >$(LINKWITH_AC)
-	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o + >>$(LINKWITH_AC)
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(CRT_DIR)/ac_fdopen.o $(CRT_MATH0) + >>$(LINKWITH_AC)
 	@echo $(wordlist 1,8,$(OBJECTS_AC))+ >>$(LINKWITH_AC)
 	@echo $(wordlist 9,16,$(OBJECTS_AC))+ >>$(LINKWITH_AC)
 	@echo $(wordlist 17,24,$(OBJECTS_AC))+ >>$(LINKWITH_AC)
@@ -309,7 +320,7 @@ $(LINKWITH_SELF): $(CRT_OBJS) $(OBJECTS_SELF)
 	-delete $(LINKWITH_SELF) QUIET
 	-delete $(LINKLOG_SELF) QUIET
 	@echo from $(CRT_START) + >$(LINKWITH_SELF)
-	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o + >>$(LINKWITH_SELF)
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(CRT_DIR)/ac_fdopen.o $(CRT_MATH0) + >>$(LINKWITH_SELF)
 	@echo $(wordlist 1,8,$(OBJECTS_SELF))+ >>$(LINKWITH_SELF)
 	@echo $(wordlist 9,16,$(OBJECTS_SELF))+ >>$(LINKWITH_SELF)
 	@echo $(wordlist 17,24,$(OBJECTS_SELF))+ >>$(LINKWITH_SELF)
@@ -361,7 +372,7 @@ $(HELLO_WITH): $(CRT_OBJS) $(HELLO_O)
 	-delete $(HELLO_WITH) QUIET
 	-delete $(HELLO_LOG) QUIET
 	@echo from $(CRT_START) + >$(HELLO_WITH)
-	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(HELLO_O) >>$(HELLO_WITH)
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(CRT_DIR)/ac_fdopen.o $(CRT_MATH0) $(HELLO_O) >>$(HELLO_WITH)
 	@echo library $(word 1,$(LIBS)) >>$(HELLO_WITH)
 	@echo "to $(HELLO_BIN)" >>$(HELLO_WITH)
 	@echo ver $(HELLO_LOG) >>$(HELLO_WITH)
@@ -390,6 +401,10 @@ DEMO_COMPILE = \
 	test_bss_arrays \
 	test_ac_debug_brace \
 	test_param_addr \
+	test_fp_assign \
+	test_large_frame \
+	test_line_comments \
+	test_comment_nest \
 	test_cclib_syntax \
 	test_static_assert \
 	test_types_suffixes
@@ -407,17 +422,36 @@ $(DEMO_OUT_AC)/%.s: $(DEMO_DIR)/%.c
 	@echo "  $(ACC) $<"
 	$(ACC) $(ACFLAGS) -q -c -o $@ $<
 
+# SAS/C COMMENTNEST requires -Wcommentnest (default comments stay C89).
+$(DEMO_OUT_AC)/test_comment_nest.s: $(DEMO_DIR)/test_comment_nest.c
+	-makedir demo-out
+	-makedir $(DEMO_OUT_AC)
+	@echo "  $(ACC) -Wcommentnest $<"
+	$(ACC) $(ACFLAGS) -Wcommentnest -q -c -o $@ $<
+
 $(DEMO_OUT_SELF)/%.s: $(DEMO_DIR)/%.c
 	-makedir demo-out
 	-makedir $(DEMO_OUT_SELF)
 	@echo "  $(ACSELF_CC) $<"
 	$(ACSELF_CC) $(ACFLAGS) -q -c -o $@ $<
 
+$(DEMO_OUT_SELF)/test_comment_nest.s: $(DEMO_DIR)/test_comment_nest.c
+	-makedir demo-out
+	-makedir $(DEMO_OUT_SELF)
+	@echo "  $(ACSELF_CC) -Wcommentnest $<"
+	$(ACSELF_CC) $(ACFLAGS) -Wcommentnest -q -c -o $@ $<
+
 $(DEMO_OUT_SELF2)/%.s: $(DEMO_DIR)/%.c
 	-makedir demo-out
 	-makedir $(DEMO_OUT_SELF2)
 	@echo "  $(BIN_SELF) $<"
 	$(BIN_SELF) $(ACFLAGS) -q -c -o $@ $<
+
+$(DEMO_OUT_SELF2)/test_comment_nest.s: $(DEMO_DIR)/test_comment_nest.c
+	-makedir demo-out
+	-makedir $(DEMO_OUT_SELF2)
+	@echo "  $(BIN_SELF) -Wcommentnest $<"
+	$(BIN_SELF) $(ACFLAGS) -Wcommentnest -q -c -o $@ $<
 
 $(DEMO_OUT_AC)/$(DEMO_SUITE).o: $(DEMO_OUT_AC)/$(DEMO_SUITE).s
 	$(A68K) -o$@ $<
@@ -428,36 +462,36 @@ $(DEMO_OUT_SELF)/$(DEMO_SUITE).o: $(DEMO_OUT_SELF)/$(DEMO_SUITE).s
 $(DEMO_OUT_SELF2)/$(DEMO_SUITE).o: $(DEMO_OUT_SELF2)/$(DEMO_SUITE).s
 	$(A68K) -o$@ $<
 
-$(DEMO_OUT_AC)/$(DEMO_SUITE): $(DEMO_OUT_AC)/$(DEMO_SUITE).o $(CRT_OBJS)
+$(DEMO_OUT_AC)/$(DEMO_SUITE): $(DEMO_OUT_AC)/$(DEMO_SUITE).o $(CRT_OBJS_BASE)
 	-delete $@.with QUIET
 	-delete $@.blink.log QUIET
 	@echo from $(CRT_START) + >$@.with
-	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $< >>$@.with
-	@echo library $(word 1,$(LIBS)) >>$@.with
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(CRT_DIR)/ac_fdopen.o $< >>$@.with
+	@echo library $(word 1,$(LIBS)) + $(word 2,$(LIBS)) >>$@.with
 	@echo "to $@" >>$@.with
 	@echo ver $@.blink.log >>$@.with
 	$(LINKER) with $@.with
 	@echo "--- link log ($@) ---"
 	- type $@.blink.log
 
-$(DEMO_OUT_SELF)/$(DEMO_SUITE): $(DEMO_OUT_SELF)/$(DEMO_SUITE).o $(CRT_OBJS)
+$(DEMO_OUT_SELF)/$(DEMO_SUITE): $(DEMO_OUT_SELF)/$(DEMO_SUITE).o $(CRT_OBJS_BASE)
 	-delete $@.with QUIET
 	-delete $@.blink.log QUIET
 	@echo from $(CRT_START) + >$@.with
-	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $< >>$@.with
-	@echo library $(word 1,$(LIBS)) >>$@.with
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(CRT_DIR)/ac_fdopen.o $< >>$@.with
+	@echo library $(word 1,$(LIBS)) + $(word 2,$(LIBS)) >>$@.with
 	@echo "to $@" >>$@.with
 	@echo ver $@.blink.log >>$@.with
 	$(LINKER) with $@.with
 	@echo "--- link log ($@) ---"
 	- type $@.blink.log
 
-$(DEMO_OUT_SELF2)/$(DEMO_SUITE): $(DEMO_OUT_SELF2)/$(DEMO_SUITE).o $(CRT_OBJS)
+$(DEMO_OUT_SELF2)/$(DEMO_SUITE): $(DEMO_OUT_SELF2)/$(DEMO_SUITE).o $(CRT_OBJS_BASE)
 	-delete $@.with QUIET
 	-delete $@.blink.log QUIET
 	@echo from $(CRT_START) + >$@.with
-	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $< >>$@.with
-	@echo library $(word 1,$(LIBS)) >>$@.with
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $(CRT_DIR)/ac_fdopen.o $< >>$@.with
+	@echo library $(word 1,$(LIBS)) + $(word 2,$(LIBS)) >>$@.with
 	@echo "to $@" >>$@.with
 	@echo ver $@.blink.log >>$@.with
 	$(LINKER) with $@.with
@@ -535,8 +569,6 @@ demo-cli-body:
 	$(CLI_CC) -q -c -L ignored -o $(CLI_DIR)/probe_L.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
 	@echo "  -s (strip toggle; documented unimplemented)"
 	$(CLI_CC) -q -c -s -o $(CLI_DIR)/probe_s.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
-	@echo "  -? help (exits 1)"
-	-$(CLI_CC) -?
 	@echo "--- CLI option smoke OK ($(CLI_CC)) ---"
 
 demo-compile-ac: $(DEMO_ASM_AC)
@@ -610,5 +642,8 @@ clean-cclib-crt:
 	-delete $(CRT_DIR)/ac_crt.o QUIET
 	-delete $(CRT_DIR)/ac_crt.s QUIET
 	-delete $(CRT_DIR)/ac_lvos.o QUIET
+	-delete $(CRT_DIR)/ac_fdopen.o QUIET
+	-delete $(CRT_DIR)/ac_math0.o QUIET
+	-delete $(CRT_DIR)/ac_math0.s QUIET
 
 clean: clean-ac clean-self clean-hello-dos clean-cclib-crt clean-demo

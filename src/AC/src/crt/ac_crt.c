@@ -98,6 +98,7 @@ struct Library *DOSBase = 0;
 struct Library *UtilityBase = 0;
 struct Library *CCLibBase = 0;
 struct Library *MathIeeeDoubBasBase = 0;
+struct Library *MathIeeeSingBasBase = 0;
 struct WBStartup *WBenchMsg = 0;
 
 FILE *stdin = 0;
@@ -108,10 +109,11 @@ char *type = 0;
 long blocksize = 0;
 
 /*
- * _math: non-zero asks CRT to open mathieeedoubbas for cclib float.
- * AC uses math.lib (.FDxxx) for codegen helpers; leave 0 for the host.
+ * _math: non-zero asks CRT to open IEEE math libraries for soft-float
+ * (FD/FS stubs via math.lib) and cclib %f.  Default 0 is crt/ac_math0.c;
+ * float programs define short _math = 1 and omit ac_math0 from the link.
  */
-short _math = 0;
+extern short _math;
 
 /* Function pointers stored as void * (AC rejects void (*f)(void) syntax). */
 void *exit_fcn = 0;
@@ -122,6 +124,7 @@ static long ac_atexit_n;
 static long ac_atexit_ran;
 static long ac_exiting;
 static short ac_math_opened;
+static short ac_sing_opened;
 
 static void
 ac_dos_msg(msg)
@@ -194,6 +197,12 @@ long code;
 		CCLibBase = 0;
 	}
 
+	if (ac_sing_opened && MathIeeeSingBasBase != 0) {
+		CloseLibrary(MathIeeeSingBasBase);
+		MathIeeeSingBasBase = 0;
+		ac_sing_opened = 0;
+	}
+
 	if (ac_math_opened && MathIeeeDoubBasBase != 0) {
 		CloseLibrary(MathIeeeDoubBasBase);
 		MathIeeeDoubBasBase = 0;
@@ -250,6 +259,7 @@ ac_crt_entry()
 
 	ac_exiting = 0;
 	ac_math_opened = 0;
+	ac_sing_opened = 0;
 	ac_atexit_n = 0;
 	ac_atexit_ran = 0;
 	rv = 20;
@@ -305,12 +315,24 @@ ac_crt_entry()
 	}
 
 	if (_math) {
+		/*
+		 * Soft-float stubs (.FDadd, .Fd2s, …) need doubbas;
+		 * .FSadd / .FSmul / .Fs2l need singbas.  Open both when
+		 * the program opts into IEEE math (_math != 0).
+		 */
 		MathIeeeDoubBasBase = OpenLibrary("mathieeedoubbas.library", 0L);
 		if (MathIeeeDoubBasBase == 0) {
 			ac_dos_msg("ac: cannot open mathieeedoubbas.library\n");
 			goto fail;
 		}
 		ac_math_opened = 1;
+
+		MathIeeeSingBasBase = OpenLibrary("mathieeesingbas.library", 0L);
+		if (MathIeeeSingBasBase == 0) {
+			ac_dos_msg("ac: cannot open mathieeesingbas.library\n");
+			goto fail;
+		}
+		ac_sing_opened = 1;
 	}
 
 	ac_dos_msg("acdbg: crt SetupSTDIO\n");

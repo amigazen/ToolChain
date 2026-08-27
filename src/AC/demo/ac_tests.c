@@ -13,7 +13,15 @@
  *   demo-out/ac-self2/ac_tests
  *
  * Exit status: 0 if all PASS, 1 if any FAIL.
+ *
+ * Large-frame tests need ~64K stack (default CLI stack is far too small).
+ * Soft-float: set _math so CRT opens mathieeedoubbas into the base the
+ * stubs read (avoids math.lib .FDopen / split-base hang).
  */
+static const char *ac_tests_stack_cookie = "$STACK: 65536";
+
+/* CRT opens IEEE libs before main (see crt/ac_crt.c). */
+short _math = 1;
 
 alignas(4) char g_pad;
 _Alignas(8) long g_big;
@@ -117,6 +125,9 @@ static void
 test_suffixes()
 {
     unsigned long ul;
+    float f;
+    double d;
+    long double ld;
 
     ul = add_uli(1UL, 2LU);
     expect_true("suffix/UL_LU_add", ul != 0UL);
@@ -127,6 +138,19 @@ test_suffixes()
      * Size is checked here; LL ops are compile-smoked in test_types_suffixes.c.
      */
     expect_long("suffix/sizeof_long_long", (long) sizeof(long long), 8L);
+
+    /* C99/C23 floating suffixes: f/F float, l/L long double (= double here). */
+    f = 1.5f;
+    expect_long("suffix/float_f", (long) (f * 2.0f), 3L);
+    f = 2.0F;
+    expect_long("suffix/float_F", (long) f, 2L);
+    d = 3.0;
+    expect_long("suffix/double_plain", (long) d, 3L);
+    ld = 4.0L;
+    expect_long("suffix/long_double_L", (long) ld, 4L);
+    expect_long("suffix/sizeof_1_0f", (long) sizeof(1.0f), 4L);
+    expect_long("suffix/sizeof_1_0", (long) sizeof(1.0), 8L);
+    expect_long("suffix/sizeof_1_0L", (long) sizeof(1.0L), 8L);
 }
 
 static void
@@ -248,6 +272,99 @@ test_param_addr()
     expect_long("param/sizeof_short_param", sizeof_sparam(0), 2L);
 }
 
+static long
+fp_float_to_long(f)
+    float f;
+{
+    return (long) f;
+}
+
+static long
+fp_double_to_long(d)
+    double d;
+{
+    return (long) d;
+}
+
+static void
+test_fp_assign()
+{
+    float f;
+    double d;
+    long oldv;
+
+    /*
+     * Float postfix ++/-- used to skip the store-back (gen_fsaincdec).
+     * Compound assign and prefix go through assign + soft-float binary.
+     */
+    /* f/F suffix (C99) — getfloatsuffix + en_cdf / gen_fconvert. */
+    f = 10.0f;
+    f += 3.0f;
+    expect_long("fp/float_add_assign", fp_float_to_long(f), 13L);
+    f -= 5.0f;
+    expect_long("fp/float_sub_assign", fp_float_to_long(f), 8L);
+    f *= 2.0f;
+    expect_long("fp/float_mul_assign", fp_float_to_long(f), 16L);
+    f /= 4.0f;
+    expect_long("fp/float_div_assign", fp_float_to_long(f), 4L);
+
+    f = 7.0f;
+    oldv = fp_float_to_long(f++);
+    expect_long("fp/float_postinc_old", oldv, 7L);
+    expect_long("fp/float_postinc_new", fp_float_to_long(f), 8L);
+    oldv = fp_float_to_long(f--);
+    expect_long("fp/float_postdec_old", oldv, 8L);
+    expect_long("fp/float_postdec_new", fp_float_to_long(f), 7L);
+    ++f;
+    expect_long("fp/float_preinc", fp_float_to_long(f), 8L);
+    --f;
+    expect_long("fp/float_predec", fp_float_to_long(f), 7L);
+
+    d = 10.0;
+    d += 3.0;
+    expect_long("fp/double_add_assign", fp_double_to_long(d), 13L);
+    d -= 5.0;
+    expect_long("fp/double_sub_assign", fp_double_to_long(d), 8L);
+    d *= 2.0;
+    expect_long("fp/double_mul_assign", fp_double_to_long(d), 16L);
+    d /= 4.0;
+    expect_long("fp/double_div_assign", fp_double_to_long(d), 4L);
+
+    d = 7.0;
+    oldv = fp_double_to_long(d++);
+    expect_long("fp/double_postinc_old", oldv, 7L);
+    expect_long("fp/double_postinc_new", fp_double_to_long(d), 8L);
+    oldv = fp_double_to_long(d--);
+    expect_long("fp/double_postdec_old", oldv, 8L);
+    expect_long("fp/double_postdec_new", fp_double_to_long(d), 7L);
+    ++d;
+    expect_long("fp/double_preinc", fp_double_to_long(d), 8L);
+    --d;
+    expect_long("fp/double_predec", fp_double_to_long(d), 7L);
+}
+
+#define LARGE_FRAME_BYTES 34000
+
+static int
+large_frame_touch()
+{
+    char            buf[LARGE_FRAME_BYTES];
+    int             i;
+
+    /* Needs ~64K stack (see src/Version.h $STACK). */
+    buf[0] = 1;
+    buf[LARGE_FRAME_BYTES - 1] = 2;
+    i = 33000;
+    buf[i] = 3;
+    return (int) buf[0] + (int) buf[LARGE_FRAME_BYTES - 1] + (int) buf[i];
+}
+
+static void
+test_large_frame()
+{
+    expect_long("frame/large_touch_ends", (long) large_frame_touch(), 6L);
+}
+
 static void
 test_bss_array_sizes()
 {
@@ -264,6 +381,25 @@ test_bss_array_sizes()
 }
 
 static void
+test_line_comments()
+{
+    int x;
+    int y;
+
+    /* C99 // comments; block comments default to C89 (first closer wins). */
+    x = 0;
+    // this must not leave x at 0
+    x = 41;
+    x = x + 1; // trailing
+    expect_long("comment/line_assign", (long) x, 42L);
+
+    y = 1;
+    /* glob mention *.c must not break this comment */
+    y = y + 1; // +1
+    expect_long("comment/block_and_line", (long) y, 2L);
+}
+
+static void
 test_compile_only_notes()
 {
     /*
@@ -275,6 +411,10 @@ test_compile_only_notes()
     dejagnu_untested("compile/test_bss_arrays.c");
     dejagnu_untested("compile/test_ac_debug_brace.c");
     dejagnu_untested("compile/test_param_addr.c");
+    dejagnu_untested("compile/test_fp_assign.c");
+    dejagnu_untested("compile/test_large_frame.c");
+    dejagnu_untested("compile/test_line_comments.c");
+    dejagnu_untested("compile/test_comment_nest.c");
 }
 
 static void
@@ -292,6 +432,10 @@ print_summary()
 int
 main(void)
 {
+    /* Keep the stack cookie live so the linker does not drop the string. */
+    if (ac_tests_stack_cookie[0] == 0)
+        return 99;
+
     n_pass = 0;
     n_fail = 0;
     n_untested = 0;
@@ -312,12 +456,15 @@ main(void)
     test_printf();
     test_binlit();
     test_suffixes();
+    test_line_comments();
     test_alignof();
     test_alignas();
     test_bool_nullptr();
     test_types_size();
     test_bss_array_sizes();
     test_param_addr();
+    test_fp_assign();
+    test_large_frame();
     test_feature_macros();
     test_compile_only_notes();
 

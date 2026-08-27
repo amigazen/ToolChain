@@ -173,8 +173,13 @@ gen_fsconvert(node, flags, size)
             gen_code( op_move, 4, makedreg(0), ap2 );
         return (ap2);
     case en_cfl:
-        PdcFlags |= PDC_IEEESINGLE;
-        call_library(".Fs2l");
+        /*
+         * float→long.  Prefer .Fs2d then .Fd2l: shipped math.lib
+         * mis-XDEFs the .Fs2l stub as .Fd2l, so .Fs2l never links.
+         */
+        PdcFlags |= PDC_IEEESINGLE | PDC_IEEEDOUBLE;
+        call_library(".Fs2d");
+        call_library(".Fd2l");
         ap2 = temp_data();
         if ((int)ap2->preg != 0)
             gen_code( op_move, 4, makedreg(0), ap2 );
@@ -191,16 +196,29 @@ gen_fconvert(node, flags, size)
     struct enode   *node;
     int             flags, size;
 {
-    struct amode   *ap1, *ap2;
+    struct amode   *ap1, *ap2, *apt;
 
-    flags = F_FREG;
+    /*
+     * Soft-float .Fd2s / .Fd2l want the double in D0:D1.  Do not use
+     * make_legal(F_FREG): that path calls temp_float() after loading
+     * D0:D1 and can push/clobber the pair (seen as a hang on 1.0f when
+     * Expr used en_cdf).  Load from memory like gen_fbinary's left op.
+     */
     size = 8;
+    flags = F_MEM | F_IMMED;
 
     ap1 = gen_expr(node->v.p[0], flags, size);
     make_legal(ap1, flags, size);
+    if (ap1 != NULL && ap1->mode == am_freg)
+        ap1 = check_float(ap1);
+
+    if (ap1 == NULL)
+        return NULL;
 
     validate(ap1);
-
+    gen_code(op_move, 4, ap1, makedreg((enum e_am) 0));
+    apt = make_delta(copy_addr(ap1), 4);
+    gen_code(op_move, 4, apt, makedreg((enum e_am) 1));
     freeop(ap1);
 
     switch (node->nodetype) {
@@ -212,10 +230,14 @@ gen_fconvert(node, flags, size)
         PdcFlags |= PDC_IEEEDOUBLE | PDC_IEEESINGLE;
         call_library(".Fd2s");
         break;
+    default:
+#if AC_DEBUG
+        fprintf(AC_DIAG_STREAM, "DIAG -- uncoded floating convert\n" );
+#endif
+        break;
     }
 
     ap2 = temp_data();
-
     if ((int) ap2->preg != 0)
         gen_code(op_move, 4, makedreg((enum e_am) 0), ap2);
 
@@ -600,11 +622,19 @@ gen_fbinary(node, flags, size, op)
 
 struct amode   *
 gen_fsaincdec(node, flags, size, op)
+
+/*
+ * float postfix ++/-- (en_faincs).  Soft-float single: left in D0, right in
+ * D1, .FSadd/.FSsub → D0.  Must store the new value back through the lvalue
+ * and return the old float (same contract as gen_faincdec for doubles).
+ * The old gen_fsaincdec only computed FSadd into a temp and never wrote
+ * memory — so f++ left f unchanged.
+ */
     struct enode   *node;
     int             flags, size;
     enum e_op       op;
 {
-    struct amode   *ap1, *ap2, *ap3;
+    struct amode   *ap1, *ap2, *ap3, *apold;
 
     if (node == NULL) {
 #if AC_DEBUG
@@ -613,79 +643,43 @@ gen_fsaincdec(node, flags, size, op)
         return NULL;
     }
 
-    flags = F_DREG;
+    size = 4;
+    flags = F_MEM | F_ALL;
 
+    /* Amount first (usually 1.0f / -1.0f) so D0 is free for the load. */
+    ap2 = gen_expr(node->v.p[1], F_DREG | F_IMMED, size);
+    make_legal(ap2, F_DREG | F_IMMED, size);
+
+    /* Lvalue as memory — need an address we can store through. */
     ap1 = gen_expr(node->v.p[0], flags, size);
     make_legal(ap1, flags, size);
-    ap2 = gen_expr(node->v.p[1], flags, size);
-    make_legal(ap2, flags, size);
 
-    validate(ap2);
+    if (ap1 == NULL || ap2 == NULL)
+        return NULL;
+
     validate(ap1);
+    validate(ap2);
 
-    if (op == op_fadd) {
-        if ((int) ap1->preg == 0) {
-            if ((int) ap2->preg != 1) {
-                ap3 = request_data(1);
-                gen_code(op_move, 4, ap2, ap3);
-                freeop(ap3);
-            }
-        }
-        else if ((int) ap1->preg == 1) {
-            if ((int) ap2->preg != 0) {
-                ap3 = request_data(0);
-                gen_code(op_move, 4, ap2, ap3);
-                freeop(ap3);
-            }
-        }
-        else {
-            if ((int) ap2->preg == 0) {
-                ap3 = request_data(1);
-                gen_code(op_move, 4, ap1, ap3);
-                freeop(ap3);
-            }
-            else if ((int) ap2->preg == 1) {
-                ap3 = request_data(0);
-                gen_code(op_move, 4, ap1, ap3);
-                freeop(ap3);
-            }
-        }
+    ap3 = copy_addr(ap1);
+
+    /* Postfix result = old value; push from memory before clobbering regs. */
+    gen_code(op_move, 4, ap1, push);
+
+    /* Soft-float single ABI: D0 = left (old), D1 = right (delta). */
+    if (ap2->mode == am_dreg && (int) ap2->preg == 0) {
+        gen_code(op_move, 4, ap2, makedreg((enum e_am) 1));
+        gen_code(op_move, 4, ap1, makedreg((enum e_am) 0));
     }
     else {
-        if ((int) ap1->preg == 0) {
-            if ((int) ap2->preg != 1) {
-                ap3 = request_data(1);
-                gen_code(op_move, 4, ap2, ap3);
-                freeop(ap3);
-            }
-        }
-        else if ((int) ap2->preg == 1) {
-            ap3 = request_data(0);
-            gen_code(op_move, 4, ap1, ap3);
-            freeop(ap3);
-        }
-        else {
-            if ((int) ap1->preg == 1) {
-                if ((int) ap2->preg == 0)
-                    gen_code(op_exg, 4, ap1, ap2);
-                else {
-                    ap3 = request_data(0);
-                    gen_code(op_move, 4, ap1, ap3);
-                    gen_code(op_move, 4, ap2, ap1);
-                    freeop(ap3);
-                }
-            }
-            else if ((int) ap2->preg == 0) {
-                ap3 = request_data(1);
-                gen_code(op_move, 4, ap2, ap3);
-                gen_code(op_move, 4, ap1, ap2);
-                freeop(ap3);
-            }
-        }
+        gen_code(op_move, 4, ap1, makedreg((enum e_am) 0));
+        if (ap2->mode != am_dreg || (int) ap2->preg != 1)
+            gen_code(op_move, 4, ap2, makedreg((enum e_am) 1));
     }
 
-    freeop(ap2);
     freeop(ap1);
+    freeop(ap2);
+
+    ap3 = request_reg(ap3);
 
     switch (op) {
     case op_fadd:
@@ -703,12 +697,17 @@ gen_fsaincdec(node, flags, size, op)
         break;
     }
 
-    ap1 = temp_data();
+    gen_code(op_move, 4, makedreg((enum e_am) 0), ap3);
+    freeop(ap3);
 
-    if ((int) ap1->preg != 0)
-        gen_code(op_move, size, makedreg((enum e_am) 0), ap1);
+    /* Restore postfix old value into D0 and hand it back in a temp. */
+    gen_code(op_move, 4, pop, makedreg((enum e_am) 0));
 
-    return ap1;
+    apold = temp_data();
+    if ((int) apold->preg != 0)
+        gen_code(op_move, 4, makedreg((enum e_am) 0), apold);
+
+    return apold;
 }
 
 struct amode   *

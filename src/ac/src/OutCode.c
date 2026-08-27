@@ -380,8 +380,8 @@ putconst(offset)
     }
     switch (offset->nodetype) {
     case en_autocon:
-        fprintf(output, "%d(A%d)",
-            (int) frame_disp(ICON16L(offset->v.i)), frame_areg());
+        fprintf(output, "%ld(A%d)",
+            (long) frame_disp(icon_unpoison(offset->v.i)), frame_areg());
         break;
     case en_tempref:
         fprintf(output, "%d", offset->v.i);
@@ -985,6 +985,75 @@ floatlit(d)
     --global_flag;
     dptr = (double *) lp->str;
     *dptr = d;
+    return lp->label;
+}
+
+/*
+ * ieee_d2f_bits — same chopping as math.lib .Fd2s, integer-only.
+ * Used so f/F literals never call soft-float during the compile.
+ */
+static unsigned long
+ieee_d2f_bits(hi, lo)
+    unsigned long   hi;
+    unsigned long   lo;
+{
+    unsigned long   sign;
+    unsigned long   exp;
+    unsigned long   mant;
+
+    sign = hi & 0x80000000UL;
+    exp = (hi >> 20) & 0x7FFUL;
+    /*
+     * 23-bit field: top 20 of the double fraction, plus the high 3 bits
+     * of the low word (see double.asm .Fd2s DoMant).
+     */
+    mant = ((hi & 0xFFFFFUL) << 3) | (lo >> 29);
+
+    if (exp > 1151UL) {
+        /* Overflow → infinity (exponent 255, zero fraction). */
+        return sign | 0x7F800000UL;
+    }
+    if (exp < 896UL) {
+        /* Underflow → signed zero. */
+        return sign;
+    }
+    exp = exp - 896UL;  /* excess-1023 → excess-127 */
+    return sign | (exp << 23) | (mant & 0x7FFFFFUL);
+}
+
+/*
+ * floatlits — pool an IEEE single for C99 1.0f / 1.0F.
+ * Avoids runtime en_cdf/.Fd2s on every float suffix (that path still
+ * faults under soft-float codegen).  Conversion is integer bit surgery
+ * after a normal double store — do not assign through a float lvalue
+ * here (that invoked soft-float mid-compile and corrupted strtab).
+ */
+
+long
+floatlits(d)
+    double          d;
+{
+    double          tmp;
+    unsigned long  *wp;
+    unsigned long   fbits;
+    long           *ip;
+    struct slit    *lp;
+
+    tmp = d;
+    wp = (unsigned long *) &tmp;
+    fbits = ieee_d2f_bits(wp[0], wp[1]);
+
+    ++global_flag;
+    lp = (struct slit *) xalloc(sizeof(struct slit));
+    lp->label = nextlabel++;
+    lp->str = (char *) xalloc(sizeof(float));
+    lp->len = sizeof(float);
+    lp->next = strtab;
+    lp->type = rconst;
+    strtab = lp;
+    --global_flag;
+    ip = (long *) lp->str;
+    *ip = (long) fbits;
     return lp->label;
 }
 

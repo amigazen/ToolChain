@@ -75,6 +75,7 @@ extern SYM     *search();
 extern char    *litlate();
 extern long     stringlit();
 extern long     floatlit();
+extern long     floatlits();
 extern int      dodefined();
 extern char    *xalloc();
 extern int      oneline;
@@ -217,7 +218,9 @@ deref(node, tp)
     struct enode   *ep1;
 
     if (node == NULL || tp == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to deref.\n" );
+#endif
         return (NULL);
     }
 
@@ -372,7 +375,7 @@ nameref(node)
         default:    /* auto and any errors */
             if (sp->storage_class != sc_auto)
                 error(ERR_ILLCLASS, NULL);
-            *node = makenode(en_autocon, ICON16L(sp->value.i), NULL);
+            *node = makenode(en_autocon, icon_unpoison(sp->value.i), NULL);
             break;
         }
         if (tp->val_flag == 0)
@@ -425,35 +428,41 @@ parmlist(sp)
 If assigning prototypes based on prior usage, duplicate this type and assign 
 it to sp1->tp.
 */
-            switch (ep2->nodetype) {
-            case en_b_ref:
-                ep2 = makenode(en_cbl, ep2, NULL);
-                parmsize += 4;
-                break;
-            case en_ub_ref:
-                ep2 = makenode(en_cbl, ep2, NULL);
-                ep2->signedflag = 0;
-                parmsize += 4;
-                break;
-            case en_w_ref:
-                ep2 = makenode(en_cwl, ep2, NULL);
-                parmsize += 4;
-                break;
-            case en_uw_ref:
-                ep2 = makenode(en_cwl, ep2, NULL);
-                ep2->signedflag = 0;
-                parmsize += 4;
-                break;
-            case en_f_ref:
+            /*
+             * Float args must be widened to double (K&R / cclib).  Only
+             * en_f_ref used to get en_cfd; float ops (f++, f+g, …) kept
+             * size 4 while the callee reads 8 — IEEE float bits in the
+             * high word of a double decode as 2^15 / 2^17 (32768 / 131072).
+             */
+            if (tp1->type == bt_float) {
                 ep2 = makenode(en_cfd, ep2, NULL);
                 parmsize += 8;
-                break;
-            case en_d_ref:
+            } else if (tp1->type == bt_double) {
                 parmsize += 8;
-                break;
-            default:
-                parmsize += 4;
-                break;
+            } else {
+                switch (ep2->nodetype) {
+                case en_b_ref:
+                    ep2 = makenode(en_cbl, ep2, NULL);
+                    parmsize += 4;
+                    break;
+                case en_ub_ref:
+                    ep2 = makenode(en_cbl, ep2, NULL);
+                    ep2->signedflag = 0;
+                    parmsize += 4;
+                    break;
+                case en_w_ref:
+                    ep2 = makenode(en_cwl, ep2, NULL);
+                    parmsize += 4;
+                    break;
+                case en_uw_ref:
+                    ep2 = makenode(en_cwl, ep2, NULL);
+                    ep2->signedflag = 0;
+                    parmsize += 4;
+                    break;
+                default:
+                    parmsize += 4;
+                    break;
+                }
             }
         }
         ep1 = makenode(en_void, ep2, ep1);
@@ -591,8 +600,20 @@ primary(node)
         }
         break;
     case rconst:
-        tptr = &stddouble;
-        pnode = makenode(en_labcon, floatlit(rval), NULL);
+        /*
+         * f/F → IEEE single in the literal pool (floatlits, integer d→s).
+         * Runtime en_cdf/.Fd2s on every float suffix still crashes under
+         * soft-float; keep en_cdf only for real double→float casts.
+         * Plain / l/L → double pool (long double ≡ double on Amiga).
+         */
+        if (rval_float_suffix == 1) {
+            tptr = &stdfloat;
+            pnode = makenode(en_labcon, floatlits(rval), NULL);
+        }
+        else {
+            tptr = &stddouble;
+            pnode = makenode(en_labcon, floatlit(rval), NULL);
+        }
         tptr = deref(&pnode, tptr);
         getsym();
         break;
@@ -696,7 +717,7 @@ primary(node)
                     error(ERR_NOMEMBER, NULL);
                 else {
                     tptr = sp->tp;
-                    qnode = makenode(en_icon, ICON16L((long)(sp->value.i)), NULL);
+                    qnode = makenode(en_icon, icon_unpoison(sp->value.i), NULL);
                     qnode->constflag = 1;
                     pnode = makenode(en_add, pnode, qnode);
                     pnode->constflag = pnode->v.p[0]->constflag;

@@ -54,12 +54,9 @@ extern char    *fgets();
 
 extern TABLE             tagtable;
 extern unsigned char    *lptr;           /* shared with preproc */
-extern char              inclfile_buf[]; /* shared with preproc */
-extern char              inclline_buf[];
-extern char              inclname_buf[];
-#define inclfile ((FILE **) (void *) inclfile_buf)
-#define inclline ((int *) (void *) inclline_buf)
-#define inclname ((char **) (void *) inclname_buf)
+extern FILE             *inclfile[10];   /* shared with preproc */
+extern int               inclline[10];
+extern char             *inclname[10];
 
 extern int      incldepth;  /* shared with preproc */
 extern int      inpreproc;  /* shared with preproc */
@@ -83,6 +80,12 @@ static int      numerrs;
 char            in_line[1024];
 int             in_line_used;
 int             in_comment = FALSE;
+/*
+ * SAS/C COMMENTNEST: when non-zero, block comments nest.  Default 0 so
+ * existing comments that mention globs like bootstrap/ac/*.s still end
+ * at the first star-slash (C89 / GCC).  Enable with -Wcommentnest.
+ */
+int             comment_nesting = 0;
 int             total_errors = 0;
 int             total_warnings = 0;
 int             join_line = FALSE;
@@ -767,6 +770,24 @@ getexp()
 }
 
 /*
+ * Floating-constant suffixes (C99/C23): f/F → float, l/L → long double.
+ * Amiga maps long double to double; value stays in rval as double.
+ */
+static void
+getfloatsuffix()
+{
+    rval_float_suffix = 0;
+    if (lastch == 'f' || lastch == 'F') {
+        rval_float_suffix = 1;
+        getch();
+    }
+    else if (lastch == 'l' || lastch == 'L') {
+        rval_float_suffix = 2;
+        getch();
+    }
+}
+
+/*
  * getnumber - get a number from input.
  * 
  * getnumber handles all of the numeric input. it accepts decimal, octal,
@@ -778,6 +799,7 @@ void
 getnumber()
 {
     ival_hi = 0;
+    rval_float_suffix = 0;
     if (lastch != '0')
         getbase(10);
     else {
@@ -808,11 +830,14 @@ getnumber()
     }
 
     /*
-     * C89/C99 integer suffixes in any order: U/u with L/l or LL/ll
-     * (e.g. 10U, 10L, 10UL, 10LU, 10ULL, 10LLU).  Floating constants
-     * leave lastst as rconst and skip this.
+     * Floating suffixes first (1.0f / 1e0F / 1.0L).  Then C89/C99 integer
+     * suffixes in any order: U/u with L/l or LL/ll.
      */
-    if (lastst == iconst) {
+    if (lastst == rconst) {
+        getfloatsuffix();
+        ival_unsigned = 0;
+    }
+    else if (lastst == iconst) {
         int             have_u;
         int             nlong;
         int             more;
@@ -854,6 +879,8 @@ getdotnumber()
         getch();
         getexp();   /* get the exponent */
     }
+    getfloatsuffix();
+    ival_unsigned = 0;
 }
  
 static char *
@@ -1005,20 +1032,57 @@ restart:            /* we come back here after comments */
                 lastst = asdivide;
             }
             else if (lastch == '*') {
-                in_comment = TRUE;
-                getch();
-                for (;;) {
-                    if (lastch == '*') {
-                        getch();
-                        if (lastch == '/') {
-                            getch();
+                /*
+                 * Block comment.  Default: C89/GCC — first star-slash ends
+                 * it (so globs like *.s in comments stay safe).  With
+                 * -Wcommentnest (SAS/C COMMENTNEST): slash-star raises
+                 * depth, star-slash lowers it.
+                 */
+                {
+                    int             depth;
+
+                    in_comment = TRUE;
+                    depth = 1;
+                    getch();
+                    for (;;) {
+                        if (lastch == -1) {
+                            error(ERR_SYNTAX, "unterminated comment");
                             in_comment = FALSE;
-                            goto restart;
+                            lastst = eof;
+                            return;
                         }
+                        if (comment_nesting && lastch == '/') {
+                            getch();
+                            if (lastch == '*') {
+                                depth++;
+                                getch();
+                            }
+                        }
+                        else if (lastch == '*') {
+                            getch();
+                            if (lastch == '/') {
+                                getch();
+                                depth--;
+                                if (depth <= 0) {
+                                    in_comment = FALSE;
+                                    goto restart;
+                                }
+                            }
+                        }
+                        else
+                            getch();
                     }
-                    else
-                        getch();
                 }
+            }
+            else if (lastch == '/') {
+                /*
+                 * C99 // line comment (GCC -std=c99 / gnu89+).  Runs to
+                 * end of line or EOF; does not nest or span lines here
+                 * (backslash line splice is handled earlier by input).
+                 */
+                while (lastch != '\n' && lastch != -1)
+                    getch();
+                goto restart;
             }
             else
                 lastst = divide;

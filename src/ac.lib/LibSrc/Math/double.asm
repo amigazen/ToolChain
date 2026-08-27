@@ -34,7 +34,7 @@ bias	SET	bias-6
                libref	IEEEDPFloor	; needs release 1.2 or beyond
                libref	IEEEDPCeil	; needs release 1.2 or beyond
 
-               XDEF	_MathIeeeDoubBasBase
+               XREF	_MathIeeeDoubBasBase
                XDEF     .FDopen
 
                XREF	_Alert
@@ -42,10 +42,12 @@ bias	SET	bias-6
                XREF	_OpenLibrary
 
 *------------------------------------------------------------------
+* Base lives in the CRT (or a single app object).  Do not XDEF it here
+* or .FDopen updates a private copy while stubs read another (null A6).
+*------------------------------------------------------------------
 
 	SECTION	DoubleData,DATA
 
-_MathIeeeDoubBasBase dc.l 0
 MATHName	dc.b    'mathieeedoubbas.library',0
 
 	SECTION	Double,CODE
