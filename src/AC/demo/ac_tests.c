@@ -33,6 +33,8 @@ static_assert(1'000 == 1000, "digit separator");
 
 int printf();
 
+#include <stdarg.h>
+
 static int n_pass;
 static int n_fail;
 static int n_untested;
@@ -399,6 +401,761 @@ test_line_comments()
     expect_long("comment/block_and_line", (long) y, 2L);
 }
 
+/* --- C89 language coverage (runtime) --- */
+
+enum c89_color { C89_RED = 1, C89_GREEN, C89_BLUE = 10 };
+
+struct c89_point {
+    int x;
+    int y;
+};
+
+struct c89_rect {
+    struct c89_point tl;
+    struct c89_point br;
+};
+
+union c89_num {
+    long l;
+    char bytes[4];
+};
+
+struct c89_bits {
+    unsigned a : 3;
+    unsigned b : 5;
+    unsigned c : 8;
+};
+
+static int c89_file_static;
+static int c89_static_counter;
+
+static long
+c89_kr_add(a, b)
+    int a;
+    int b;
+{
+    return (long) (a + b);
+}
+
+static int
+c89_add1(n)
+    int n;
+{
+    return n + 1;
+}
+
+static long
+c89_sum_ints(n, first)
+    int n;
+    int first;
+{
+    va_list ap;
+    long sum;
+    int i;
+    int v;
+
+    sum = (long) first;
+    va_start(ap, first);
+    for (i = 1; i < n; i++) {
+        v = va_arg(ap, int);
+        sum += (long) v;
+    }
+    va_end(ap);
+    return sum;
+}
+
+#define C89_STR(x) #x
+#define C89_CAT(a, b) a##b
+
+static void
+test_c89_enum()
+{
+    enum c89_color c;
+    int n;
+
+    expect_long("c89/enum/red", (long) C89_RED, 1L);
+    expect_long("c89/enum/green", (long) C89_GREEN, 2L);
+    expect_long("c89/enum/blue", (long) C89_BLUE, 10L);
+    expect_true("c89/enum/sizeof_gt_0", sizeof(enum c89_color) > 0);
+    c = C89_GREEN;
+    n = 0;
+    switch (c) {
+    case C89_RED:
+        n = 1;
+        break;
+    case C89_GREEN:
+        n = 2;
+        break;
+    default:
+        n = 9;
+        break;
+    }
+    expect_long("c89/enum/switch", (long) n, 2L);
+}
+
+static void
+test_c89_struct()
+{
+    struct c89_point p;
+    struct c89_rect r;
+    struct c89_point arr[2];
+    struct c89_point *pp;
+
+    p.x = 3;
+    p.y = 4;
+    expect_long("c89/struct/member_x", (long) p.x, 3L);
+    expect_long("c89/struct/member_y", (long) p.y, 4L);
+    expect_true("c89/struct/sizeof_ge_8", sizeof(struct c89_point) >= 8);
+    r.tl.x = 1;
+    r.tl.y = 2;
+    r.br.x = 5;
+    r.br.y = 6;
+    expect_long("c89/struct/nested_tl_x", (long) r.tl.x, 1L);
+    expect_long("c89/struct/nested_br_y", (long) r.br.y, 6L);
+    arr[0].x = 7;
+    arr[1].x = 8;
+    expect_long("c89/struct/array0", (long) arr[0].x, 7L);
+    expect_long("c89/struct/array1", (long) arr[1].x, 8L);
+    pp = &p;
+    expect_long("c89/struct/ptr_member", (long) pp->y, 4L);
+}
+
+static void
+test_c89_union()
+{
+    union c89_num u;
+
+    u.l = 0x01020304L;
+    expect_long("c89/union/long_roundtrip", u.l, 0x01020304L);
+    expect_true("c89/union/sizeof_ge_long", sizeof(union c89_num) >= sizeof(long));
+    u.bytes[0] = 0;
+    expect_long("c89/union/byte0", (long) (unsigned char) u.bytes[0], 0L);
+}
+
+static void
+test_c89_bitfield()
+{
+    struct c89_bits s;
+
+    s.a = 5;
+    s.b = 17;
+    s.c = 200;
+    expect_long("c89/bitfield/a", (long) s.a, 5L);
+    expect_long("c89/bitfield/b", (long) s.b, 17L);
+    expect_long("c89/bitfield/c", (long) s.c, 200L);
+}
+
+static void
+test_c89_switch()
+{
+    int i;
+    int n;
+
+    n = 0;
+    for (i = 0; i < 5; i++) {
+        switch (i) {
+        case 0:
+            n += 1;
+            break;
+        case 1:
+        case 2:
+            n += 10;
+            break;
+        case 4:
+            n += 100;
+            break;
+        default:
+            n += 2;
+            break;
+        }
+    }
+    expect_long("c89/switch/mixed", (long) n, 123L);
+
+    n = 0;
+    switch (99) {
+    case 1:
+        n = 1;
+        break;
+    default:
+        n = 7;
+        break;
+    }
+    expect_long("c89/switch/default", (long) n, 7L);
+
+    n = 0;
+    switch (2) {
+    case 1:
+        n += 1;
+    case 2:
+        n += 2;
+    case 3:
+        n += 4;
+        break;
+    default:
+        n = -1;
+        break;
+    }
+    expect_long("c89/switch/fallthrough", (long) n, 6L);
+}
+
+static void
+test_c89_goto()
+{
+    int n;
+
+    n = 0;
+    goto c89_fwd;
+    n = 99;
+c89_fwd:
+    n += 1;
+    expect_long("c89/goto/forward", (long) n, 1L);
+
+    n = 0;
+c89_back:
+    n++;
+    if (n < 3)
+        goto c89_back;
+    expect_long("c89/goto/back", (long) n, 3L);
+
+    n = 0;
+    {
+        int inner;
+
+        inner = 1;
+        if (inner)
+            goto c89_out;
+        n = 5;
+    }
+c89_out:
+    n = 8;
+    expect_long("c89/goto/out_block", (long) n, 8L);
+}
+
+static void
+test_c89_loop()
+{
+    int i;
+    int n;
+
+    n = 0;
+    for (i = 0; i < 5; i++)
+        n += i;
+    expect_long("c89/loop/for_sum", (long) n, 10L);
+
+    n = 0;
+    i = 0;
+    while (i < 4) {
+        n += i;
+        i++;
+    }
+    expect_long("c89/loop/while_sum", (long) n, 6L);
+
+    n = 0;
+    i = 0;
+    do {
+        n += 1;
+        i++;
+    } while (i < 3);
+    expect_long("c89/loop/do_count", (long) n, 3L);
+
+    n = 0;
+    for (i = 0; i < 10; i++) {
+        if (i == 3)
+            break;
+        n++;
+    }
+    expect_long("c89/loop/break", (long) n, 3L);
+
+    n = 0;
+    for (i = 0; i < 5; i++) {
+        if (i == 2)
+            continue;
+        n += i;
+    }
+    expect_long("c89/loop/continue", (long) n, 8L);
+}
+
+static void
+test_c89_expr()
+{
+    int a;
+    int b;
+    int n;
+
+    a = 0;
+    b = 1;
+    n = a ? 5 : 9;
+    expect_long("c89/expr/ternary", (long) n, 9L);
+    n = (a = 2, b = 3, a + b);
+    expect_long("c89/expr/comma", (long) n, 5L);
+
+    n = 0;
+    if (0 && (n = 1))
+        ;
+    expect_long("c89/expr/and_short", (long) n, 0L);
+    n = 0;
+    if (1 || (n = 1))
+        ;
+    expect_long("c89/expr/or_short", (long) n, 0L);
+
+    a = 8;
+    a += 2;
+    expect_long("c89/expr/add_assign", (long) a, 10L);
+    a -= 3;
+    expect_long("c89/expr/sub_assign", (long) a, 7L);
+    a *= 2;
+    expect_long("c89/expr/mul_assign", (long) a, 14L);
+    a /= 2;
+    expect_long("c89/expr/div_assign", (long) a, 7L);
+    a %= 4;
+    expect_long("c89/expr/mod_assign", (long) a, 3L);
+    a = 1;
+    a <<= 3;
+    expect_long("c89/expr/shl_assign", (long) a, 8L);
+    a >>= 2;
+    expect_long("c89/expr/shr_assign", (long) a, 2L);
+    a = 0xF;
+    a &= 0x3;
+    expect_long("c89/expr/and_assign", (long) a, 3L);
+    a |= 0x8;
+    expect_long("c89/expr/or_assign", (long) a, 11L);
+    a ^= 0x1;
+    expect_long("c89/expr/xor_assign", (long) a, 10L);
+}
+
+static void
+test_c89_ptr()
+{
+    int x;
+    int y;
+    int *p;
+    int **pp;
+    void *vp;
+    int (*fp)();
+
+    x = 11;
+    p = &x;
+    expect_long("c89/ptr/deref", (long) *p, 11L);
+    *p = 12;
+    expect_long("c89/ptr/store", (long) x, 12L);
+    y = 20;
+    p = &y;
+    pp = &p;
+    expect_long("c89/ptr/double_deref", (long) **pp, 20L);
+    vp = (void *) &x;
+    p = (int *) vp;
+    expect_long("c89/ptr/void_roundtrip", (long) *p, 12L);
+    fp = c89_add1;
+    expect_long("c89/ptr/func_ptr", (long) (*fp)(40), 41L);
+}
+
+static void
+test_c89_cast()
+{
+    int i;
+    long l;
+    float f;
+
+    l = 1000L;
+    i = (int) l;
+    expect_long("c89/cast/long_to_int", (long) i, 1000L);
+    i = 7;
+    l = (long) i;
+    expect_long("c89/cast/int_to_long", l, 7L);
+    f = 3.7f;
+    i = (int) f;
+    expect_long("c89/cast/float_to_int", (long) i, 3L);
+    i = 5;
+    f = (float) i;
+    expect_long("c89/cast/int_to_float", (long) f, 5L);
+}
+
+static void
+test_c89_string()
+{
+    char *s;
+    char buf[8];
+    int i;
+
+    s = "ab" "cd";
+    expect_long("c89/string/concat_len", (long) sizeof("ab" "cd"), 5L);
+    expect_long("c89/string/concat0", (long) s[0], (long) 'a');
+    expect_long("c89/string/concat3", (long) s[3], (long) 'd');
+    expect_long("c89/string/sizeof_hello", (long) sizeof("hi"), 3L);
+    expect_long("c89/string/sizeof_empty", (long) sizeof(""), 1L);
+    expect_long("c89/string/sizeof_one", (long) sizeof("x"), 2L);
+    expect_long("c89/string/index_lit", (long) "yz"[1], (long) 'z');
+    expect_long("c89/string/escape_nl", (long) '\n', 10L);
+    expect_long("c89/string/escape_tab", (long) '\t', 9L);
+    expect_long("c89/string/escape_nul", (long) '\0', 0L);
+    expect_long("c89/string/escape_oct", (long) '\101', 65L);
+    expect_long("c89/string/escape_quote", (long) '\'', 39L);
+    buf[0] = 'x';
+    buf[1] = '\0';
+    expect_long("c89/string/buf0", (long) buf[0], (long) 'x');
+    i = (int) sizeof(buf);
+    expect_long("c89/string/buf_sizeof", (long) i, 8L);
+}
+
+static void
+test_c89_init()
+{
+    struct c89_point p;
+    char msg[6];
+    static int zs;
+    int za;
+    int a[4];
+    int i;
+
+    p.x = 9;
+    p.y = 10;
+    expect_long("c89/init/struct_x", (long) p.x, 9L);
+    expect_long("c89/init/struct_y", (long) p.y, 10L);
+    msg[0] = 'h';
+    msg[1] = 'i';
+    msg[2] = '\0';
+    expect_long("c89/init/string_arr0", (long) msg[0], (long) 'h');
+    expect_long("c89/init/string_arr2", (long) msg[2], 0L);
+    expect_long("c89/init/static_zero", (long) zs, 0L);
+    za = 0;
+    expect_long("c89/init/auto_explicit_zero", (long) za, 0L);
+
+    a[0] = 1;
+    a[1] = 2;
+    a[2] = 3;
+    a[3] = 4;
+    expect_long("c89/init/arr0", (long) a[0], 1L);
+    expect_long("c89/init/arr3", (long) a[3], 4L);
+    expect_long("c89/init/sizeof_arr", (long) sizeof(a), 16L);
+    i = 0;
+    expect_long("c89/init/arr_sum",
+                (long) (a[0] + a[1] + a[2] + a[3] + i), 10L);
+}
+
+/*
+ * Extra C89 edge cases: promotions, pointer arithmetic, nested ?: ,
+ * sizeof forms, multi-dim arrays, enum tricks, struct copy-ish, etc.
+ */
+static int
+c89_proto_add(a, b)
+    int a;
+    int b;
+{
+    return a + b;
+}
+
+static int
+c89_sizeof_param(a)
+    int a[10];
+{
+    /* Array parameter decays; sizeof(a) is pointer size (4 on m68k). */
+    return (int) sizeof(a);
+}
+
+static int
+c89_fact(n)
+    int n;
+{
+    if (n <= 1)
+        return 1;
+    return n * c89_fact(n - 1);
+}
+
+static void
+test_c89_edge()
+{
+    int i;
+    int j;
+    int n;
+    int m[2][3];
+    int *p;
+    int **pp;
+    char c;
+    unsigned u;
+    long l;
+    struct c89_point a;
+    struct c89_point b;
+    enum c89_color col;
+    int (*fp)();
+
+    /* sizeof type-name */
+    expect_long("c89/edge/sizeof_int", (long) sizeof(int), 4L);
+    expect_long("c89/edge/sizeof_char", (long) sizeof(char), 1L);
+    expect_long("c89/edge/sizeof_short", (long) sizeof(short), 2L);
+    expect_long("c89/edge/sizeof_ptr", (long) sizeof(int *), 4L);
+    expect_true("c89/edge/sizeof_struct_ge_8",
+                sizeof(struct c89_point) >= 8);
+
+    /* Integer division truncates toward zero (C89 for positive). */
+    expect_long("c89/edge/div_trunc", (long) (7 / 2), 3L);
+    expect_long("c89/edge/mod", (long) (7 % 2), 1L);
+    expect_long("c89/edge/unary_plus", (long) (+3), 3L);
+    expect_long("c89/edge/unary_not", (long) (!0), 1L);
+    expect_long("c89/edge/bit_not", (long) (~0 & 0xFF), 255L);
+
+    /* Char in integer expression (promotion). */
+    c = 10;
+    expect_long("c89/edge/char_promo", (long) (c + 1), 11L);
+
+    /* Unsigned wrap in a portable way. */
+    u = 0U;
+    u = u - 1U;
+    expect_true("c89/edge/unsigned_wrap", u > 0U);
+
+    /* Pointer arithmetic */
+    i = 5;
+    p = &i;
+    expect_long("c89/edge/ptr_diff_zero", (long) (p - p), 0L);
+    expect_long("c89/edge/ptr_index", (long) p[0], 5L);
+    pp = &p;
+    expect_long("c89/edge/ptr_ptr", (long) **pp, 5L);
+
+    /* Multi-dimensional array */
+    m[0][0] = 1;
+    m[0][1] = 2;
+    m[0][2] = 3;
+    m[1][0] = 4;
+    m[1][1] = 5;
+    m[1][2] = 6;
+    expect_long("c89/edge/md_arr_00", (long) m[0][0], 1L);
+    expect_long("c89/edge/md_arr_12", (long) m[1][2], 6L);
+    expect_long("c89/edge/sizeof_md", (long) sizeof(m), 24L);
+
+    /* Nested conditional */
+    i = 1;
+    j = 2;
+    n = i ? (j ? 9 : 8) : 7;
+    expect_long("c89/edge/nested_ternary", (long) n, 9L);
+    n = 0 ? 1 : 2 ? 3 : 4;
+    expect_long("c89/edge/ternary_assoc", (long) n, 3L);
+
+    /* Comma in for */
+    n = 0;
+    for (i = 0, j = 10; i < 3; i = i + 1, j = j - 1)
+        n = n + i + j;
+    expect_long("c89/edge/for_comma", (long) n, 30L);
+
+    /* Enum as int, relational */
+    col = C89_BLUE;
+    expect_true("c89/edge/enum_gt", col > C89_GREEN);
+    expect_long("c89/edge/enum_arith", (long) (C89_RED + C89_GREEN), 3L);
+
+    /* Struct member assign (field copy) */
+    a.x = 11;
+    a.y = 22;
+    b.x = a.x;
+    b.y = a.y;
+    expect_long("c89/edge/struct_field_copy_x", (long) b.x, 11L);
+    expect_long("c89/edge/struct_field_copy_y", (long) b.y, 22L);
+
+    /* Prototype-style call of K&R function */
+    expect_long("c89/edge/kr_call", (long) c89_proto_add(2, 3), 5L);
+
+    /* sizeof array parameter is pointer width */
+    expect_long("c89/edge/sizeof_param_arr",
+                (long) c89_sizeof_param(m[0]), 4L);
+
+    /* Hex / oct integer literals */
+    expect_long("c89/edge/hex_lit", 0x2A, 42L);
+    expect_long("c89/edge/oct_lit", 052, 42L);
+
+    /* Cast via parentheses around expression */
+    l = (long) (int) (3 + 4);
+    expect_long("c89/edge/paren_cast", l, 7L);
+
+    /* Function pointer again with assignment */
+    fp = c89_add1;
+    expect_long("c89/edge/fp_assign", (long) (*fp)(8), 9L);
+
+    /* switch on enum */
+    n = 0;
+    switch (col) {
+    case C89_RED:
+        n = 1;
+        break;
+    case C89_BLUE:
+        n = 2;
+        break;
+    default:
+        n = 3;
+        break;
+    }
+    expect_long("c89/edge/switch_enum", (long) n, 2L);
+
+    /* Logical vs bitwise */
+    expect_long("c89/edge/land", (long) (1 && 2), 1L);
+    expect_long("c89/edge/lor", (long) (0 || 2), 1L);
+    expect_long("c89/edge/band", (long) (6 & 3), 2L);
+    expect_long("c89/edge/bor", (long) (6 | 3), 7L);
+    expect_long("c89/edge/bxor", (long) (6 ^ 3), 5L);
+
+    /* Shift */
+    expect_long("c89/edge/shl", (long) (1 << 4), 16L);
+    expect_long("c89/edge/shr", (long) (16 >> 2), 4L);
+
+    /* Comparison results are 0 or 1 */
+    expect_long("c89/edge/cmp_lt", (long) (1 < 2), 1L);
+    expect_long("c89/edge/cmp_eq", (long) (2 == 2), 1L);
+    expect_long("c89/edge/cmp_ne", (long) (2 != 3), 1L);
+
+    /* Assignment as expression; chained assign */
+    i = j = n = 4;
+    expect_long("c89/edge/chain_assign", (long) (i + j + n), 12L);
+    if ((i = 7) != 0)
+        n = i;
+    expect_long("c89/edge/assign_in_if", (long) n, 7L);
+
+    /* Call through function pointer without explicit * */
+    fp = c89_add1;
+    expect_long("c89/edge/fp_call_sugar", (long) fp(10), 11L);
+
+    /* Null pointer constant comparisons */
+    p = 0;
+    expect_true("c89/edge/ptr_null", p == 0);
+    expect_true("c89/edge/ptr_not_null", &i != 0);
+
+    /* Empty / null statements */
+    ;
+    while (0)
+        ;
+    expect_long("c89/edge/null_stmt", 1L, 1L);
+
+    /* do-while; sizeof expression forms */
+    n = 0;
+    do {
+        n = n + 1;
+    } while (n < 3);
+    expect_long("c89/edge/do_while", (long) n, 3L);
+    expect_long("c89/edge/sizeof_expr_arr", (long) sizeof(m), 24L);
+    expect_long("c89/edge/sizeof_expr_deref", (long) sizeof(*p), 4L);
+
+    /* const / volatile locals (qualifiers accepted) */
+    {
+        int v;
+        volatile int vi;
+        const int *cp;
+        int *volatile vp;
+
+        v = 5;
+        vi = 6;
+        cp = &v;
+        vp = &vi;
+        expect_long("c89/edge/const_local", (long) *cp, 5L);
+        expect_long("c89/edge/volatile_local", (long) *vp, 6L);
+    }
+
+    /* Recursion */
+    expect_long("c89/edge/recurse_fact", (long) c89_fact(5), 120L);
+}
+
+/*
+ * C99 features AC already implements (smoke).  Keep long long to sizeof /
+ * simple ops that do not hit the known .FDcmp compare miscompile.
+ */
+#define C99_VA_FIRST(first, ...) (first)
+#define C99_VA_COUNT2(a, b, ...) ((a) + (b))
+
+static void
+test_c99_features()
+{
+    long long ll;
+    unsigned long long ull;
+    _Bool b;
+    int x;
+    int y;
+
+    /* // line comments */
+    x = 1; // set
+    x = x + 2; // trail
+    expect_long("c99/comment/line", (long) x, 3L);
+
+    /* long long */
+    expect_long("c99/ll/sizeof", (long) sizeof(long long), 8L);
+    expect_long("c99/ll/sizeof_ull", (long) sizeof(unsigned long long), 8L);
+    ll = 0LL;
+    ll = ll + 10LL;
+    ll = ll - 3LL;
+    expect_long("c99/ll/add_sub_low", (long) ll, 7L);
+    ull = 5ULL;
+    ull = ull + 5ULL;
+    expect_long("c99/ll/ull_add_low", (long) ull, 10L);
+    expect_long("c99/ll/suffix_LL", (long) (1LL + 2LL), 3L);
+    expect_long("c99/ll/suffix_ULL", (long) (3ULL + 1ULL), 4L);
+
+    /* _Bool */
+    b = 0;
+    expect_true("c99/bool/false", !b);
+    b = 1;
+    expect_true("c99/bool/true", b);
+    b = (_Bool) 2;
+    expect_true("c99/bool/nonzero_true", b != 0);
+    expect_long("c99/bool/sizeof", (long) sizeof(_Bool), 1L);
+    expect_long("c99/bool/sizeof_bool_kw", (long) sizeof(bool), 1L);
+
+    /* Variadic macros */
+    y = C99_VA_FIRST(42, 1, 2, 3);
+    expect_long("c99/macro/va_first", (long) y, 42L);
+    y = C99_VA_COUNT2(10, 20, 99, 100);
+    expect_long("c99/macro/va_count2", (long) y, 30L);
+
+#if defined(__STDC_VERSION__)
+    dejagnu_pass("c99/macro/STDC_VERSION");
+#else
+    dejagnu_fail("c99/macro/STDC_VERSION");
+#endif
+
+    /* restrict / inline are accepted no-ops — exercise in expressions */
+    {
+        int * restrict rp;
+        int v;
+
+        v = 9;
+        rp = &v;
+        expect_long("c99/restrict/ptr", (long) *rp, 9L);
+    }
+}
+
+static void
+test_c89_storage()
+{
+    static int once;
+
+    expect_long("c89/storage/file_static_zero", (long) c89_file_static, 0L);
+    c89_file_static = 5;
+    expect_long("c89/storage/file_static_set", (long) c89_file_static, 5L);
+
+    once = once + 1;
+    c89_static_counter = once;
+    expect_true("c89/storage/func_static_inc", c89_static_counter >= 1);
+    once = once + 1;
+    expect_true("c89/storage/func_static_persist", once >= 2);
+}
+
+static void
+test_c89_kr()
+{
+    expect_long("c89/kr/old_style_add", c89_kr_add(3, 4), 7L);
+}
+
+static void
+test_c89_vararg()
+{
+    expect_long("c89/vararg/sum3", c89_sum_ints(3, 10, 20, 30), 60L);
+    expect_long("c89/vararg/sum1", c89_sum_ints(1, 42), 42L);
+}
+
+static void
+test_c89_pp_value()
+{
+    int C89_CAT(c89_, n);
+
+    c89_n = 42;
+    expect_long("c89/pp_value/token_paste_id", (long) c89_n, 42L);
+    expect_long("c89/pp_value/token_paste_num", (long) C89_CAT(1, 2), 12L);
+    expect_long("c89/pp_value/stringize_sizeof",
+                (long) sizeof(C89_STR(abc)), 4L);
+}
+
 static void
 test_compile_only_notes()
 {
@@ -415,6 +1172,20 @@ test_compile_only_notes()
     dejagnu_untested("compile/test_large_frame.c");
     dejagnu_untested("compile/test_line_comments.c");
     dejagnu_untested("compile/test_comment_nest.c");
+    dejagnu_untested("compile/test_c89_pp_cond.c");
+    dejagnu_untested("compile/test_c89_stringize.c");
+    dejagnu_untested("compile/test_c89_token_paste.c");
+    dejagnu_untested("compile/test_c89_typedefs.c");
+    dejagnu_untested("compile/test_c89_qualifiers.c");
+    dejagnu_untested("compile/test_c89_decl_edge.c");
+    dejagnu_untested("compile/test_c89_pp_expr.c");
+    dejagnu_untested("compile/test_c89_sizeof.c");
+    dejagnu_untested("compile/test_c99_varargs_macro.c");
+    dejagnu_untested("compile/test_c99_longlong.c");
+    dejagnu_untested("compile/test_c99_bool.c");
+    dejagnu_untested("compile/test_c99_inline_restrict.c");
+    dejagnu_untested("compile/test_c99_pp.c");
+    dejagnu_untested("compile/test_sasc_compiler_specific.c");
 }
 
 static void
@@ -466,6 +1237,24 @@ main(void)
     test_fp_assign();
     test_large_frame();
     test_feature_macros();
+    test_c89_enum();
+    test_c89_struct();
+    test_c89_union();
+    test_c89_bitfield();
+    test_c89_switch();
+    test_c89_goto();
+    test_c89_loop();
+    test_c89_expr();
+    test_c89_ptr();
+    test_c89_cast();
+    test_c89_string();
+    test_c89_init();
+    test_c89_storage();
+    test_c89_kr();
+    test_c89_vararg();
+    test_c89_pp_value();
+    test_c89_edge();
+    test_c99_features();
     test_compile_only_notes();
 
     print_summary();

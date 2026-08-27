@@ -49,6 +49,7 @@ extern struct amode *make_offset();
 extern struct amode *make_immed();
 extern struct amode *gen_expr();
 extern struct ocode *peep_head;
+extern struct ocode *peep_tail;
 extern struct amode *ll_to_mem();
 extern struct amode *copy_addr();
 extern struct amode *make_delta();
@@ -921,11 +922,39 @@ genfunc(stmt)
 
     if (lc_auto & 1)
         ++lc_auto;
-    framesz = -(long) ICON16L((long) lc_auto);
-    for (p = peep_head; p != NULL; p = p->fwd) {
-        if (p->opcode == op_link) {
-            p->oper2 = make_immed(framesz);
-            break;
+    /*
+     * link An,#d is only a signed 16-bit displacement.  Frames larger
+     * than 32K- keep link #0 and suba.l #size,A7 (same idea as GCC m68k).
+     */
+    framesz = -(long) lc_auto;
+    if (lc_auto <= 32760) {
+        for (p = peep_head; p != NULL; p = p->fwd) {
+            if (p->opcode == op_link) {
+                p->oper2 = make_immed(framesz);
+                break;
+            }
+        }
+    }
+    else {
+        for (p = peep_head; p != NULL; p = p->fwd) {
+            if (p->opcode == op_link) {
+                struct ocode   *np;
+
+                /* link already has #0 from the placeholder. */
+                np = (struct ocode *) xalloc(sizeof(struct ocode));
+                np->opcode = op_suba;
+                np->length = 4;
+                np->oper1 = make_immed((long) lc_auto);
+                np->oper2 = makeareg((enum e_am) 7);
+                np->fwd = p->fwd;
+                np->back = p;
+                if (p->fwd != NULL)
+                    p->fwd->back = np;
+                else
+                    peep_tail = np;
+                p->fwd = np;
+                break;
+            }
         }
     }
 

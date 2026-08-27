@@ -34,4 +34,9 @@ void _Assert(char *);
     ((expr) ? (void)0 : _Assert(__FILE__ ":" _STR(__LINE__) " " #expr))
 #endif
 
+/*
+ * C11/C23: static_assert / _Static_assert are built-in keywords in AC.
+ * No macro is required.
+ */
+
 #endif /* ASSERT_H */

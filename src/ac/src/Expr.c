@@ -74,11 +74,13 @@ extern SYM     *gsearch();
 extern SYM     *search();
 extern char    *litlate();
 extern long     stringlit();
+extern long     stringconcat();
 extern long     floatlit();
 extern long     floatlits();
 extern int      dodefined();
 extern char    *xalloc();
 extern int      oneline;
+extern struct slit *strtab;
 
 TYP            *asforcefit();   /* Forward declaration */
 TYP            *forcefit();
@@ -130,6 +132,96 @@ makenode(nt, v1, v2)
     ep->v.i = v1;
     ep->v.p[1] = v2;
     return ep;
+}
+
+/*
+ * Bitfield lvalues: en_ul_ref/en_l_ref with size = 256+width, signedflag = bitpos.
+ * (makenode leaves size 0; ordinary refs keep size < 256.)
+ */
+static int
+is_bf_lvalue(ep)
+    struct enode   *ep;
+{
+    if (ep == NULL)
+        return 0;
+    if (ep->nodetype != en_ul_ref && ep->nodetype != en_l_ref)
+        return 0;
+    if (ep->size < 256 || ep->size > 256 + 32)
+        return 0;
+    return 1;
+}
+
+static struct enode *
+bf_rvalue(ep)
+    struct enode   *ep;
+{
+    int             pos;
+    int             wid;
+    long            mask;
+    struct enode   *e;
+    struct enode   *icon;
+
+    pos = (int) ep->signedflag;
+    wid = (int) ep->size - 256;
+    if (wid >= 32)
+        mask = (long) 0xFFFFFFFFUL;
+    else
+        mask = (1L << wid) - 1L;
+    ep->size = 4;
+    ep->signedflag = 0;
+    e = ep;
+    if (pos != 0) {
+        icon = makenode(en_icon, (long) pos, NULL);
+        icon->constflag = 1;
+        e = makenode(en_rsh, e, icon);
+    }
+    icon = makenode(en_icon, mask, NULL);
+    icon->constflag = 1;
+    e = makenode(en_and, e, icon);
+    return e;
+}
+
+static struct enode *
+bf_assign(ep_lv, ep_rv)
+    struct enode   *ep_lv;
+    struct enode   *ep_rv;
+{
+    int             pos;
+    int             wid;
+    long            mask;
+    long            clear;
+    struct enode   *addr;
+    struct enode   *load;
+    struct enode   *newv;
+    struct enode   *icon;
+    struct enode   *store_lv;
+
+    pos = (int) ep_lv->signedflag;
+    wid = (int) ep_lv->size - 256;
+    if (wid >= 32)
+        mask = (long) 0xFFFFFFFFUL;
+    else
+        mask = (1L << wid) - 1L;
+    clear = ~(mask << pos);
+    addr = ep_lv->v.p[0];
+
+    icon = makenode(en_icon, mask, NULL);
+    icon->constflag = 1;
+    newv = makenode(en_and, ep_rv, icon);
+    if (pos != 0) {
+        icon = makenode(en_icon, (long) pos, NULL);
+        icon->constflag = 1;
+        newv = makenode(en_lsh, newv, icon);
+    }
+
+    load = makenode(en_ul_ref, addr, NULL);
+    icon = makenode(en_icon, clear, NULL);
+    icon->constflag = 1;
+    load = makenode(en_and, load, icon);
+    newv = makenode(en_or, load, newv);
+
+    store_lv = makenode(en_ul_ref, addr, NULL);
+    return makenode(en_assign, store_lv, newv);
 }
 
 int
@@ -513,7 +605,7 @@ castbegin(st)
         st == kw_intmax || st == kw_uintmax ||
         st == kw_const || st == kw_volatile ||
         st == kw_restrict || st == kw_inline || st == kw_noreturn ||
-        st == kw_register;
+        st == kw_register || st == kw_asm;
 }
 
 TYP            *
@@ -589,14 +681,35 @@ primary(node)
         getsym();
         break;
     case sconst:
-        tptr = &stdstring;
-        index = stringlit(laststr);
-        pnode = makenode(en_labcon, index, NULL);
-        pnode->constflag = 1;
-        getsym();
-        while (lastst == sconst) {
-            stringconcat(index, laststr);
+        /*
+         * C89: a string literal has type char[N] (N includes NUL), not
+         * char *.  Decay to pointer happens by using the address value
+         * with a pointer-compatible type in assignments; sizeof must
+         * see the array size (stdstring's size of 4 was wrong for all
+         * lengths).
+         */
+        {
+            struct slit    *lp;
+            int             len;
+
+            index = (int) stringlit(laststr);
+            pnode = makenode(en_labcon, (long) index, NULL);
+            pnode->constflag = 1;
             getsym();
+            while (lastst == sconst) {
+                stringconcat(index, laststr);
+                getsym();
+            }
+            len = 1;
+            for (lp = strtab; lp != NULL; lp = lp->next) {
+                if (lp->label == (long) index) {
+                    len = (int) lp->len + 1;
+                    break;
+                }
+            }
+            tptr = maketype(bt_pointer, len);
+            tptr->val_flag = 1;
+            tptr->btp = &stdchar;
         }
         break;
     case rconst:
@@ -717,18 +830,43 @@ primary(node)
                     error(ERR_NOMEMBER, NULL);
                 else {
                     tptr = sp->tp;
-                    qnode = makenode(en_icon, icon_unpoison(sp->value.i), NULL);
-                    qnode->constflag = 1;
-                    pnode = makenode(en_add, pnode, qnode);
-                    pnode->constflag = pnode->v.p[0]->constflag;
-                    if (tptr->val_flag == 0)
-                        tptr = deref(&pnode, tptr);
+                    if (SYM_IS_BF(sp->value.i)) {
+                        /*
+                         * Bitfield: address of storage unit, marked lvalue
+                         * (size=256+width, signedflag=bitpos) for assign/RMW.
+                         */
+                        qnode = makenode(en_icon,
+                            (long) SYM_BF_BYTE(sp->value.i), NULL);
+                        qnode->constflag = 1;
+                        pnode = makenode(en_add, pnode, qnode);
+                        pnode->constflag = pnode->v.p[0]->constflag;
+                        pnode = makenode(en_ul_ref, pnode, NULL);
+                        pnode->size = 256 + SYM_BF_WID(sp->value.i);
+                        pnode->signedflag = (short) SYM_BF_POS(sp->value.i);
+                    } else {
+                        qnode = makenode(en_icon,
+                            icon_unpoison(sp->value.i), NULL);
+                        qnode->constflag = 1;
+                        pnode = makenode(en_add, pnode, qnode);
+                        pnode->constflag = pnode->v.p[0]->constflag;
+                        if (tptr->val_flag == 0)
+                            tptr = deref(&pnode, tptr);
+                    }
                 }
                 getsym();   /* past id */
             }
             break;
         case openpa:    /* function reference */
             getsym();
+            /*
+             * C89: fp(args) is valid when fp has type pointer-to-function
+             * (same as (*fp)(args)).  nameref already loaded the pointer
+             * value for auto/global fp; only peel the type here.
+             */
+            if (tptr->type == bt_pointer && tptr->btp != NULL
+                && (tptr->btp->type == bt_func
+                    || tptr->btp->type == bt_ifunc))
+                tptr = tptr->btp;
             if (tptr->type != bt_func && tptr->type != bt_ifunc)
                 error(ERR_NOFUNC, NULL);
             else
@@ -805,7 +943,7 @@ unary(node)
  * unary evaluates unary expressions and returns the type of the expression
  * evaluated. unary expressions are any of:
  * 
- * primary primary++ primary-- !unary ~unary ++unary --unary -unary *unary
+ * primary primary++ primary-- !unary ~unary ++unary --unary +unary -unary *unary
  * &unary (typecast)unary sizeof(typecast)
  * 
  */
@@ -854,6 +992,15 @@ unary(node)
                 ep1 = makenode(flag ? en_assub : en_asadd, ep1, ep2);
                 break;
             }
+        }
+        break;
+    case plus:
+        /* C89 unary + : value of the operand (after integer promotions). */
+        getsym();
+        tp = unary(&ep1);
+        if (tp == NULL) {
+            error(ERR_IDEXPECT, NULL);
+            return NULL;
         }
         break;
     case minus:
@@ -1049,6 +1196,18 @@ unary(node)
         }
         break;
     }
+    /*
+     * Bitfield members stay as marked lvalues only for assignment targets
+     * (asnop looks at lastst after unary returns).  All other uses extract.
+     */
+    if (is_bf_lvalue(ep1)
+        && lastst != assign
+        && lastst != asplus && lastst != asminus
+        && lastst != astimes && lastst != asdivide
+        && lastst != asmodop
+        && lastst != aslshift && lastst != asrshift
+        && lastst != asand && lastst != asor && lastst != aseor)
+        ep1 = bf_rvalue(ep1);
     *node = ep1;
     return tp;
 }
@@ -1615,10 +1774,19 @@ asnop(node)
                     ep1 = makenode(op, ep1, ep2);
                 }
             }
+            else if (is_bf_lvalue(ep1) && op == en_assign && op2 == en_void) {
+                if (is_bf_lvalue(ep2))
+                    ep2 = bf_rvalue(ep2);
+                /* Convert RHS only — LHS carries bitfield pos/width markers. */
+                forcefit(NULL, &stdint, &ep2, tp2);
+                ep1 = bf_assign(ep1, ep2);
+            }
             else if (!lvalue(ep1)) {
                 error(ERR_LVALUE, NULL);
             }
             else {
+                if (is_bf_lvalue(ep2))
+                    ep2 = bf_rvalue(ep2);
                 if (op2 == en_void) {
                     tp1 = asforcefit(&ep1, tp1, &ep2, tp2);
                     ep1 = makenode(op, ep1, ep2);

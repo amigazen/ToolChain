@@ -41,18 +41,16 @@
 #include    "Gen.h"
 #include    "Cglbdec.h"
 #include    "Version.h"
+#include    "FrontEnd.h"
 
 /*
  * Crash / CLI breadcrumbs for Amiga self-host (ac-self / ac-self2).
  * Uses dos.library Output()+Write only — no printf/stdio.
- * Default ON for Amiga builds; set -DAC_DEBUG=0 or #define AC_DEBUG 0 to silence.
+ * Default OFF — the strings and Write() calls cost several KB in Cmain.
+ * Enable with -DAC_DEBUG=1 when chasing self-host hangs.
  */
 #if !defined(AC_DEBUG)
-#if defined(AC_HOST_POSIX)
 #define AC_DEBUG 0
-#else
-#define AC_DEBUG 1
-#endif
 #endif
 
 #if AC_DEBUG && !defined(AC_HOST_POSIX)
@@ -182,6 +180,7 @@ char *HelpMsg[] = {
     "\t-W no-error\t\tDon't treat warnings as errors\n",
     "\t-W column\t\tShow column numbers in error messages\n",
     "\t-W no-column\t\tDon't show column numbers in error messages\n",
+    "\t-W commentnest\tEnable SAS/C nested block comments\n",
     "\t-?\t\tThis help information\n",
     NULL
 };
@@ -195,13 +194,13 @@ extern TABLE    tagtable;
 extern int      total_errors;
 extern int      inclnum;
 extern int      fatal;
-extern char     incldir_buf[];
-#define incldir  ((char **) (void *) incldir_buf)
+extern char    *incldir[10];
 extern char     prepbuffer[];
 extern char    *itoa();
 extern char    *litlate();
 extern char    *xalloc();
 extern void     read_precomp(), dump_precomp(), fmt_precomp();
+extern int      comment_nesting;
 
 void  usage(), makename(), summary(), closefiles();
 
@@ -279,8 +278,15 @@ main(int argc, char **argv)
     progname = argv[0];
     ac_dbg_s("acdbg: progname=", progname);
 
+    /* Basename "cc" -> POSIX/gcc options + diagnostics; else PDC ac. */
+    frontend_set_from_argv0(argv[0]);
+
     ac_dbg("acdbg: default_options\n");
     default_options();
+    if (frontend_mode == FE_CC) {
+        /* Force gcc diagnostic shape; skip PDC version banner. */
+        OPT_REF(OPT_OFF_OutputFormat) = 0;
+    }
 
 #if !defined(AC_HOST_POSIX)
     ac_dbg("acdbg: install_bootstrap_includes\n");
@@ -291,9 +297,14 @@ main(int argc, char **argv)
     open_stdio();
 #endif
 
-    ac_dbg("acdbg: getopt begin\n");
     argc0 = argc;
-    while ((c = getopt(argc0, argv, "ABGLNQRSabglnqrsd:D:F:f:I:L:o:P:u:U:cE?")) != EOF) {
+    if (frontend_mode == FE_CC) {
+        ac_dbg("acdbg: parse_cc begin\n");
+        optind = parse_cc_args(argc0, argv);
+        ac_dbg("acdbg: parse_cc done\n");
+    } else {
+    ac_dbg("acdbg: getopt begin\n");
+    while ((c = getopt(argc0, argv, "ABGNQRSabglnqrsd:D:F:f:I:L:o:P:p:u:U:cEW:?")) != EOF) {
         ac_dbg_opt(c, optarg);
         switch (c) {
         case 'a':
@@ -306,28 +317,19 @@ main(int argc, char **argv)
             break;
         case 'd':
         case 'D':   /* Define a preprocessor Symbol */
-            strcpy(prepbuffer, optarg);
-            add_option( &cmd_defsyms, prepbuffer );
+            fe_add_define(optarg);
             break;
         case 'u':
         case 'U':   /* Undefine a preprocessor Symbol */    
-            strcpy(prepbuffer, optarg);
-            add_option( &cmd_undefsyms, prepbuffer );
+            fe_add_undef(optarg);
             break;
         case 'g':
         case 'G':
             OPT_REF(OPT_OFF_Debug) = !OPT_REF(OPT_OFF_Debug);
             break;
         case 'I':   /* Preprocessor include directory */
-            ++global_flag;
-            strcpy(prepbuffer, optarg);
-            for (i = 0; prepbuffer[i]; i++)
-                c = prepbuffer[i];
-            if (c != ':' && c != '/')
-                strcat(prepbuffer, "/");
-            incldir[inclnum++] = litlate(prepbuffer);
-            --global_flag;
-            ac_dbg_s("acdbg: include=", prepbuffer);
+            fe_add_idir(optarg);
+            ac_dbg_s("acdbg: include=", optarg);
             break;
         case 'l':
             OPT_REF(OPT_OFF_List) = !OPT_REF(OPT_OFF_List);
@@ -398,6 +400,9 @@ main(int argc, char **argv)
                 OPT_REF(OPT_OFF_ShowColumn) = 0;
             } else if (strcmp(optarg, "column") == 0) {
                 OPT_REF(OPT_OFF_ShowColumn) = 1;
+            } else if (strcmp(optarg, "commentnest") == 0) {
+                /* SAS/C COMMENTNEST — nested block comments. */
+                comment_nesting = 1;
             }
             break;
         case '?':
@@ -406,6 +411,8 @@ main(int argc, char **argv)
         }
     }
     ac_dbg("acdbg: getopt done\n");
+    } /* FE_AC */
+
     ac_dbg_long("acdbg: optind=", (long)optind);
     ac_dbg_long("acdbg: Quiet=", (long)OPT_REF(OPT_OFF_Quiet));
     ac_dbg_long("acdbg: CompileOnly=", (long)OPT_REF(OPT_OFF_CompileOnly));
@@ -506,6 +513,11 @@ usage(void)
 {
     int             i;
 
+    if (frontend_mode == FE_CC) {
+        usage_cc();
+        return;
+    }
+
     /* Index walk — not cp++ — so a zero pointer stride cannot hang. */
     for (i = 0; HelpMsg[i] != NULL; i++)
         fputs(HelpMsg[i], AC_DIAG_STREAM);
@@ -534,7 +546,7 @@ openfiles(char *s)
      * hit CClib panic code 20 (stale/forged stream).
      */
 
-    if (!OPT_REF(OPT_OFF_Quiet)) {
+    if (!OPT_REF(OPT_OFF_Quiet) && frontend_mode != FE_CC) {
 #ifdef AZTEC_C
         fprintf(AC_DIAG_STREAM, VERSION );
         fprintf(AC_DIAG_STREAM, "\nProduced by Paul Petersen and Lionel Hummel.\n" );

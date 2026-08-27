@@ -1,5 +1,5 @@
 /*
- * test_types_suffixes.c - C89 type-specifier lists and U/L/UL/LL suffixes.
+ * test_types_suffixes.c - C89 type-specifier lists and U/L/UL/LL/f/F/L suffixes.
  * Header-free for Mac-hosted AC.
  */
 
@@ -57,7 +57,7 @@ main(void)
     si = (signed int)6;
     uc = (unsigned char)7;
     sc = (signed char)8;
-    ld = 1.0;
+    ld = 1.0L;
     if (uli == 0UL)
         return 1;
     if (z == 0U)
@@ -66,5 +66,11 @@ main(void)
         return 3;
     if ((int)a == 0)
         return 4;
+    if ((int)(1.5f * 2.0f) != 3)
+        return 5;
+    if (sizeof(1.0f) != sizeof(float))
+        return 6;
+    if (sizeof(1.0L) != sizeof(long double))
+        return 7;
     return 0;
 }

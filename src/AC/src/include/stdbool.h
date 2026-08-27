@@ -4,12 +4,13 @@
 #define __STDBOOL_H
 
 /*
- * AC treats bool, true, and false as built-in keywords.
- * Macros remain for sources that expect the C99 header spellings.
+ * AC treats bool, true, and false as built-in keywords (C23-style).
+ * Do not #define true/false — the preprocessor would replace them with
+ * "1"/"0" and the lexer would then reject the define operands.
+ *
+ * C99 programs that only #include <stdbool.h> still see true/false/bool
+ * via the keywords.  __bool_true_false_are_defined remains for feature tests.
  */
-#define true 1
-#define false 0
-
 #define __bool_true_false_are_defined 1
 
 #endif /* __STDBOOL_H */

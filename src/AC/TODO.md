@@ -7,11 +7,24 @@ This document outlines the comprehensive roadmap for bringing the PDC (Publicly 
 The PDC compiler (version 3.33) has basic ANSI C features but lacks full compliance with modern C standards. This TODO prioritizes C89/C90 compliance first, then C99 features.
 
 ### Recent Improvements (Latest Update)
+- ✅ **Array parameters → pointers** - K&R and prototype array params clear `val_flag` and set `size = 4` so `sizeof(a)` is pointer width (`c89/edge/sizeof_param_arr`)
+- ✅ **`sizeof` string literals** - String literal types are `char[N]` with `N = len+1` (`Expr.c`)
+- ✅ **Post-`*` qualifiers** - `int *const` / `restrict` after `*` parsed in declarators (`Decl.c`)
+- ✅ **Unary `+`** - Accepted in expressions (`Expr.c`)
+- ✅ **Function-pointer call sugar** - `fp(args)` when the callee is a pointer-to-function (`Expr.c`)
+- ✅ **Quoted `#include "..."`** - Search beside directory of `curfile`, then cwd, then `-I` (no need to put `demo-out` on `-I`)
+- ✅ **Variadic `#define` ellipsis** - `get_macro_param()` recognizes `...` (bare `(...)` and `(a, ...)` → `__VA_ARGS__`); `##` before `#`; trim spaces in `getparm`
+- ✅ **SAS/C `__asm` / `__REG__` parse** - `__asm`, `__d0`…`__a6`, `register __dN`; `__aligned` as alignas(4)-style; call/define codegen still stack/`#pragma libcall` (see §1.5.1.2)
+- ✅ **CRT `acdbg` off by default** - `AC_CRT_DEBUG 0` in `crt/ac_crt.c`; real errors still print
+- ✅ **`selfhost-self` incremental** - Gen-2 `.s` no longer depends on `$(BIN_AC)` (avoids refreshing gen-1 then rebuilding all gen-2); `force-bootstrap-self` added
+- ✅ **C89/C99 demo coverage** - Expanded `ac_tests` + compile-only `test_c89_*` / `test_c99_*` / `test_sasc_compiler_specific.c`; long long runtime arith still **on hold** (see §2.1.1)
 - ✅ **Amiga soft-float self-host (gen-0 → ac-self → ac-self2)** - Soft-float codegen and frame spills work through gen-2; `getfrac`/`getexp` emit `.Fl2d` / `.FD*` correctly
 - ✅ **`make_autocon` always allocates** - Fixed `#if AC_DEBUG` dangling-`if` that skipped `xalloc` in framed functions and smashed `&call_library` via a stale A2 (empty `jsr` after first `.Fl2d`)
 - ✅ **`#if AC_DEBUG` dangling-if audit** - Remaining sources use braced ifs or `#if` around diag only; rule documented in `C.h`; `demo/test_ac_debug_brace.c` smoke
 - ✅ **Global array BSS sizing** - `type_size()` recomputes count×elemsize when `tp->size` is a bare count; `typesize_mul` no longer returns count-only on poisoned elemsize; PreProc restored to real `FILE *inclfile[10]` etc.; `GetSym.c`/`Cmain.c` externs updated (no more `incl*_buf`); `demo/test_bss_arrays.c` + `bss/sizeof_*` in `ac_tests`
 - ✅ **char/short parameter addressing** - Keep declared type; BE 4-byte slot at +3/+2 in `Func.c`; `demo/test_param_addr.c` + `param/&*` in `ac_tests`
+- ✅ **Floating-point arithmetic assignment** - `gen_fsaincdec` stores updated float and returns old value for postfix `++`/`--`; `+=`/`-=`/`*=`/`/=` and prefix via assign+soft-float; `demo/test_fp_assign.c` + `fp/*` in `ac_tests`
+- ✅ **Stack frames larger than 32K** - Full 32-bit auto offsets (`icon_unpoison` instead of truncating `ICON16L`); `link #0` + `suba.l #N,A7` when `lc_auto > 32760`; deep locals via `make_frame_ref` (A-temp + adda); `demo/test_large_frame.c` + `frame/large_touch_ends`
 - ✅ **Soft-float results in fresh frame slots** - `float_result_mem()` parks D0:D1; `make_legal(F_FREG)` no longer reuses one `float_auto` cell
 - ✅ **`link A5,#-N` frame size** - Placeholder immediates patched from final `lc_auto` (no empty `link A5,#` on float-return functions)
 - ✅ **Double returns reload D0:D1** - `genreturn` reloads from memory when the result is not already in registers
@@ -46,6 +59,9 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - ✅ **Long long type system** - Added C99 long long and unsigned long long support with complete type checking
 - ✅ **64-bit constants** - Added support for LL/ll integer constant suffixes
 - ✅ **Unsigned / long constant suffixes** - Accept `U`/`u`, `L`/`l`, and `UL`/`ul`/`LU`/`lu`/`ULL`/`LLU` on integer literals (C89/C99)
+- ✅ **Floating constant suffixes** - Accept `f`/`F`/`l`/`L` via `getfloatsuffix`; `f`/`F` typed as float via `floatlits()` (integer IEEE d→s into the single pool, no runtime `.Fd2s`); `l`/`L` → long double≡double; `gen_fconvert` kept for real double→float casts
+- ✅ **C99 `//` line comments** - GCC-compatible; also strip `//` from `#define` bodies; unterminated `/*` errors at EOF
+- ✅ **SAS/C nested block comments** - opt-in via `-Wcommentnest` (default off so globs like `*.s` in comments still work)
 - ✅ **Parsing `unsigned long int`** - Accept any-order type-specifier lists (`unsigned long int`, `long unsigned`, `unsigned long long int`, …); see §1.4.2
 - ✅ **64-bit arithmetic operations** - Complete 68000 assembly code generation for long long operations
 - ✅ **64-bit conversion operations** - Complete 68000 assembly code generation for long long conversions
@@ -95,11 +111,10 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - **Files to modify**: `C.h` (add to enum), `GetSym.c` (add keyword recognition)
 
 #### 1.5.1.1 Memory Management Keywords
-- [ ] **`__aligned`** - Force 4-byte alignment on data and functions
-  - **Implementation**: Add keyword recognition in `GetSym.c`, modify `Decl.c` to handle alignment attributes
-  - **Data alignment**: Update `alignment()` function to respect `__aligned` modifier
-  - **Function alignment**: Modify code generation to align stack in function prolog
-  - **Files to modify**: `GetSym.c`, `Decl.c`, `GenCode.c`, `C.h` (add to keyword enum)
+- [x] **`__aligned`** - Force 4-byte alignment on data (SAS/C) — **PARSE COMPLETE**
+  - **Implementation**: Keyword in `SearchKW.c` / `C.h`; `Decl.c` treats like `alignas(4)`
+  - **Remaining**: dedicated function-prolog align codegen if SAS needs more than type align
+  - **Files**: `SearchKW.c`, `Decl.c`, `C.h`
 
 - [x] **`__chip`, `__far`, `__near`, `__fast`** - Memory section placement (SAS/C specific) - **BASIC ATTRIBUTE STORAGE COMPLETE**
   - **Implementation**: Add section attributes to symbol table, modify code generation
@@ -121,11 +136,15 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - **Status**: Keyword recognized and interrupt attribute stored in function qualifiers
 
 #### 1.5.1.2 Parameter Passing Keywords
-- [ ] **`__asm`** - Specify register usage for parameters (SAS/C specific)
-  - **Implementation**: Parse register specifications, modify calling convention
-  - **Syntax**: `__asm void func(d0, d1, a0, a1)` - matches `__ASM__` from compiler-specific.h
-  - **Register mapping**: Support D0-D7, A0-A7, FP0-FP7 for floating-point
-  - **Files to modify**: `Decl.c`, `GenCode.c`, `C.h`, `GetSym.c` (add to keywords)
+- [x] **`__asm`** - Specify register usage for parameters (SAS/C specific) — **PARSE COMPLETE**
+  - **Implementation**: Accept `__asm` as declaration specifier and after `*` in
+    declarators (`LONG (* __asm f)(...)`); accept `register __d0`…`__a6` from
+    `compiler-specific.h` `__REG__(r,p)` → `register __##r p`.  Sets `QUAL_ASM`.
+  - **Syntax**: matches Hyperion `clib/compiler-specific.h` under `__SASC`
+  - **Remaining**: call/define codegen still uses stack (or `#pragma libcall`);
+    register placement at call sites not yet driven from `__REG__` formals
+  - **Files**: `Decl.c`, `SearchKW.c`, `C.h`, `Expr.c` (castbegin), demo test
+  - **Demo**: `demo/test_sasc_compiler_specific.c`
 
 - [x] **`__regargs`** - Force register parameter passing (SAS/C specific)
   - **Implementation**: First 2 pointers in A0/A1, first 2 integers in D0/D1
@@ -201,15 +220,13 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - **Syntax**: `#if (a, b)`
   - **Files to modify**: `PreProc.c`, `Expr.c`
 
-- [ ] **C++ style comments** - Support `//` comments
+- [x] **C++ style comments** - Support `//` comments (C99 / GCC); `GetSym` + `#define` body strip; unterminated block comment diagnosed at EOF
   - **Implementation**: Recognize `//` as comment start, extend to end of line
-  - **Warning**: Generate warning with ansi/strict options
-  - **Files to modify**: `PreProc.c`, `GetSym.c`
+  - **Files**: `GetSym.c`, `PreProc.c`
 
-- [ ] **Nested comments** - Support `/* /* */ */` comments
-  - **Implementation**: Track comment nesting level, allow nested comments
-  - **Option**: Controlled by `commentnest` compiler option
-  - **Files to modify**: `PreProc.c`, `GetSym.c`
+- [x] **Nested comments** - SAS/C `COMMENTNEST` via `-Wcommentnest` (default off = C89 first-closer-wins)
+  - **Implementation**: Depth counter when `comment_nesting`; default preserves `/*.s` globs in comments
+  - **Files**: `GetSym.c`, `PreProc.c`, `Cmain.c`
 
 - [ ] **National characters** - Accented characters in variable names
   - **Implementation**: Allow accented characters in identifiers
@@ -348,8 +365,18 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - [x] `__FILE__` - Current source file
   - [x] `__LINE__` - Current line number
 
+#### 1.1.2a Preprocessor architecture refactor
+- [ ] **Token-based preprocessor** - Refactor `PreProc.c` from character/string substitution to ISO C preprocessing tokens
+  - **Today**: `getparm` / `prepdefine` splice raw text; argument-separator whitespace can break `##` (e.g. `CAT(var_, x)` → `var_ x`); `#` / `##` are handled with string heuristics
+  - **Goal**: Phase-3 style preprocessing tokens; whitespace only separates tokens; `#` stringizes a token sequence; `##` concatenates two tokens into one
+  - **Also**: Correct argument prescan / disable-expand next to `#`/`##`; nested expansion; placemarker tokens for empty `##` operands
+  - **Files**: `PreProc.c`, `GetSym.c` (interaction with macro pushback), demo `test_c89_token_paste.c` / `test_c89_stringize.c` / `ac_tests` `c89/pp_*`
+  - **Priority**: Medium–high once string-level `#`/`##` workarounds are stable enough for self-host; large change, do as its own effort
+
 #### 1.1.3 Include System
-- [ ] **System includes** - Proper handling of `#include <file>` vs `#include "file"`
+- [x] **Quoted includes** - `#include "file"` searches directory of `curfile`, then cwd, then `-I`
+- [ ] **System includes** - Finish distinguishing `#include <file>` vs `"file"` (angle-bracket path policy / NDK)
+- [ ] **NDK `pragmas/`** - ToolKit `os-include` has no `pragmas/`; `<proto/*.h>` under `__SASC` needs pragmas on the include path or `-D_NO_INLINE`
 - [ ] **Include path management** - Improve `-I` option handling
 - [ ] **Include guards** - Better support for include guard patterns
 
@@ -357,10 +384,13 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 
 #### 1.2.1 Type System
 - [x] **Complete type qualifiers** - Ensure `const` and `volatile` are fully implemented
+- [x] **Post-`*` qualifiers** - `int *const` / `restrict` after `*` in declarators
 - [x] **Type promotion rules** - Fix integer promotion in expressions
 - [x] **Usual arithmetic conversions** - Implement proper type conversion rules
-- [x] **Function pointer types** - Improve function pointer handling
+- [x] **Function pointer types** - Improve function pointer handling; `fp(args)` call sugar
 - [x] **Array decay** - Ensure arrays properly decay to pointers in expressions
+- [x] **Array parameters** - Function params of array type become pointers (`sizeof` = 4)
+- [x] **`sizeof` string literals** - Typed as `char[N]` including NUL
 
 #### 1.2.2 Declarations and Definitions
 - [ ] **Function prototypes** - Ensure complete prototype support
@@ -370,6 +400,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - [ ] **Register storage class** - Implement register keyword (hint only)
 
 #### 1.2.3 Expressions and Operators
+- [x] **Unary `+`** - Accepted in expressions
 - [ ] **Comma operator** - Ensure proper precedence and evaluation
 - [ ] **Conditional operator** - Fix `?:` operator implementation
 - [ ] **Assignment operators** - Ensure all compound assignments work correctly
@@ -421,8 +452,8 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 #### 1.4.2 Known Bug Fixes
 - [x] **Function parameter addressing** - char/short params keep declared type; `Func.c` places them at +3/+2 in a 4-byte big-endian slot so `&param` works; float still widens to double for the 8-byte push
 - [x] **Soft-float library codegen (self-host)** - Repeated `.Fl2d` / `.FD*` in one function (e.g. `GetSym` `getfrac`) emit correctly; root cause was `make_autocon` skipping `xalloc` when `AC_DEBUG` was off
-- [ ] **Floating-point arithmetic assignment** - `+=` / `-=` / etc. on float/double still worth a dedicated pass
-- [ ] **Stack frame limits** - Fix 32K stack frame limitation
+- [x] **Floating-point arithmetic assignment** - float postfix `++`/`--` (`gen_fsaincdec`) now stores the updated value and returns the old one (soft-float `.FSadd`/`.FSsub`); compound assign and prefix already used `assign` + `fadd`/`fmul`/…; covered by `demo/test_fp_assign.c` and `ac_tests` `fp/*`
+- [x] **Stack frame limits** - Frames >32K use `link #0` + `suba.l #N,A7`; auto offsets keep full 32-bit values; `make_frame_ref` materializes deep locals outside `(d16,An)`
 - [ ] **Buffer flushing** - Fix interactive file buffering
 - [x] **Parsing `unsigned long int`** - C89 allows optional `int` after `unsigned`/`signed`/`short`/`long` (and combinations like `unsigned long int`). Decl accepts any-order type-specifier lists via `decl_int_specs()`.
 - [x] **Global array BSS sizing** - `type_size()` recovers count×elemsize when `tp->size` looks like a bare count; `typesize_mul` uses 4-byte fallback instead of count-only; PreProc uses real pointer arrays again
@@ -462,13 +493,13 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 
 #### 2.1.1 Type System Extensions
 - [x] **long long** - 64-bit integer type on 32-bit m68k (hi/lo words, not a user-visible struct)
-  - **Status**: Parsing, typing, assign/init, add/sub, constants, and Mac-host smoke tests pass
+  - **Status**: Parsing, typing, assign/init, sizeof, and constants work; Amiga `ac_tests` `c99/ll/*` **runtime arith/suffix FAILs on hold**
   - **L-value fix**: `lvalue()` accepts `en_ll_ref` / `en_ull_ref` (auto-init and `=` work)
   - **Casts**: `asforcefit` allows long long → narrower integer types
   - **Storage / ABI**: 8-byte memory (big-endian hi then lo); args as two stack longs; return in D0:D1; CSE does not park values in a single D-reg
   - **Constants**: `ival` + `ival_hi` pair (C89-safe); `LL`/`ULL` nodes carry both halves; global init emits two `DC.l`
   - **Codegen**: `add.l`/`addx.l` (and sub/subx) on D0:D1; `putconst` emits full 32-bit immediates (no `ICON16L` truncate); `addx`/`subx` opcode names fixed
-  - **Still open**: long long mul/div/mod quality; some narrow casts may still emit `move.f`; soft-float self-host path is fixed (see §1.4.2)
+  - **On hold / still open**: long long mul/div/mod and remaining runtime arith; some narrow casts may still emit `move.f`
 - [ ] **Complex types** - `_Complex` and `_Imaginary` types (or define `__STDC_NO_COMPLEX__`)
 - [x] **Boolean type** - `_Bool` / `bool` keywords and type system
   - [x] **`stdbool.h` vs keywords** - header no longer `#define`s `true`/`false` (keywords provide them)
@@ -491,12 +522,12 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 ### 2.2 New Preprocessor Features
 
 #### 2.2.1 Variadic Macros
-- [ ] **__VA_ARGS__** - Variable argument macro support
-- [ ] **##__VA_ARGS__** - Token pasting with variadic args
+- [x] **__VA_ARGS__** - Variable argument macros; `...` recognized in `#define` param lists
+- [ ] **##__VA_ARGS__** - GNU/C23 empty-variadic paste (placemarker) still incomplete vs full token PP
 
 #### 2.2.2 Pragmas
 - [ ] **#pragma STDC** - Standard pragma support
-- [ ] **#pragma once** - Single-include optimization
+- [x] **#pragma once** - Single-include optimization
 
 ### 2.3 New Standard Library Features
 
@@ -589,6 +620,7 @@ Dropbear can build closer to C89 if post-quantum options are off.
 
 #### Lexer / constants
 - [x] **`U` / `L` / `UL` integer suffixes** - C89/C99 unsigned/long/long-long suffixes in `getnumber()` (`10U`, `10L`, `10UL` / `10LU`, `10ULL` / `10LLU`)
+- [x] **`f` / `F` / `l` / `L` floating suffixes** - C99/C23 in `getfloatsuffix()`; `f`/`F` → `floatlits()` IEEE single pool (integer d→s, no literal `.Fd2s`); `l`/`L` → long double (= double on Amiga)
 - [x] **Binary integer literals** - `0b` / `0B` prefixes in `getnumber()`
 - [x] **Digit separators** - skip `'` inside numeric tokens (`1'000'000`)
 - [ ] **`wb` / `uwb` suffixes** - `_BitInt` constant suffixes (needs `_BitInt` first)
@@ -616,9 +648,9 @@ Dropbear can build closer to C89 if post-quantum options are off.
 
 ### High Priority (Must Fix)
 1. ✅ **Function parameter addressing bug** - char/short `&param` / sizeof fixed (BE slot layout) - **COMPLETED**
-2. ✅ **Soft-float self-host codegen** - Amiga gen-2 soft-float path works (`make_autocon` / `float_result_mem` / link sizing) - **PAUSED HERE**
-3. **Floating-point arithmetic assignment** - Remaining FP assign-op edge cases
-4. **Stack frame limitations** - Prevents large programs from compiling
+2. ✅ **Soft-float self-host codegen** - Amiga gen-2 soft-float path works (`make_autocon` / `float_result_mem` / link sizing) - **COMPLETED**
+3. ✅ **Floating-point arithmetic assignment** - float postfix store-back fixed; compound/prefix via assign+soft-float - **COMPLETED**
+4. ✅ **Stack frame limitations** - >32K frames via link#0+suba and make_frame_ref - **COMPLETED**
 5. **Buffer flushing** - Affects I/O reliability
 6. **Complete preprocessor** - Required for most C programs
 7. ✅ **SAS/C parameter passing** - `__regargs` and `__stdargs` for library compatibility - **COMPLETED**

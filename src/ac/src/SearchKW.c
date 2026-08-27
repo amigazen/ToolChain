@@ -25,6 +25,10 @@
  * SearchKW.c
  * 
  * Pattern matches C-language keywords and generates tokens.  The lex'er.
+ *
+ * stype is int (not enum e_sym) so the static table matches Builtins.c's
+ * aggregate-init path, which ac-self already compiles.  A runtime kw_add
+ * Table is kept strcmp-sorted so searchkw needs no runtime sort.
  */
 
 #include        <stdio.h>
@@ -39,15 +43,40 @@ static int      kwblk_len = 0;
 
 struct kwblk {
     char           *word;
-    enum e_sym      stype;
+    int             stype;  /* enum e_sym values */
 };
 
-struct kwblk    keywords[] = {
+static struct kwblk keywords[] = {
     {"_Alignas", kw_alignas},
     {"_Alignof", kw_alignof},
     {"_Bool", kw_bool},
     {"_Noreturn", kw_noreturn},
     {"_Static_assert", kw_static_assert},
+    {"__a0", kw_a0},
+    {"__a1", kw_a1},
+    {"__a2", kw_a2},
+    {"__a3", kw_a3},
+    {"__a4", kw_a4},
+    {"__a5", kw_a5},
+    {"__a6", kw_a6},
+    {"__aligned", kw_aligned},
+    {"__asm", kw_asm},
+    {"__chip", kw_chip},
+    {"__d0", kw_d0},
+    {"__d1", kw_d1},
+    {"__d2", kw_d2},
+    {"__d3", kw_d3},
+    {"__d4", kw_d4},
+    {"__d5", kw_d5},
+    {"__d6", kw_d6},
+    {"__d7", kw_d7},
+    {"__far", kw_far},
+    {"__fast", kw_fast},
+    {"__interrupt", kw_interrupt},
+    {"__near", kw_near},
+    {"__regargs", kw_regargs},
+    {"__saveds", kw_saveds},
+    {"__stdargs", kw_stdargs},
     {"alignas", kw_alignas},
     {"alignof", kw_alignof},
     {"and", land},
@@ -113,37 +142,8 @@ struct kwblk    keywords[] = {
     {"while", kw_while},
     {"xor", lxor},
     {"xor_eq", aseor},
-    /* SAS/C keywords */
-    {"__asm", kw_asm},
-    {"__regargs", kw_regargs},
-    {"__stdargs", kw_stdargs},
-    {"__saveds", kw_saveds},
-    {"__far", kw_far},
-    {"__near", kw_near},
-    {"__chip", kw_chip},
-    {"__fast", kw_fast},
-    {"__interrupt", kw_interrupt},
-    {"__aligned", kw_aligned},
-    {(char *) 0, (enum e_sym) 0}
+    {(char *) 0, 0}
 };
-
-int
-sortkw()
-{
-    struct kwblk   *p1, *p2, temp;
-    int             changed = FALSE;
-
-    p1 = keywords;
-    for (p2 = p1 + 1; p2->word != NULL; p1++, p2++) {
-        if (strcmp(p1->word, p2->word) > 0) {
-            changed = TRUE;
-            temp = *p1;
-            *p1 = *p2;
-            *p2 = temp;
-        }
-    }
-    return changed;
-}
 
 enum e_sym
 searchkw()
@@ -152,12 +152,12 @@ searchkw()
     int             low, high, mid, compare;
 
     if (kwblk_len == 0) {
+        /* keywords[] is kept strcmp-sorted; just count entries once. */
         kwbp = keywords;
         while (kwbp->word != NULL) {
             ++kwblk_len;
             ++kwbp;
         }
-        while (sortkw());
     }
 
     low = 0;
@@ -170,7 +170,7 @@ searchkw()
         compare = strcmp(lastid, kwbp->word);
 
         if (compare == 0)
-            return (lastst = kwbp->stype);
+            return (lastst = (enum e_sym) kwbp->stype);
         else {
             if (compare > 0)
                 low = mid + 1;

@@ -209,7 +209,12 @@ scanexpr(struct enode *node, int duse)
     case en_l_ref:
     case en_ul_ref:
         if (node->v.p[0]->nodetype == en_autocon) {
-            csp = enternode(node, 1);
+            /*
+             * Use caller's duse: under *ptr this is 1 (address-like);
+             * a plain load of an int is 0.  Hardcoding 1 made every auto
+             * look equally "dereferenced" and defeated A-reg allocation.
+             */
+            csp = enternode(node, duse);
             csp1 = searchnode(node->v.p[0]);
             if (csp1 != NULL && csp1->voidf)
                 csp1 = voidauto(node->v.p[0]);
@@ -464,20 +469,34 @@ allocate(void)
     struct amode   *ap, *ap2;
 
     datareg = 3;
+    /*
+     * A2..A3 only.  A4 is the Amiga/cclib near-data base (LinkerDB); CSE
+     * must not clobber it or argv/path strings turn to garbage at runtime
+     * (seen as "can't open input ahafadaba...").  A5 is the frame pointer.
+     */
     addreg = 10;
     mask = 0;
     while (bsort(&olist));  /* sort the expression list */
     for (csp = olist; csp != NULL; csp = csp->next) {
         csp->reg = -1;
         if (desire(csp) >= 3) {
-            if (csp->duses > safe_ldiv(csp->uses, 5)) {
-                if (lvalue(csp->exp) && datareg < 8)
-                    csp->reg = datareg++;
-                else if (addreg < 8 + Options.Frame)
-                    csp->reg = addreg++;
-                else if (datareg < 8)
-                    csp->reg = datareg++;
-            }
+            /*
+             * Pointers (duses > 0) → A2/A3.
+             * Lvalue contents → D-regs.
+             * Symbol addresses → A-regs only (never D-regs: an address in
+             * Dn led to move.l Dn,A0 with Dn never preloaded, which smashed
+             * prepdepth and yielded "preprocessor nesting too deep").
+             * Integer constants are never put in A-regs.
+             */
+            if (csp->duses > 0 && addreg < 12)
+                csp->reg = addreg++;
+            else if (lvalue(csp->exp) && datareg < 8)
+                csp->reg = datareg++;
+            else if (!lvalue(csp->exp)
+                     && csp->exp->nodetype != en_icon
+                     && addreg < 12)
+                csp->reg = addreg++;
+            /* else leave csp->reg == -1 */
         }
         if (csp->reg != -1)
             mask = mask | (1 << csp->reg);

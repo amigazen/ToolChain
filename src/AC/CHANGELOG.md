@@ -24,6 +24,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Warning function** - New `warning()` function for non-fatal compiler messages
 - **Error vs Warning separation** - Clear distinction between fatal errors and recoverable warnings
 - **No input files error** - Proper error message when compiler is run without input files
+- **Type qualifiers** - Complete `const` and `volatile` support with proper type system integration
+- **Integer promotion** - ANSI C compliant integer promotion rules for char/short types
+- **Arithmetic conversions** - Proper usual arithmetic conversions following ANSI C standards
+- **Array decay** - Arrays properly decay to pointers in expressions and function calls
+- **Function pointers** - Enhanced function pointer type handling and assignments
+- **libcall pragma format** - Updated to use SAS/C format for compatibility with existing pragma files
+- **Complete SAS/C pragma support** - Added support for all SAS/C pragma types: flibcall, syscall, tagcall, and msg with full push/pop functionality
+- **Amiga-specific defines** - Added `__AMIGA__` and `__amigaos__` predefined macros for Amiga platform detection
+- **SAS/C compiler define** - Added `__SASC` predefined macro for SAS/C compatibility mode
+- **#undef directive verification** - Confirmed proper functionality for undefining macros including predefined ones
+- **Preprocessor deficits analysis** - Identified missing features for compiler-specific.h compatibility
+- **SAS/C keyword recognition** - Added all 10 SAS/C keywords to lexer for proper token recognition
+- **Memory section attributes** - Added support for `__chip`, `__far`, `__near`, `__fast` memory placement keywords
+- **Interrupt function attributes** - Added support for `__interrupt` keyword in function declarations
+- **Deep nesting support** - Increased preprocessor nesting depth from 10 to 32 levels with bounds checking
+- **Graceful macro redefinition** - Improved macro redefinition handling with value comparison and warnings
+- **Long long support** - Added C99 long long and unsigned long long type support
+- **64-bit integer constants** - Added support for LL/ll suffixes in integer constants
+- **Long long type system** - Complete type checking and conversion rules for 64-bit integers
+- **64-bit arithmetic operations** - Complete 68000 assembly code generation for long long operations
+- **C99 _Bool support** - Added _Bool keyword and boolean type support
+- **stdbool.h header** - Created standard boolean header with bool, true, false definitions
+- **Complete pragma code generation** - All SAS/C pragma types now have full 68000 assembly code generation
+- **flibcall code generation** - Added gen_flibcall() and gen_flibcall2() for floating-point library calls
+- **syscall code generation** - Added gen_syscall() and gen_syscall2() for system function calls
+- **Calling convention keywords** - Added __regargs and __stdargs keyword support with attribute storage
+- **Pragma integration** - All pragma types integrated into function call flow with proper precedence
 
 ### Changed
 - **Error message formatting** - Fixed format string in #error directive to use proper %s instead of %1024s
@@ -43,6 +70,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Duplicate case values** - Fixed duplicate `case 'f':` in command-line argument parsing
 - **Structure member definitions** - Synchronized structure definitions between header and implementation files
 - **Input file validation** - Fixed logic to properly detect when no input files are provided (handles options-only command lines)
+- **Type system architecture** - Enhanced type system with proper qualifier support and ANSI C compliant conversions
+- **Expression evaluation** - Improved type promotion and arithmetic conversion rules
+- **Function parameter handling** - Enhanced array decay and function pointer support
+- **libcall pragma parsing** - Modified to automatically reverse argument order to match SAS/C format used by existing pragma files
+- **Pragma system architecture** - Extended to support all SAS/C pragma types with proper parsing, storage, and output functions
+- **Token buffering system** - Implemented proper lookahead token buffering for complete #pragma msg parsing with push/pop support
+- **Preprocessor nesting limits** - Increased conditional compilation nesting depth from 10 to 32 levels
+- **Macro redefinition logic** - Enhanced to allow identical redefinitions and warn on different values
+- **Type system extensions** - Added memory section and interrupt attributes to type system
+- **Expression node types** - Added new expression nodes for long long operations and conversions
+- **Code generation framework** - Extended code generation to support 64-bit integer types
+- **64-bit arithmetic code generation** - Complete gen_llbinary, gen_llmul, gen_lldiv, gen_llmod functions with real 68000 assembly
+- **64-bit conversion code generation** - Complete gen_llextend function with proper sign/zero extension
+- **68000 assembly implementation** - Real ADDX/SUBX for carry/borrow, MULS/DIVS/MODS for arithmetic, EXT/CLR for conversions
+- **Boolean type system** - Complete _Bool type support with 1-byte storage and proper conversions
 
 ## [3.33] - 1989-08-01
 

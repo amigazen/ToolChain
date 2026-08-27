@@ -4,29 +4,36 @@
 #
 #   smake -f smakefile all     build bootstrap ./ac with SAS/C
 #
-# Gen-1 (SAS/C ac compiles sources � use until ac-self codegen is trusted):
+# Gen-1 (SAS/C ac compiles sources — use until ac-self codegen is trusted):
 #
 #   make bootstrap-ac          ac -> bootstrap/ac/*.s
 #   make assemble-ac           a68k -> bootstrap/ac/*.o
 #   make link-ac               Blink -> ac-self
 #   make selfhost-ac           bootstrap-ac + assemble-ac + link-ac
 #
-# Gen-2 (ac-self compiles sources � regression test / next self-host step):
+# Gen-2 (ac-self compiles sources — regression test / next self-host step):
 #
-#   Sync updated .c files to Amiga, then ALWAYS in this order:
+#   Sync updated .c files to Amiga, then:
 #
 #     smake -f smakefile all     rebuild ./ac (SAS/C) from sources
 #     make selfhost-ac            ./ac -> bootstrap/ac -> ac-self
-#     make clean-self
 #     make selfhost-self          ac-self -> bootstrap/self -> ac-self2
 #
-#   Skipping smake/selfhost-ac leaves stale ac-self; dumpobj then shows
+#   Incremental: only .c newer than .s recompile for gen-2; gen-1 also
+#   rebuilds when ./ac is newer.  selfhost-self does NOT pull in gen-1 and
+#   does NOT rebuild all gen-2 .s just because ac-self was relinked.
+#   After ac-self codegen fixes: make force-bootstrap-self
+#
+#   If AmigaDOS date-only stamps leave stale .o: make force-assemble-ac/self
+#
+#   Skipping selfhost-ac after smake leaves stale ac-self; dumpobj then shows
 #   "103 items for hunk 2099356" and ac-self2 is not executable.
 #
 #   make bootstrap-self        ac-self -> bootstrap/self/*.s
 #   make assemble-self         a68k -> bootstrap/self/*.o
 #   make link-self             Blink -> ac-self2
-#   make selfhost-self         full gen-2 pipeline
+#   make selfhost-self         gen-2 only (needs ac-self)
+#   make force-bootstrap-self  wipe gen-2 .s/.o then recompile
 #
 #   make report-ac             list bootstrap/ac/*.s
 #   make report-self           list bootstrap/self/*.s
@@ -106,6 +113,7 @@ CSOURCES = \
 	Decl.c \
 	Expr.c \
 	Force.c \
+	FrontEnd.c \
 	Func.c \
 	GenCode.c \
 	GenFloat.c \
@@ -118,6 +126,7 @@ CSOURCES = \
 	MemMgt.c \
 	Optimize.c \
 	OutCode.c \
+	ParseCc.c \
 	PeepGen.c \
 	PreComp.c \
 	PreProc.c \
@@ -145,6 +154,8 @@ LINKMODULES = \
 	PeepGen \
 	Stmt \
 	Cmain \
+	FrontEnd \
+	ParseCc \
 	GenStmt \
 	MemMgt \
 	PreComp \
@@ -171,11 +182,13 @@ LINKLOG_SELF   = $(OUTDIR_SELF)/link.log
 	bootstrap bootstrap-ac bootstrap-self \
 	assemble assemble-ac assemble-self \
 	force-assemble-ac force-assemble-self \
+	force-bootstrap-self \
 	link link-ac link-self \
 	selfhost selfhost-ac selfhost-self \
 	cclib-crt \
 	report report-ac report-self \
 	hello-dos \
+	install-cc \
 	demo demo-ac demo-self demo-self2 \
 	demo-run-ac demo-run-self demo-run-self2 \
 	demo-cli demo-cli-ac demo-cli-self demo-cli-self2 demo-cli-body \
@@ -194,22 +207,26 @@ help:
 	@echo ""
 	@echo "  SAS/C ac (gen-1) -> $(BIN_AC):"
 	@echo "    make bootstrap-ac    $(ACC) -> $(OUTDIR_AC)/*.s"
-	@echo "    make assemble-ac     A68k -> $(OUTDIR_AC)/*.o"
+	@echo "    make assemble-ac     A68k -> $(OUTDIR_AC)/*.o  (incremental)"
 	@echo "    make link-ac         $(LINKER) -> $(BIN_AC)"
 	@echo "    make selfhost-ac     bootstrap + assemble + link"
 	@echo "    make report-ac       list $(OUTDIR_AC)/*.s"
 	@echo ""
 	@echo "  ac-self (gen-2) -> $(BIN_SELF):"
-	@echo "    smake -f smakefile all   then: make selfhost-self"
-	@echo "    make selfhost-ac         REQUIRED after smake (relinks ac-self)"
+	@echo "    make selfhost-ac         after smake if ./ac changed"
+	@echo "    make selfhost-self       gen-2 only (needs $(BIN_AC); no gen-1)"
+	@echo "    make force-bootstrap-self  rebuild all gen-2 .s after codegen fix"
 	@echo "    make bootstrap-self      $(ACSELF_CC) -> $(OUTDIR_SELF)/*.s"
 	@echo "    make assemble-self       A68k -> $(OUTDIR_SELF)/*.o"
 	@echo "    make link-self           $(LINKER) -> $(BIN_SELF)"
-	@echo "    make selfhost-self       selfhost-ac + gen-2 (recommended)"
 	@echo "    make report-self         list $(OUTDIR_SELF)/*.s"
+	@echo ""
+	@echo "  If AmigaDOS date stamps leave stale .o (same-day .s/.o):"
+	@echo "    make force-assemble-ac / force-assemble-self   wipe *.o then assemble"
 	@echo ""
 	@echo "  Smoke test (existing ac-self2 only — does not rebuild the compiler):"
 	@echo "    make hello-dos           build $(HELLO_BIN); log: $(HELLO_CLOG)"
+	@echo "    make install-cc          copy $(BIN_SELF) -> cc (gcc-style CLI)"
 	@echo "    Verbose: -a annotate asm, -l listing; -q quiet (no -v flag)"
 	@echo ""
 	@echo "  Demo regression (DejaGnu/GCC .sum output via ac_tests):"
@@ -237,30 +254,46 @@ report: report-ac
 bootstrap-ac: $(ASSEMBLY_AC)
 	@echo "--- $(ACC) bootstrap assembly complete -> $(OUTDIR_AC) ---"
 
-bootstrap-self: selfhost-ac $(ASSEMBLY_SELF)
+# Gen-2 compile only.  Does NOT run selfhost-ac (that was forcing a full
+# gen-1 rebuild on every selfhost-self).  Requires $(BIN_AC) already built.
+bootstrap-self: $(ASSEMBLY_SELF)
 	@echo "--- $(ACSELF_CC) bootstrap assembly complete -> $(OUTDIR_SELF) ---"
 
+# Gen-1: recompile if .c or ./ac is newer (SAS/C bootstrap binary changed).
 $(OUTDIR_AC)/%.s: %.c ./ac
 	-makedir $(OUTDIR_AC)
 	-delete $(OUTDIR_AC)/$*.o QUIET
 	$(ACC) $(BOOTFLAGS) -c -o $@ $<
 
-$(OUTDIR_SELF)/%.s: %.c $(BIN_AC)
+# Gen-2: recompile only if .c is newer.  Do NOT depend on $(BIN_AC) as a
+# normal prerequisite — make would refresh ac-self (gen-1) when stale, then
+# treat the new ac-self as newer than every .s and rebuild all of gen-2.
+# After intentional ac-self codegen fixes: make force-bootstrap-self
+$(OUTDIR_SELF)/%.s: %.c
 	-makedir $(OUTDIR_SELF)
 	-delete $(OUTDIR_SELF)/$*.o QUIET
 	$(ACSELF_CC) $(BOOTFLAGS) -c -o $@ $<
 
-# AmigaDOS date-only stamps can leave .o newer than regenerated .s; wipe before A68k.
+# Optional full re-assemble when AmigaDOS date-only stamps make .o look
+# newer than a same-day regenerated .s.  NOT part of normal assemble-*.
 force-assemble-ac:
 	-delete $(OUTDIR_AC)/#?.o ALL QUIET
+	$(MAKE) assemble-ac
 
 force-assemble-self:
 	-delete $(OUTDIR_SELF)/#?.o ALL QUIET
+	$(MAKE) assemble-self
 
-assemble-ac: force-assemble-ac $(OBJECTS_AC)
+# Wipe gen-2 assembly and objects, then recompile with current ac-self.
+force-bootstrap-self:
+	-delete $(OUTDIR_SELF)/#?.s ALL QUIET
+	-delete $(OUTDIR_SELF)/#?.o ALL QUIET
+	$(MAKE) bootstrap-self
+
+assemble-ac: $(OBJECTS_AC)
 	@echo "--- $(OUTDIR_AC) objects assembled ---"
 
-assemble-self: force-assemble-self $(OBJECTS_SELF)
+assemble-self: $(OBJECTS_SELF)
 	@echo "--- $(OUTDIR_SELF) objects assembled ---"
 
 $(OUTDIR_AC)/%.o: $(OUTDIR_AC)/%.s
@@ -342,19 +375,28 @@ $(BIN_SELF): $(LINKWITH_SELF)
 selfhost-ac: cclib-crt bootstrap-ac assemble-ac link-ac
 	@echo "--- $(BIN_AC) linked with cclib CRT ---"
 
-selfhost-self: cclib-crt bootstrap-self assemble-self link-self
+# Gen-2 only.  Run make selfhost-ac first when ./ac (smake) changed.
+# Does not depend on $(BIN_AC) as a make target (that pulled gen-1 back in).
+# CRT objs are still prerequisites of the link via $(LINKWITH_SELF).
+selfhost-self: bootstrap-self assemble-self link-self
 	@echo "--- $(BIN_SELF) linked with cclib CRT ---"
 	@echo "Verify offsets first: bootstrap/self/Cmain.s must use 12(A0) not (A0)"
 
 # --- ac-self2 smoke test (minimal first; does not rebuild ac-self2) ---
-# After compiler fixes: smake && make selfhost-ac && make clean-self && make selfhost-self
-# then: make hello-dos
+# After compiler fixes: smake && make selfhost-ac && make selfhost-self
+# then: make hello-dos / make demo-self2
 #
 # Phony target name differs from $(HELLO_BIN) so make does not see two recipes
 # for the same target (was: hello-dos: hello-dos).
 
 hello-dos: $(HELLO_BIN)
 	@echo "--- built $(HELLO_BIN); compile log $(HELLO_CLOG); run: $(HELLO_BIN) ---"
+
+# Basename "cc" selects POSIX/gcc option parsing + gcc diagnostics.
+install-cc: $(BIN_SELF)
+	-delete cc QUIET
+	copy $(BIN_SELF) cc
+	@echo "--- installed cc (copy of $(BIN_SELF)); try: cc -c -o t.s file.c ---"
 
 # No dependency on $(BIN_SELF) link recipes — invoke the binary by name only.
 # Do not redirect compiler stdout into the log (Amiga shell >> can confuse stdio).
@@ -407,7 +449,21 @@ DEMO_COMPILE = \
 	test_comment_nest \
 	test_cclib_syntax \
 	test_static_assert \
-	test_types_suffixes
+	test_types_suffixes \
+	test_c89_pp_cond \
+	test_c89_stringize \
+	test_c89_token_paste \
+	test_c89_typedefs \
+	test_c89_qualifiers \
+	test_c89_decl_edge \
+	test_c89_pp_expr \
+	test_c89_sizeof \
+	test_c99_varargs_macro \
+	test_c99_longlong \
+	test_c99_bool \
+	test_c99_inline_restrict \
+	test_c99_pp \
+	test_sasc_compiler_specific
 
 # Runnable DejaGnu suite.
 DEMO_SUITE = ac_tests

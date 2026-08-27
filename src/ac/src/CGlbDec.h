@@ -76,6 +76,7 @@ extern void do_static_assert(void);
 extern long ival;
 extern long ival_hi;
 extern int ival_unsigned;
+extern int rval_float_suffix;
 extern double   rval;
 extern int  lineno;
 extern int  nextlabel;
@@ -121,7 +122,15 @@ extern TABLE    cmd_include;
 extern TABLE    cmd_local;
 
 extern int      save_mask;  /* register save mask */
+extern int      omit_frame; /* 1 = no link/unlk; params addressed from A7 */
 extern int      PdcFlags;
+
+/* Frame pointer helpers for frameless leaves (GenCode.c). */
+extern int      frame_areg(void);
+extern long     frame_disp(long off);
+extern long     icon_unpoison(long v);
+extern int      d16_ok(long v);
+extern struct amode *make_frame_ref(long off);
 
 /* Lexer input line reader (not POSIX getline from stdio.h). */
 extern int      ac_getline(int listflag);

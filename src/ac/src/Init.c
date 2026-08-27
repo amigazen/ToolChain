@@ -124,20 +124,28 @@ initarray(tp)
     }
     else if (lastst != semicolon)
         error(ERR_ILLINIT, NULL);
-    if (nbytes < tp->size) {
-        num = tp->size - nbytes;
-        if (num > MAX_INIT_PAD || tp->size > MAX_INIT_PAD)
-            num = 0;
-        if (num & 1) {  /* Only generate even amounts of storage */
-            genbyte(0);
-            --num;
+    {
+        int tsz;
+
+        /* Prefer type_size(): recovers count*elemsize if tp->size is bare. */
+        tsz = type_size(tp);
+        if (tsz <= 0)
+            tsz = tp->size;
+        if (nbytes < tsz) {
+            num = tsz - nbytes;
+            if (num > MAX_INIT_PAD || tsz > MAX_INIT_PAD)
+                num = 0;
+            if (num & 1) {  /* Only generate even amounts of storage */
+                genbyte(0);
+                --num;
+            }
+            if (num > 0)
+                genstorage((int) num);
+            nbytes = tsz;
         }
-        if (num > 0)
-            genstorage((int) num);
-        nbytes = tp->size;
+        else if (tsz != 0 && nbytes > tsz)
+            error(ERR_INITSIZE, NULL);  /* too many initializers */
     }
-    else if (tp->size != 0 && nbytes > tp->size)
-        error(ERR_INITSIZE, NULL);  /* too many initializers */
     nl();
     return nbytes;
 }
@@ -149,11 +157,13 @@ initstruct(tp)
     SYM            *sp;
     int             nbytes;
     int             seen;
+    int             nmembers;
 
     if (seen = (lastst == begin))
         needpunc(begin);
 
     nbytes = 0;
+    nmembers = 0;
     sp = tp->lst.head;  /* start at top of symbol table */
 
     if (sp != NULL) {
@@ -172,8 +182,11 @@ initstruct(tp)
         }
         nbytes += inittype(sp->tp);
         sp = sp->next;
+        nmembers = 1;
 
         while (sp != NULL) {
+            if (++nmembers > MAX_INIT_ELEMS)
+                break;
             if (lastst == end)
                 goto done;
             if (lastst == comma)
@@ -497,7 +510,7 @@ doinitauto(sp)
     snp = (struct snode *) xalloc(sizeof(struct snode));
     snp->stype = st_expr;
 
-    ep1 = makenode(en_autocon, ICON16L(sp->value.i), NULL);
+    ep1 = makenode(en_autocon, icon_unpoison(sp->value.i), NULL);
     ep1->constflag = 0;
 
     tp1 = sp->tp;

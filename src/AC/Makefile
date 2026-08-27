@@ -69,6 +69,7 @@ CSOURCES = \
 	Decl.c \
 	Expr.c \
 	Force.c \
+	FrontEnd.c \
 	Func.c \
 	GenCode.c \
 	GenFloat.c \
@@ -81,6 +82,7 @@ CSOURCES = \
 	MemMgt.c \
 	Optimize.c \
 	OutCode.c \
+	ParseCc.c \
 	PeepGen.c \
 	PreComp.c \
 	PreProc.c \

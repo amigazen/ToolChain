@@ -42,6 +42,9 @@ enum e_sym {
     /* SAS/C keywords */
     kw_asm, kw_regargs, kw_stdargs, kw_saveds, kw_far, kw_near, kw_chip, 
     kw_fast, kw_interrupt, kw_aligned,
+    /* SAS/C __REG__ register names: register __d0 LONG x */
+    kw_d0, kw_d1, kw_d2, kw_d3, kw_d4, kw_d5, kw_d6, kw_d7,
+    kw_a0, kw_a1, kw_a2, kw_a3, kw_a4, kw_a5, kw_a6,
     /* C23-style exact-width names: aliases of char/short/long/long long */
     kw_int8, kw_uint8, kw_int16, kw_uint16,
     kw_int32, kw_uint32, kw_int64, kw_uint64,
@@ -127,7 +130,7 @@ struct sym {
 #define TABLE   struct stab
 
 /*
- * SAS/C m68k bootstrap layout (bootstrap/ac/*.s).  ac-self must not use
+ * SAS/C m68k bootstrap layout (bootstrap/ac star-dot-s files).  ac-self must not use
  * sizeof(SYM/TYP/enode): compile-time sizeof folds to (e_sc<<16)|offset.
  * ICON16L keeps only the low 16 bits for displacements and en_icon nodes.
  *
@@ -146,6 +149,14 @@ struct sym {
 #endif
 #define ICON16L(v)  ((long)((short)((unsigned long)(v) & (unsigned long)65535)))
 
+/*
+ * ICON16L alone truncates genuine offsets past ±32K (stack frames).
+ * icon_unpoison() recovers SAS/C (e_sc<<16)|n folds without that truncate.
+ * d16_ok() is true when a displacement fits 68000 (d16,An) / link #d.
+ */
+extern long     icon_unpoison(long v);
+extern int      d16_ok(long v);
+
 /* Type qualifier constants */
 #define QUAL_CONST     1
 #define QUAL_VOLATILE  2
@@ -153,12 +164,32 @@ struct sym {
 #define QUAL_REGARGS   16
 #define QUAL_STDARGS   32
 #define QUAL_SAVEDS    64
+#define QUAL_ASM       128  /* SAS/C __asm: registerized parameters */
 
 /* Memory section constants */
 #define MEM_CHIP       1
 #define MEM_FAR        2
 #define MEM_NEAR       3
 #define MEM_FAST       4
+
+/* SAS/C __d0..__a6 keyword → internal codes (Decl.c / future call gen). */
+#define ASMREG_NONE    0
+#define ASMREG_D0      1
+#define ASMREG_A0      9
+
+/*
+ * Struct/union bitfield members pack into SYM.value.i (byte offset + bit
+ * position + width).  High bit marks a bitfield; non-bitfield members keep
+ * a plain byte offset (auto locals may be negative — never set the high bit).
+ */
+#define SYM_IS_BF(v)    (((unsigned long)(v) & 0x80000000UL) != 0UL)
+#define SYM_BF_BYTE(v)  ((int)((unsigned long)(v) & 0xFFFFUL))
+#define SYM_BF_POS(v)   ((int)(((unsigned long)(v) >> 16) & 0x1FUL))
+#define SYM_BF_WID(v)   ((int)(((unsigned long)(v) >> 21) & 0x1FUL))
+#define SYM_BF_ENC(b, p, w) \
+    ((long)(0x80000000UL | ((unsigned long)(b) & 0xFFFFUL) | \
+     ((((unsigned long)(p) & 0x1FUL) << 16) | \
+      (((unsigned long)(w) & 0x1FUL) << 21))))
 
 struct enode;
 
@@ -229,6 +260,25 @@ extern TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node
 #else
 #define AC_DIAG_STREAM stdout
 #endif
+#endif
+
+/*
+ * Internal consistency checks.  Off by default — each DIAG string and
+ * fprintf call lands in the self-host binary (~3KB+ across GenCode alone).
+ * Build with -DAC_DEBUG=1 to keep them.
+ *
+ * Dangling-if rule: never write
+ *   if (cond)
+ *   #if AC_DEBUG
+ *       fprintf(...);
+ *   #endif
+ *   real_stmt;
+ * When AC_DEBUG is 0 the preprocessor leaves real_stmt as the if-body
+ * (make_autocon skipped xalloc and smashed call_library).  Either brace
+ * the if, or put #if AC_DEBUG around the entire if (diag only).
+ */
+#ifndef AC_DEBUG
+#define AC_DEBUG 0
 #endif
 
 #define TRUE    1

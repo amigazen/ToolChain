@@ -169,7 +169,9 @@ dbx_install(tp)
             num = dbx_install(tp->btp);
             dbx_num_entries++;
             if (dbx_num_entries >= DBX_ENTRIES) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, "DIAG -- dbx_install, No room for types\n" );
+#endif
                 exit(1);
             }
             if (tp->type == bt_struct || tp->type == bt_union)

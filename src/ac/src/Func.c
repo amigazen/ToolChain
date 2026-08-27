@@ -47,6 +47,55 @@ extern char    *xalloc();
 extern char     __funcbuf[];
 extern int      padstr();
 extern int      fatal;
+extern int      type_size();
+
+/*
+ * Lay out one parameter's frame offset and advance *poffsetp.
+ *
+ * Callers push char/short as 4-byte ints (parmlist).  Keep the declared
+ * type on the SYM so &param / sizeof(param) are correct; place the object
+ * in the low bytes of a big-endian 4-byte slot (char at +3, short at +2).
+ */
+static void
+param_set_offset(sp1, poffsetp)
+    SYM            *sp1;
+    int            *poffsetp;
+{
+    int             size;
+    int             base;
+    SYM            *lsp;
+
+    base = *poffsetp;
+    if (sp1->tp != NULL && sp1->tp->type == bt_pointer
+        && sp1->tp->val_flag == 0)
+        size = 4;
+    else if (sp1->tp != NULL) {
+        size = type_size(sp1->tp);
+        if (size <= 0)
+            size = 4;
+    }
+    else
+        size = 4;
+
+    if (size == 1) {
+        sp1->value.i = base + 3;
+        *poffsetp = base + 4;
+    }
+    else if (size == 2) {
+        sp1->value.i = base + 2;
+        *poffsetp = base + 4;
+    }
+    else {
+        sp1->value.i = base;
+        *poffsetp = base + size;
+    }
+
+    if (sp1->name != NULL) {
+        lsp = search(sp1->name, lsyms.head);
+        if (lsp != NULL)
+            lsp->value.i = sp1->value.i;
+    }
+}
 
 extern int      castbegin();
 extern int      declproto();
@@ -66,7 +115,7 @@ funcbody(sp)
     SYM            *sp;
 {
     char           *names[MAX_FUNCPARMS];
-    int             nparms, poffset, i, size;
+    int             nparms, poffset, i;
     SYM            *sp1, *makeint();
 
     ++in_function;
@@ -99,36 +148,7 @@ funcbody(sp)
     if (sp->tp->lst.head != NULL
         && (lastst == begin || lastst == semicolon)) {
         for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
-            if (sp1->tp->type == bt_pointer && sp1->tp->val_flag == 0)
-                size = 4;
-            else {
-                size = type_size(sp1->tp);
-                if (size <= 0)
-                    size = 4;
-            }
-            sp1->value.i = poffset;
-            if (sp1->name != NULL) {
-                SYM *lsp;
-
-                lsp = search(sp1->name, lsyms.head);
-                if (lsp != NULL)
-                    lsp->value.i = poffset;
-            }
-            if (size >= 4)
-                poffset += size;
-            else {
-                if (size == 1) {
-                    ++sp1->value.i;
-                    if (sp1->name != NULL) {
-                        SYM *lsp;
-
-                        lsp = search(sp1->name, lsyms.head);
-                        if (lsp != NULL)
-                            ++lsp->value.i;
-                    }
-                }
-                poffset += 2;
-            }
+            param_set_offset(sp1, &poffset);
             if (in_function == 1) {
                 sp1->storage_class = sc_auto;
                 sp1->storage_type = sc_parameter;
@@ -145,40 +165,7 @@ funcbody(sp)
             declproto(&(sp->tp->lst), &lsyms );
         needpunc(closepa);
         for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
-            if (sp1->tp->type == bt_pointer && sp1->tp->val_flag == 0)
-                size = 4;
-            else {
-                size = type_size(sp1->tp);
-                if (size <= 0)
-                    size = 4;
-            }
-            sp1->value.i = poffset;
-            /*
-             * declproto() inserts a copy into lsyms and another into tp->lst.
-             * Name lookup uses lsyms — keep its value.i in sync with poffset.
-             */
-            if (sp1->name != NULL) {
-                SYM *lsp;
-
-                lsp = search(sp1->name, lsyms.head);
-                if (lsp != NULL)
-                    lsp->value.i = poffset;
-            }
-            if (size >= 4)
-                poffset += size;
-            else {
-                if (size == 1) {
-                    ++sp1->value.i;
-                    if (sp1->name != NULL) {
-                        SYM *lsp;
-
-                        lsp = search(sp1->name, lsyms.head);
-                        if (lsp != NULL)
-                            ++lsp->value.i;
-                    }
-                }
-                poffset += 2;
-            }
+            param_set_offset(sp1, &poffset);
             if (in_function == 1) {
                 sp1->storage_class = sc_auto;
                 sp1->storage_type = sc_parameter;
@@ -202,21 +189,7 @@ funcbody(sp)
         for (i = 0; i < nparms; ++i) {
             if ((sp1 = search(names[i], lsyms.head)) == NULL)
                 sp1 = makeint(names[i]);
-            if (sp1->tp->type == bt_pointer && sp1->tp->val_flag == 0)
-                size = 4;
-            else {
-                size = type_size(sp1->tp);
-                if (size <= 0)
-                    size = 4;
-            }
-            sp1->value.i = poffset;
-            if (size < 4) {
-                if (size == 1)
-                    ++sp1->value.i;
-                poffset += 2;
-            }
-            else
-                poffset += size;
+            param_set_offset(sp1, &poffset);
             if (in_function == 1) {
                 sp1->storage_class = sc_auto;
                 sp1->storage_type = sc_parameter;

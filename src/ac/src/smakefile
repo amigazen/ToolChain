@@ -1,10 +1,15 @@
-
 # AC 4.0 — AmigaOS build (SAS/C smake)
 #
 # Run from THIS directory (github/TCC/src/ac/src):
 #
 #   smake -f smakefile all
 #   smake -f smakefile clean
+#
+# SAS/C assembler-only dump (for comparing codegen vs AC bootstrap):
+#
+#   smake -f smakefile bootstrap-sasc
+#   -> bootstrap/sasc/*.s
+#   Uses sc OPTIMIZE + omd (SASC6V2 Object Module Disassembler).
 #
 # Self-host with ac (assembly only, no link):
 #
@@ -46,8 +51,8 @@ LIBS	= sc:lib/sc.lib sc:lib/scm.lib lib:amiga.lib
 
 OBJS=	Analyze.o Expr.o Init.o Optimize.o Register.o Func.o Force.o \
 		Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o \
-		Peepgen.o Stmt.o Cmain.o GenStmt.o Memmgt.o Precomp.o Preproc.o \
-		Decl.o Getsym.o Symbol.o Builtins.o
+		Peepgen.o Stmt.o Cmain.o FrontEnd.o ParseCc.o GenStmt.o Memmgt.o \
+		Precomp.o Preproc.o Decl.o Getsym.o Symbol.o Builtins.o
 OBJSS=  Cglbdef.o
 
 # The following files, along with 'config.h' are required in order to use Manx
@@ -61,6 +66,13 @@ LIBF	= Getopt.o
 #	a memory-protected UNIX system.)
 #
 #OBJS	= $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJD)
+
+# SAS/C reference tree (optional; not part of `all`).
+# SASC6V2: sc produces .o, then omd disassembles to assembler text.
+# Temp *.sasc.o avoids clobbering the .o files used to link ./ac.
+# OPTIMIZE so the dump matches the compact codegen we want AC to approach.
+OUTDIR_SASC = bootstrap/sasc
+SASCFLAGS   = $(DEBUG) OPTIMIZE
 
 all:	ac
 
@@ -116,6 +128,12 @@ Stmt.o: Stmt.c
 Cmain.o: Cmain.c 
 	sc $(DEBUG) Cmain.c
 
+FrontEnd.o: FrontEnd.c
+	sc $(DEBUG) FrontEnd.c
+
+ParseCc.o: ParseCc.c
+	sc $(DEBUG) ParseCc.c
+
 GenStmt.o: GenStmt.c 
 	sc $(DEBUG) GenStmt.c
 
@@ -146,6 +164,157 @@ Cglbdef.o: Cglbdef.c
 Getopt.o: Getopt.c 
 	sc $(DEBUG) Getopt.c
 
+
+# Assembler reference dump via SAS/C + omd (no link).
+# Compare against bootstrap/ac and bootstrap/self from GNU make.
+# Per SASC6V2:  sc … file.c ; omd >file.s file.o
+bootstrap-sasc:
+	-makedir bootstrap
+	-makedir $(OUTDIR_SASC)
+	sc $(SASCFLAGS) OBJECTNAME=Analyze.sasc.o Analyze.c
+	omd >Analyze.sasc.s Analyze.sasc.o
+	copy Analyze.sasc.s $(OUTDIR_SASC)/Analyze.s
+	-delete Analyze.sasc.o QUIET
+	-delete Analyze.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Expr.sasc.o Expr.c
+	omd >Expr.sasc.s Expr.sasc.o
+	copy Expr.sasc.s $(OUTDIR_SASC)/Expr.s
+	-delete Expr.sasc.o QUIET
+	-delete Expr.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Init.sasc.o Init.c
+	omd >Init.sasc.s Init.sasc.o
+	copy Init.sasc.s $(OUTDIR_SASC)/Init.s
+	-delete Init.sasc.o QUIET
+	-delete Init.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Optimize.sasc.o Optimize.c
+	omd >Optimize.sasc.s Optimize.sasc.o
+	copy Optimize.sasc.s $(OUTDIR_SASC)/Optimize.s
+	-delete Optimize.sasc.o QUIET
+	-delete Optimize.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Register.sasc.o Register.c
+	omd >Register.sasc.s Register.sasc.o
+	copy Register.sasc.s $(OUTDIR_SASC)/Register.s
+	-delete Register.sasc.o QUIET
+	-delete Register.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Func.sasc.o Func.c
+	omd >Func.sasc.s Func.sasc.o
+	copy Func.sasc.s $(OUTDIR_SASC)/Func.s
+	-delete Func.sasc.o QUIET
+	-delete Func.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Force.sasc.o Force.c
+	omd >Force.sasc.s Force.sasc.o
+	copy Force.sasc.s $(OUTDIR_SASC)/Force.s
+	-delete Force.sasc.o QUIET
+	-delete Force.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Intexpr.sasc.o Intexpr.c
+	omd >Intexpr.sasc.s Intexpr.sasc.o
+	copy Intexpr.sasc.s $(OUTDIR_SASC)/Intexpr.s
+	-delete Intexpr.sasc.o QUIET
+	-delete Intexpr.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Outcode.sasc.o Outcode.c
+	omd >Outcode.sasc.s Outcode.sasc.o
+	copy Outcode.sasc.s $(OUTDIR_SASC)/Outcode.s
+	-delete Outcode.sasc.o QUIET
+	-delete Outcode.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Searchkw.sasc.o Searchkw.c
+	omd >Searchkw.sasc.s Searchkw.sasc.o
+	copy Searchkw.sasc.s $(OUTDIR_SASC)/Searchkw.s
+	-delete Searchkw.sasc.o QUIET
+	-delete Searchkw.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=GenCode.sasc.o GenCode.c
+	omd >GenCode.sasc.s GenCode.sasc.o
+	copy GenCode.sasc.s $(OUTDIR_SASC)/GenCode.s
+	-delete GenCode.sasc.o QUIET
+	-delete GenCode.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=GenFloat.sasc.o GenFloat.c
+	omd >GenFloat.sasc.s GenFloat.sasc.o
+	copy GenFloat.sasc.s $(OUTDIR_SASC)/GenFloat.s
+	-delete GenFloat.sasc.o QUIET
+	-delete GenFloat.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=List.sasc.o List.c
+	omd >List.sasc.s List.sasc.o
+	copy List.sasc.s $(OUTDIR_SASC)/List.s
+	-delete List.sasc.o QUIET
+	-delete List.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Peepgen.sasc.o Peepgen.c
+	omd >Peepgen.sasc.s Peepgen.sasc.o
+	copy Peepgen.sasc.s $(OUTDIR_SASC)/Peepgen.s
+	-delete Peepgen.sasc.o QUIET
+	-delete Peepgen.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Stmt.sasc.o Stmt.c
+	omd >Stmt.sasc.s Stmt.sasc.o
+	copy Stmt.sasc.s $(OUTDIR_SASC)/Stmt.s
+	-delete Stmt.sasc.o QUIET
+	-delete Stmt.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Cmain.sasc.o Cmain.c
+	omd >Cmain.sasc.s Cmain.sasc.o
+	copy Cmain.sasc.s $(OUTDIR_SASC)/Cmain.s
+	-delete Cmain.sasc.o QUIET
+	-delete Cmain.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=FrontEnd.sasc.o FrontEnd.c
+	omd >FrontEnd.sasc.s FrontEnd.sasc.o
+	copy FrontEnd.sasc.s $(OUTDIR_SASC)/FrontEnd.s
+	-delete FrontEnd.sasc.o QUIET
+	-delete FrontEnd.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=ParseCc.sasc.o ParseCc.c
+	omd >ParseCc.sasc.s ParseCc.sasc.o
+	copy ParseCc.sasc.s $(OUTDIR_SASC)/ParseCc.s
+	-delete ParseCc.sasc.o QUIET
+	-delete ParseCc.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=GenStmt.sasc.o GenStmt.c
+	omd >GenStmt.sasc.s GenStmt.sasc.o
+	copy GenStmt.sasc.s $(OUTDIR_SASC)/GenStmt.s
+	-delete GenStmt.sasc.o QUIET
+	-delete GenStmt.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Memmgt.sasc.o Memmgt.c
+	omd >Memmgt.sasc.s Memmgt.sasc.o
+	copy Memmgt.sasc.s $(OUTDIR_SASC)/Memmgt.s
+	-delete Memmgt.sasc.o QUIET
+	-delete Memmgt.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Precomp.sasc.o Precomp.c
+	omd >Precomp.sasc.s Precomp.sasc.o
+	copy Precomp.sasc.s $(OUTDIR_SASC)/Precomp.s
+	-delete Precomp.sasc.o QUIET
+	-delete Precomp.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Preproc.sasc.o Preproc.c
+	omd >Preproc.sasc.s Preproc.sasc.o
+	copy Preproc.sasc.s $(OUTDIR_SASC)/Preproc.s
+	-delete Preproc.sasc.o QUIET
+	-delete Preproc.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Decl.sasc.o Decl.c
+	omd >Decl.sasc.s Decl.sasc.o
+	copy Decl.sasc.s $(OUTDIR_SASC)/Decl.s
+	-delete Decl.sasc.o QUIET
+	-delete Decl.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Getsym.sasc.o Getsym.c
+	omd >Getsym.sasc.s Getsym.sasc.o
+	copy Getsym.sasc.s $(OUTDIR_SASC)/Getsym.s
+	-delete Getsym.sasc.o QUIET
+	-delete Getsym.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Symbol.sasc.o Symbol.c
+	omd >Symbol.sasc.s Symbol.sasc.o
+	copy Symbol.sasc.s $(OUTDIR_SASC)/Symbol.s
+	-delete Symbol.sasc.o QUIET
+	-delete Symbol.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Builtins.sasc.o Builtins.c
+	omd >Builtins.sasc.s Builtins.sasc.o
+	copy Builtins.sasc.s $(OUTDIR_SASC)/Builtins.s
+	-delete Builtins.sasc.o QUIET
+	-delete Builtins.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Cglbdef.sasc.o Cglbdef.c
+	omd >Cglbdef.sasc.s Cglbdef.sasc.o
+	copy Cglbdef.sasc.s $(OUTDIR_SASC)/Cglbdef.s
+	-delete Cglbdef.sasc.o QUIET
+	-delete Cglbdef.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Getopt.sasc.o Getopt.c
+	omd >Getopt.sasc.s Getopt.sasc.o
+	copy Getopt.sasc.s $(OUTDIR_SASC)/Getopt.s
+	-delete Getopt.sasc.o QUIET
+	-delete Getopt.sasc.s QUIET
+	@echo --- SAS/C omd dump complete -> $(OUTDIR_SASC) ---
+
+clean-sasc:
+	-delete $(OUTDIR_SASC)/#? ALL QUIET
 
 clean:
 	delete #?.o (ac|ac.dbg)

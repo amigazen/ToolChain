@@ -71,6 +71,7 @@ char           *curfile;
 long            ival = 0;
 long            ival_hi = 0;   /* high 32 bits of integer constant (LL/ULL) */
 int             ival_unsigned = 0;  /* set by getnumber for U/u integer suffixes */
+int             rval_float_suffix = 0; /* 0=double, 1=float (f/F), 2=long double (l/L) */
 double          rval;
 
 TABLE           gsyms = {NULL, NULL},
@@ -110,5 +111,6 @@ TABLE           cmd_include = {NULL, NULL};
 TABLE           cmd_local = {NULL, NULL};
 
 int             save_mask = 0;  /* register save mask    */
+int             omit_frame = 0; /* SAS/C-style frameless leaf (params via A7) */
 int             PdcFlags = 0;   /* Flags to load libraries   */
 

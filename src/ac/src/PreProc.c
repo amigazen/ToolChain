@@ -40,6 +40,7 @@
 #include    "Gen.h"
 #include    "Cglbdec.h"
 #include    "host_posix.h"
+#include    "FrontEnd.h"
 
 extern char    *itoa(int x);
 
@@ -59,19 +60,14 @@ extern char    *itoa(int x);
 #endif
 
 /*
- * Include-stack and -I path tables.  Do NOT use T *foo[10] / int foo[10]:
- * under ac-self, typesize_mul() can collapse those to DS.b 10 (count only)
- * when the element size is a poisoned (e_sc<<16) value.  Explicit char[40]
- * matches prepbuffer[1024] and always gets the right BSS size (10 * 4).
+ * Include-stack and -I path tables.  Real pointer arrays (not char[40]
+ * overlays): type_size() recomputes count*elemsize when a bare count was
+ * left in tp->size, so DS.b is 40 for char *[10] under ac-self.
  */
-char            inclfile_buf[40];
-char            inclline_buf[40];
-char            inclname_buf[40];
-char            incldir_buf[40];
-#define inclfile ((FILE **) (void *) inclfile_buf)
-#define inclline ((int *) (void *) inclline_buf)
-#define inclname ((char **) (void *) inclname_buf)
-#define incldir  ((char **) (void *) incldir_buf)
+FILE           *inclfile[10];
+int             inclline[10];
+char           *inclname[10];
+char           *incldir[10];
 
 int             incldepth = 0;
 int             prepdepth = 0;
@@ -123,12 +119,79 @@ enum e_ps       prestat = ps_do;
 void  setdefine();
 
 extern int      in_comment;
+extern int      comment_nesting;
 extern int      dbxlnum;
 extern char    *litlate();
 extern char    *xalloc();
 extern SYM     *search();
 extern enum e_sym getid();
 extern struct snode *filestmt();
+
+/*
+ * True if name looks like an Amiga volume/assign path (e.g. RAM:foo)
+ * rather than a relative path that may contain '/'.
+ */
+static int
+include_name_absolute(name)
+    char           *name;
+{
+    char           *p;
+
+    if (name == NULL || name[0] == '\0')
+        return 0;
+    if (name[0] == '/')
+        return 1;
+    for (p = name; *p != '\0'; p++) {
+        if (*p == ':')
+            return 1;
+        if (*p == '/')
+            return 0;
+    }
+    return 0;
+}
+
+/*
+ * Build "dir-of-curfile" + name into dst for #include "name".
+ * Returns 1 if a candidate path was written.
+ */
+static int
+include_beside_caller(dst, name)
+    char           *dst;
+    char           *name;
+{
+    char           *p;
+    char           *cut;
+    char           *src;
+    int             n;
+    int             i;
+    int             namelen;
+
+    dst[0] = '\0';
+    if (curfile == NULL || curfile[0] == '\0' || name == NULL)
+        return 0;
+    if (include_name_absolute(name))
+        return 0;
+
+    cut = NULL;
+    for (p = curfile; *p != '\0'; p++) {
+        if (*p == '/' || *p == ':')
+            cut = p;
+    }
+    if (cut == NULL)
+        return 0;
+
+    n = (int) (cut - curfile) + 1;
+    namelen = (int) strlen(name);
+    if (n + namelen >= (int) sizeof(prepbuffer))
+        return 0;
+
+    src = curfile;
+    for (i = 0; i < n; i++)
+        dst[i] = src[i];
+    dst[n] = '\0';
+    strcat(dst, name);
+    return 1;
+}
 
 void
 padstr(buf, value)
@@ -160,6 +223,7 @@ doinclude()
 
     fp = NULL;
     num = 0;
+    method = TRUE;  /* <> search; set FALSE for "file" */
     oneline = TRUE;
 
     while (isspace(lastch)) /* Skip the white space */
@@ -175,7 +239,15 @@ doinclude()
                 return;
             }
             method = FALSE;
-            if ((fp = fopen(laststr, "r")) == NULL) {
+            /*
+             * Quoted includes: search beside the including file first
+             * (dir of curfile), then as a literal/cwd path, then -I.
+             * Angle-bracket includes skip the beside-caller step.
+             */
+            if (include_beside_caller(prepbuffer, laststr)
+                && (fp = fopen(prepbuffer, "r")) != NULL)
+                strcpy(laststr, prepbuffer);
+            if (fp == NULL && (fp = fopen(laststr, "r")) == NULL) {
                 for (num = 0; num < inclnum && fp == NULL; num++) {
                     strcpy(prepbuffer, incldir[num]);
                     strcat(prepbuffer, laststr);
@@ -230,16 +302,19 @@ doinclude()
 
     if (fp == NULL) {
         /*
-         * Show every -I / bootstrap dir tried.  Nested includes use this
-         * same list; a missing NDK assign shows up here as include: + name.
+         * Show every candidate tried.  Nested includes use the same -I
+         * list; a missing NDK assign shows up here as include: + name.
          */
-        fprintf(AC_DIAG_STREAM, "Can't open include file \"%s\"\n", laststr);
+        fprintf(AC_DIAG_STREAM, "Can't open include file \"%s\"\n", filename);
+        if (method == FALSE && include_beside_caller(prepbuffer, filename))
+            fprintf(AC_DIAG_STREAM, "  tried: %s\n", prepbuffer);
+        fprintf(AC_DIAG_STREAM, "  tried: %s\n", filename);
         for (num = 0; num < inclnum; num++) {
             strcpy(prepbuffer, incldir[num]);
-            strcat(prepbuffer, laststr);
+            strcat(prepbuffer, filename);
             fprintf(AC_DIAG_STREAM, "  tried: %s\n", prepbuffer);
         }
-        fatal_error(ERR_CANTOPEN, laststr);
+        fatal_error(ERR_CANTOPEN, filename);
         ac_getline(incldepth == 0);
     }
     else {
@@ -276,6 +351,50 @@ doinclude()
 #endif
 
     }
+}
+
+/*
+ * Read a function-macro formal into lastid.  getid() only accepts
+ * identifier characters, so C99 "..." must be recognized separately.
+ */
+static void
+get_macro_param()
+{
+    lastid[0] = '\0';
+    while (isspace(lastch))
+        getch();
+    if (lastch == '.') {
+        getch();
+        if (lastch != '.') {
+            error(ERR_DEFINE, "bad ellipsis in macro parameter list");
+            return;
+        }
+        getch();
+        if (lastch != '.') {
+            error(ERR_DEFINE, "bad ellipsis in macro parameter list");
+            return;
+        }
+        getch();
+        strcpy(lastid, "...");
+        return;
+    }
+    getid();
+}
+
+static SYM *
+make_macro_formal(name, variadic)
+    char           *name;
+    int             variadic;
+{
+    SYM            *sp1;
+
+    sp1 = (SYM *) xalloc(SZ_SYM);
+    sp1->name = litlate(name);
+    sp1->storage_class = sc_define;
+    sp1->storage_type = sc_define;
+    sp1->value.i = variadic ? 1 : 0;
+    sp1->next = NULL;
+    return sp1;
 }
 
 void
@@ -334,42 +453,33 @@ dodefine()
         *ptr = '\0';
         oneline = TRUE;
         getch();    /* Get past the openpa          */
-        while (isspace(lastch)) /* Skip the white space         */
-            getch();
-        getid();    /* Get the parameter            */
+        get_macro_param();
         if (*lastid) {  /* If we have a parameter       */
-            sp1 = (SYM *) xalloc(SZ_SYM);
-            sp1->name = litlate(lastid);
-            sp1->storage_class = sc_define;
-            sp1->storage_type = sc_define;
+            /*
+             * C99: #define M(...) and #define M(a, ...) both bind
+             * the ellipsis formal as __VA_ARGS__.
+             */
+            if (strcmp(lastid, "...") == 0)
+                sp1 = make_macro_formal("__VA_ARGS__", 1);
+            else
+                sp1 = make_macro_formal(lastid, 0);
             sp->tp->lst.head = sp->tp->lst.tail = sp1;
             while (isspace(lastch)) /* Skip the white space     */
                 getch();
-            while (lastch == ',') {
+            while (lastch == ',' && sp1->value.i == 0) {
                 getch();    /* Skip the comma           */
-                while (isspace(lastch)) /* Skip the white space     */
-                    getch();
-                getid();    /* Get the parameter        */
+                get_macro_param();
                 if (!*lastid)
                     break;
-                else if (strcmp(lastid, "...") == 0) {
-                    /* Handle variadic macro parameter */
-                    sp1 = (SYM *) xalloc(SZ_SYM);
-                    sp1->name = litlate("__VA_ARGS__");
-                    sp1->storage_class = sc_define;
-                    sp1->storage_type = sc_define;
-                    sp1->value.i = 1; /* Mark as variadic */
+                if (strcmp(lastid, "...") == 0) {
+                    sp1 = make_macro_formal("__VA_ARGS__", 1);
                     sp->tp->lst.tail->next = sp1;
                     sp->tp->lst.tail = sp1;
                     break;
-                } else {  /* If we have a parameter    */
-                    sp1 = (SYM *) xalloc(SZ_SYM);
-                    sp1->name = litlate(lastid);
-                    sp1->storage_class = sc_define;
-                    sp1->storage_type = sc_define;
-                    sp->tp->lst.tail->next = sp1;
-                    sp->tp->lst.tail = sp1;
                 }
+                sp1 = make_macro_formal(lastid, 0);
+                sp->tp->lst.tail->next = sp1;
+                sp->tp->lst.tail = sp1;
                 while (isspace(lastch)) /* Skip the white space     */
                     getch();
             }
@@ -383,25 +493,46 @@ dodefine()
     buffer = (unsigned char *) prepbuffer;
     valid = FALSE;
 
-    in_quote = in_comment = FALSE;
+    in_quote = FALSE;
+    in_comment = FALSE;
+    {
+        int             comment_depth;
 
-    for (ptr = lptr; *ptr; ptr++) {
-        if (!isspace(*ptr))
-            valid = TRUE;
-        if (*ptr == '"')
-            in_quote = !in_quote;
-        if (*ptr == '/'  && *(ptr + 1) == '*')
-            in_comment = !in_quote;
-        if (*ptr == '*'  && *(ptr + 1) == '/')
-            in_comment = FALSE;
-        if (*ptr == '\\' && *(ptr + 1) == '\n') {
-            ac_getline(incldepth == 0);
-            ptr = lptr;
-        }
-        *buffer++ = *ptr;
-        if (in_comment && (*(ptr + 1) == '\0' || *(ptr + 1) == '\n')) {
-            ac_getline(incldepth == 0);
-            ptr = lptr;
+        comment_depth = 0;
+        for (ptr = lptr; *ptr; ptr++) {
+            /*
+             * C99 // line comments: drop from // to end of logical line.
+             * Block comments nest (SAS/C COMMENTNEST) via comment_depth.
+             */
+            if (!in_quote && comment_depth == 0
+                && *ptr == '/' && *(ptr + 1) == '/')
+                break;
+            if (!isspace(*ptr))
+                valid = TRUE;
+            if (*ptr == '"')
+                in_quote = !in_quote;
+            if (!in_quote && *ptr == '/' && *(ptr + 1) == '*') {
+                if (comment_nesting || comment_depth == 0) {
+                    comment_depth++;
+                    in_comment = TRUE;
+                }
+            }
+            else if (!in_quote && comment_depth > 0
+                     && *ptr == '*' && *(ptr + 1) == '/') {
+                comment_depth--;
+                if (comment_depth == 0)
+                    in_comment = FALSE;
+            }
+            if (*ptr == '\\' && *(ptr + 1) == '\n') {
+                ac_getline(incldepth == 0);
+                ptr = lptr;
+            }
+            *buffer++ = *ptr;
+            if (comment_depth > 0
+                && (*(ptr + 1) == '\0' || *(ptr + 1) == '\n')) {
+                ac_getline(incldepth == 0);
+                ptr = lptr;
+            }
         }
     }
 
@@ -599,6 +730,14 @@ getparm(buffer)
     char    *ptr;
     int     paren, state;
 
+    /*
+     * Leading/trailing whitespace is not part of a macro argument
+     * (C89).  Without this, CAT(a, b) keeps the space after the comma
+     * and a##b pastes into "a b" instead of "ab".
+     */
+    while (isspace(lastch))
+        getch();
+
     ptr = buffer;
     state = paren = 0;
 
@@ -657,6 +796,10 @@ getparm(buffer)
     }
 done:
     *ptr = '\0';
+    while (ptr > buffer && isspace((unsigned char) ptr[-1])) {
+        --ptr;
+        *ptr = '\0';
+    }
     return(litlate(buffer));
 }
 
@@ -666,6 +809,10 @@ getvarargs(buffer)
 {
     char    *ptr;
     int     paren, state;
+
+    /* Match getparm: leading spaces are not part of the argument. */
+    while (isspace(lastch))
+        getch();
 
     ptr = buffer;
     state = paren = 0;
@@ -894,8 +1041,83 @@ prepdefine(sp)
                     break;
             }
         }
+        else if (*pattern == '#' && *(pattern + 1) == '#') {
+            /*
+             * Token pasting: left##right.  Must run before single-# stringize.
+             * Whitespace around ## is ignored.  Left token was already written
+             * into buffer; rewind it, expand the right token, and emit the
+             * concatenation.  Do not treat the leading '$' sentinel as part of
+             * the left token ($ is isidch for Amiga asm identifiers).
+             */
+            char            token1[256];
+            char            token2[256];
+            char           *start;
+            char           *t;
+            int             ti;
+            int             found;
+
+            pattern += 2;
+            while (isspace(*pattern))
+                ++pattern;
+
+            while (ptr > buffer + 1 && isspace((unsigned char) ptr[-1]))
+                --ptr;
+
+            start = ptr;
+            if (start > buffer + 1) {
+                --start;
+                while (start > buffer + 1 &&
+                       (isidch(*start) || isdigit((unsigned char) *start)))
+                    --start;
+                if (!(isidch(*start) || isdigit((unsigned char) *start)))
+                    ++start;
+            }
+            ti = 0;
+            for (t = start; t < ptr && ti < 255; ++t)
+                token1[ti++] = *t;
+            token1[ti] = '\0';
+            ptr = start;
+
+            ti = 0;
+            token2[0] = '\0';
+            if (isidch(*pattern)) {
+                while (isidch(*pattern) && ti < 255)
+                    token2[ti++] = *pattern++;
+                token2[ti] = '\0';
+                found = 0;
+                for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
+                    if (strcmp(token2, sp1->name) == 0) {
+                        if (sp1->value.s != NULL) {
+                            t = sp1->value.s;
+                            ti = 0;
+                            while (*t != '\0' && ti < 255) {
+                                token2[ti] = *t;
+                                ti++;
+                                t++;
+                            }
+                            token2[ti] = '\0';
+                        }
+                        found = 1;
+                        break;
+                    }
+                }
+                (void) found;
+            } else if (isdigit((unsigned char) *pattern)) {
+                while (*pattern &&
+                       (isdigit((unsigned char) *pattern) ||
+                        *pattern == 'E' || *pattern == 'e' ||
+                        *pattern == '+' || *pattern == '-') &&
+                       ti < 255)
+                    token2[ti++] = *pattern++;
+                token2[ti] = '\0';
+            }
+
+            loc = paste_tokens(token1, token2);
+            while (*loc)
+                *ptr++ = *loc++;
+        }
         else if (*pattern == '#') {
-            /* Stringification operator */
+            /* Stringification operator (#param) — not ## */
             pattern++; /* Skip the # */
             if (isidch(*pattern)) {
                 loc = laststr;
@@ -911,30 +1133,6 @@ prepdefine(sp)
                 }
                 while (*loc)
                     *ptr++ = *loc++;
-            }
-        }
-        else if (*pattern == '#' && *(pattern + 1) == '#') {
-            /* Token pasting operator */
-            pattern += 2; /* Skip the ## */
-            if (isidch(*pattern)) {
-                char *token1 = laststr;
-                char *token2 = laststr + 64; /* Use different part of buffer */
-                while (isidch(*pattern))
-                    *token1++ = *pattern++;
-                *token1 = '\0';
-                
-                /* Find the second token */
-                while (isspace(*pattern))
-                    pattern++;
-                if (isidch(*pattern)) {
-                    while (isidch(*pattern))
-                        *token2++ = *pattern++;
-                    *token2 = '\0';
-                    
-                    loc = paste_tokens(laststr, laststr + 64);
-                    while (*loc)
-                        *ptr++ = *loc++;
-                }
             }
         }
         else if (isidch(*pattern)) {
@@ -1069,68 +1267,58 @@ doelif()
 {
     int             value;
 
+    /*
+     * #elif must not push a nesting level (old code did, and leaked
+     * depth until "preprocessor nesting too deep" on cclib headers).
+     *
+     * Skip/rest state uses pr_all at this depth (so later #elifs stay
+     * skipped).  Evaluating a candidate branch must set ps_do first —
+     * otherwise the lexer ignores the expression and we hang.
+     */
     if (prestat == ps_ignore) {
         switch (premode) {
         case pr_all:
-            break;
+            /* Nested inside a skipped region — skip this line. */
+            ac_getline(incldepth == 0);
+            return;
         case pr_if:
+            /* Prior branch false — will evaluate below. */
             premode = pr_else;
             prestat = ps_do;
             break;
         case pr_else:
-            error(ERR_DEFINE, NULL);
-            break;
+            error(ERR_DEFINE, "elif after else");
+            ac_getline(incldepth == 0);
+            return;
         }
     }
     else {          /* ps_do */
         switch (premode) {
         case pr_all:
-            error(ERR_DEFINE, NULL);
-            break;
+            error(ERR_DEFINE, "elif without matching if");
+            ac_getline(incldepth == 0);
+            return;
         case pr_if:
-            premode = pr_else;
+            /* Prior #if/#elif true — skip remainder of the chain. */
+            premode = pr_all;
             prestat = ps_ignore;
-            break;
+            ac_getline(incldepth == 0);
+            return;
         case pr_else:
-            error(ERR_DEFINE, NULL);
-            break;
-        }
-    }
-
-    if (prestat == ps_ignore) {
-        if (prepdepth >= 32) {
-            error(ERR_PREPROC, "preprocessor nesting too deep");
+            error(ERR_DEFINE, "elif after else");
             ac_getline(incldepth == 0);
             return;
         }
-        inclstat[prepdepth] = prestat;
-        inclprep[prepdepth++] = premode;
-        prestat = ps_ignore;
-        premode = pr_all;
-        ac_getline(incldepth == 0);
-        return;
     }
 
-    if (prepdepth >= 32) {
-        error(ERR_PREPROC, "preprocessor nesting too deep");
-        ac_getline(incldepth == 0);
-        return;
-    }
-    inclstat[prepdepth] = prestat;
-    inclprep[prepdepth++] = premode;
-
-    oneline = TRUE;     /* The expresion must be on one line */
-
+    oneline = TRUE;
     getsym();       /* get past #elif */
-
-    value = intexpr();  /* get the expression */
-
+    value = intexpr();
     oneline = FALSE;
 
     premode = pr_if;
     prestat = ps_ignore;
-
-    if (value != 0)     /* compile section  */
+    if (value != 0)
         prestat = ps_do;
 
     ac_getline(incldepth == 0);
@@ -1141,6 +1329,7 @@ doerror()
 {
     char buffer[1024];
     char *cp, *endp;
+    int fmt;
 
     if (prestat == ps_ignore) {
         ac_getline(incldepth == 0);
@@ -1157,8 +1346,11 @@ doerror()
     }
     *cp++ = '\0';
     
-    /* Use selected error format */
-    switch (Options.OutputFormat) {
+    /* Use selected error format; cc front-end forces gcc shape. */
+    fmt = Options.OutputFormat;
+    if (frontend_mode == FE_CC)
+        fmt = 0;
+    switch (fmt) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
             fprintf(AC_DIAG_STREAM, "%s:%d:%d: error: %s\n", curfile, lineno, current_column, buffer);
@@ -1188,6 +1380,7 @@ dowarning()
 {
     char buffer[1024];
     char *cp, *endp;
+    int fmt;
 
     if (prestat == ps_ignore) {
         ac_getline(incldepth == 0);
@@ -1204,8 +1397,11 @@ dowarning()
     }
     *cp++ = '\0';
     
-    /* Use selected warning format */
-    switch (Options.OutputFormat) {
+    /* Use selected warning format; cc front-end forces gcc shape. */
+    fmt = Options.OutputFormat;
+    if (frontend_mode == FE_CC)
+        fmt = 0;
+    switch (fmt) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
             fprintf(AC_DIAG_STREAM, "%s:%d:%d: warning: %s\n", curfile, lineno, current_column, buffer);

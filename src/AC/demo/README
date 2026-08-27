@@ -23,9 +23,9 @@ What gets built
 
 New smokes this turn
 --------------------
-- `test_bss_arrays.c` — global `int[10]` / `char*[10]` must get `DS.b 40` (not 10)
-- `test_ac_debug_brace.c` — documents the AC_DEBUG dangling-if brace rule
-- `ac_tests` also runs runtime `bss/sizeof_*` expects
+- C99 `//` line comments; SAS/C nested blocks via `-Wcommentnest` (`test_comment_nest.c`)
+- Floating suffixes `f`/`F`/`l`/`L`; `f`/`F` use `floatlits()` single pool
+- Soft-float ops still need `math.lib` (lazy `.FDopen`)
 
 CLI options: `make demo-cli-self2` (also runs as part of `make demo-self2`).
 See `cli_opts.txt`.

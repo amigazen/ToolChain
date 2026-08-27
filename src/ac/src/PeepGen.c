@@ -40,6 +40,9 @@ void   opt3();
 void   opt_omit_frame();
 extern char    *xalloc();
 extern struct amode *make_delta();
+extern struct enode *makenode();
+extern struct amode *makeareg();
+extern struct amode *make_immed();
 
 struct ocode   *peep_head = NULL, *peep_tail = NULL;
 
@@ -506,10 +509,36 @@ peep_move(ip)
              * a later lea of a stripped amode becoming "lea ,A0".
              */
             if (ep->nodetype == en_autocon) {
-                ip->oper1->mode = am_indx;
-                ip->oper1->preg = (enum e_am) frame_areg();
-                ip->oper1->offset = makenode(en_icon,
-                    frame_disp(ICON16L(ep->v.i)), NULL);
+                long            off;
+                struct ocode   *np;
+
+                off = frame_disp(icon_unpoison(ep->v.i));
+                if (d16_ok(off)) {
+                    ip->oper1->mode = am_indx;
+                    ip->oper1->preg = (enum e_am) frame_areg();
+                    ip->oper1->offset = makenode(en_icon, off, NULL);
+                }
+                else {
+                    /*
+                     * lea cannot encode >32K displacements.  Rewrite to
+                     * move.l Fp,An / adda.l #off,An.
+                     */
+                    ip->opcode = op_move;
+                    ip->length = 4;
+                    ip->oper1 = makeareg((enum e_am) frame_areg());
+                    np = (struct ocode *) xalloc(sizeof(struct ocode));
+                    np->opcode = op_adda;
+                    np->length = 4;
+                    np->oper1 = make_immed(off);
+                    np->oper2 = copy_addr(ip->oper2);
+                    np->fwd = ip->fwd;
+                    np->back = ip;
+                    if (ip->fwd != NULL)
+                        ip->fwd->back = np;
+                    else
+                        peep_tail = np;
+                    ip->fwd = np;
+                }
             }
             else
                 ip->oper1->mode = am_direct;

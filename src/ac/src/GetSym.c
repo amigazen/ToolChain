@@ -43,6 +43,7 @@
 #include    "Expr.h"
 #include    "Gen.h"
 #include    "Cglbdec.h"
+#include    "FrontEnd.h"
 
 #define LINDEPTH    20
 
@@ -413,12 +414,18 @@ error_at_line(n, msg, filename, line, column)
     int             line;
     int             column;
 {
-    /* Print error in selected format */
+    int             fmt;
+
+    /* Print error in selected format.  cc front-end always uses gcc shape. */
     if (filename == NULL) filename = curfile;
     if (line <= 0) line = lineno;
     if (column <= 0) column = current_column;
     
-    switch (Options.OutputFormat) {
+    fmt = Options.OutputFormat;
+    if (frontend_mode == FE_CC)
+        fmt = 0;
+
+    switch (fmt) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
             fprintf(AC_DIAG_STREAM, "%s:%d:%d: error: %s", filename, line, column, msg);
@@ -460,11 +467,17 @@ warning_at_line(n, msg, filename, line, column)
     int             line;
     int             column;
 {
+    int             fmt;
+
     if (filename == NULL) filename = curfile;
     if (line <= 0) line = lineno;
     if (column <= 0) column = current_column;
+
+    fmt = Options.OutputFormat;
+    if (frontend_mode == FE_CC)
+        fmt = 0;
     
-    switch (Options.OutputFormat) {
+    switch (fmt) {
     case 0: /* GCC format */
         if (Options.ShowColumn) {
             fprintf(AC_DIAG_STREAM, "%s:%d:%d: warning: %s", filename, line, column, msg);

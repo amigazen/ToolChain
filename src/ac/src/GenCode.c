@@ -167,8 +167,8 @@ make_delta(ap1, delta)
             if (ap1->offset != NULL && ap1->offset->nodetype == en_icon) {
                 long sum;
 
-                sum = ICON16L(ap1->offset->v.i) + (long) delta;
-                if (sum >= -32768L && sum <= 32767L) {
+                sum = icon_unpoison(ap1->offset->v.i) + (long) delta;
+                if (d16_ok(sum)) {
                     ap1->offset = makenode(en_icon, sum, NULL);
                     break;
                 }
@@ -188,8 +188,8 @@ make_delta(ap1, delta)
         if (ap1->offset->nodetype == en_icon) {
             long sum;
 
-            sum = ICON16L(ap1->offset->v.i) + (long) delta;
-            if (sum >= -32768L && sum <= 32767L)
+            sum = icon_unpoison(ap1->offset->v.i) + (long) delta;
+            if (d16_ok(sum))
                 ap1->offset = makenode(en_icon, sum, NULL);
         }
         break;
@@ -532,9 +532,9 @@ static void
 fixicon(node)
     struct enode   *node;
 {
-    /* SAS/C folds sizeof(SYM/TYP/...) to (e_sc<<16)|offset in ac-self output. */
+    /* Recover SAS/C sizeof poison; keep genuine values past ±32K. */
     if (node != NULL && node->nodetype == en_icon)
-        node->v.i = ICON16L(node->v.i);
+        node->v.i = icon_unpoison(node->v.i);
 }
 
 int
@@ -555,8 +555,8 @@ isshort(node)
     }
     if (node->nodetype != en_icon)
         return FALSE;
-    v = ICON16L(node->v.i);
-    return (v >= -32767L && v <= 32767L);
+    v = icon_unpoison(node->v.i);
+    return d16_ok(v);
 }
 
 int
@@ -577,7 +577,7 @@ isbyte(node)
     }
     if (node->nodetype != en_icon)
         return FALSE;
-    v = ICON16L(node->v.i);
+    v = icon_unpoison(node->v.i);
     return (-128 <= v && v <= 127);
 }
 
@@ -746,14 +746,71 @@ gen_index(node)
 }
 
 
+/*
+ * Recover a size/offset that SAS/C may have folded as (e_sc<<16)|n.
+ * Unlike ICON16L, keeps genuine values outside signed-16 (large frames).
+ */
+long
+icon_unpoison(v)
+    long            v;
+{
+    unsigned long   u;
+    unsigned long   hi;
+    long            lo;
+
+    lo = ICON16L(v);
+    if (v == lo)
+        return v;
+    u = (unsigned long) v;
+    hi = u >> 16;
+    /* Poison tags are small positive enums; 0xFFFF… is sign extension. */
+    if (hi > 0UL && hi < 256UL)
+        return lo;
+    return v;
+}
+
+int
+d16_ok(v)
+    long            v;
+{
+    return (v >= -32768L && v <= 32767L);
+}
+
+/*
+ * Frame local/param addressing.  68000 (d16,An) and link #d only span
+ * ±32K; beyond that materialize Fp+off into an A-temp and return (At).
+ */
+struct amode   *
+make_frame_ref(off)
+    long            off;
+{
+    struct amode   *ap1;
+
+    off = frame_disp(icon_unpoison(off));
+    if (d16_ok(off)) {
+        ap1 = (struct amode *) xalloc(sizeof(struct amode));
+        ap1->signedflag = 1;
+        ap1->mode = am_indx;
+        ap1->preg = (enum e_am) frame_areg();
+        ap1->deep = 0;
+        ap1->offset = makenode(en_icon, off, NULL);
+        return ap1;
+    }
+    ap1 = temp_addr();
+    gen_code(op_move, 4, makeareg((enum e_am) frame_areg()), ap1);
+    gen_code(op_adda, 4, make_immed(off), ap1);
+    ap1->mode = am_ind;
+    ap1->signedflag = 1;
+    return ap1;
+}
+
 struct amode   *
 make_autocon(lab)
     int             lab;
 {
-    struct amode   *ap1;
 
     /*
-     * Always xalloc.  A bare
+     * Always allocate.  A bare
      *   if (omit_frame && lab < 0)
      * #if AC_DEBUG
      *       fprintf(...);
@@ -769,13 +826,7 @@ make_autocon(lab)
         fprintf(AC_DIAG_STREAM,
             "DIAG -- frame slot requested in frameless function\n");
 #endif
-    ap1 = (struct amode *) xalloc(sizeof(struct amode));
-    ap1->signedflag = 1;
-    ap1->mode = am_indx;
-    ap1->preg = (enum e_am) frame_areg();
-    ap1->deep = 0;
-    ap1->offset = makenode(en_icon, frame_disp((long) lab), NULL);
-    return ap1;
+    return make_frame_ref((long) lab);
 }
 
 /*
@@ -911,13 +962,8 @@ gen_deref(node, flags, size)
         return ap1;
     }
     else if (node->v.p[0]->nodetype == en_autocon) {
-        ap1 = (struct amode *) xalloc(sizeof(struct amode));
+        ap1 = make_frame_ref(node->v.p[0]->v.i);
         ap1->signedflag = node->v.p[0]->signedflag;
-        ap1->mode = am_indx;
-        ap1->preg = (enum e_am) frame_areg();
-        ap1->deep = 0;
-        ap1->offset = makenode(en_icon,
-            frame_disp(ICON16L(node->v.p[0]->v.i)), NULL);
         do_extend(ap1, siz1, size, flags, is_signed);
         make_legal(ap1, flags, size);
         return ap1;

@@ -42,12 +42,63 @@ char           *declid = NULL;
 TABLE           tagtable = {NULL, NULL};
 TYP             stdconst = {bt_long, 1, 0, 4, {NULL, NULL}, 0, "const", QUAL_CONST};
 
+/* Bitfield packing state while declare() runs for struct/union members. */
+static int      bf_bits_used = -1;
+static int      bf_unit_bytes = 0;
+
+/*
+ * Pending SAS/C __asm on the current declarator.  Applied to the next
+ * bt_func created in decl2(), and/or to head when seen as a specifier.
+ */
+static int      decl_asm_pending = 0;
+
 void    decl2(), declenum(), enumbody(), declstruct();
 void    decl1(void);
-void    apply_qualifiers();
 void    decl_callconv(void);
 void    parse_alignas(void);
 void    apply_decl_alignas(TYP *tp);
+
+/*
+ * Map __d0..__d7 / __a0..__a6 to ASMREG_* codes (0 if not a reg keyword).
+ */
+static int
+m68k_reg_to_asmreg(st)
+    int             st;
+{
+    if (st >= kw_d0 && st <= kw_d7)
+        return ASMREG_D0 + (st - kw_d0);
+    if (st >= kw_a0 && st <= kw_a6)
+        return ASMREG_A0 + (st - kw_a0);
+    return ASMREG_NONE;
+}
+
+/*
+ * Consume optional SAS/C register keyword (from __REG__(d0, ...)).
+ * Accept both keyword tokens (__d0 from SearchKW) and plain ids named
+ * "__d0".."__a6" so a partial self-host rebuild still parses NDK headers.
+ */
+static void
+accept_m68k_regkw()
+{
+    char           *s;
+
+    if (m68k_reg_to_asmreg(lastst) != ASMREG_NONE) {
+        getsym();
+        return;
+    }
+    if (lastst != id)
+        return;
+    s = lastid;
+    if (s[0] != '_' || s[1] != '_' || s[2] == '\0' || s[3] == '\0'
+        || s[4] != '\0')
+        return;
+    if (s[2] == 'd' && s[3] >= '0' && s[3] <= '7')
+        getsym();
+    else if (s[2] == 'a' && s[3] >= '0' && s[3] <= '6')
+        getsym();
+}
+
+void    apply_qualifiers();
 
 /* Pending _Alignas/alignas value for the current declaration (0 = none). */
 static int      decl_alignas = 0;
@@ -81,26 +132,26 @@ static int
 typesize_mul(count, elemsize)
     int count, elemsize;
 {
-    int             orig;
-
     /*
      * Incomplete types have tp->size == -1 while a tag is being defined.
      * Skip the scale when the element size is not yet known.
      *
      * Product via u16_product() — never calls ac.lib .lmuls at runtime.
-     * Mask poisoned (e_sc<<16)|n.  If ICON16L yields 0 from a non-zero
-     * original (high half only), use 4 — returning `count` alone made
-     * int x[10] / char *p[10] BSS only DS.b 10 under ac-self.
+     * Unpoison (e_sc<<16)|n via ICON16L.  Do NOT invent elemsize==4 when
+     * the low half is 0: that turned unsigned char chstack[20] into
+     * DS.b 80 under ac-self (self/GetSym.s).  Callers must pass
+     * type_size(head), not a raw poisoned head->size.
+     *
+     * When elemsize collapses to 0 after unpoison, returning bare `count`
+     * made int *a[10] / int a[10] emit DS.b 10.  Prefer 4-byte elements
+     * (pointer/int width) over count-only BSS.
      */
-    orig = elemsize;
-    if (elemsize != -1 && elemsize != (int) ICON16L((long) elemsize))
+    if (elemsize == -1)
+        return count;
+    if (elemsize != (int) ICON16L((long) elemsize))
         elemsize = (int) ICON16L((long) elemsize);
-    if (elemsize <= 0) {
-        if (orig != 0 && orig != -1)
-            elemsize = 4;
-        else
-            return count;
-    }
+    if (elemsize <= 0)
+        elemsize = 4;
     if (count <= 0)
         return 0;
     return (int) u16_product((long) count, (long) elemsize);
@@ -112,6 +163,8 @@ type_size(tp)
 {
     long            sz;
     int             t;
+    int             esz;
+    int             n;
 
     /*
      * Arrays are bt_pointer nodes with val_flag set; only real pointers
@@ -154,6 +207,31 @@ type_size(tp)
         return 0;
     default:
         break;
+    }
+
+    /*
+     * Sized array: tp->size should be count*elemsize.  When typesize_mul
+     * (or an older compiler) left a bare count (e.g. 10 for int *[10]),
+     * recompute from the element type — modulo mismatch is the signal.
+     */
+    if (t == bt_pointer && tp->val_flag != 0 && tp->btp != NULL) {
+        esz = type_size(tp->btp);
+        if (esz <= 0)
+            esz = 4;
+        sz = (long) tp->size;
+        if (sz != -1L && sz != ICON16L(sz))
+            sz = ICON16L(sz);
+        if (sz > 0L && esz > 0) {
+            if (sz < (long) esz || (sz % (long) esz) != 0L) {
+                n = (int) sz;
+                if (n > 0 && n < 65536)
+                    return (int) u16_product((long) n, (long) esz);
+            }
+            return (int) sz;
+        }
+        if (sz <= 0L)
+            return 0;
+        return (int) sz;
     }
 
     sz = (long) tp->size;
@@ -393,7 +471,9 @@ decl(TABLE *table)
     switch (lastst) {
     case kw_typedef:
         getsym();
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- SHOULD NEVER HAPPEN\n" );
+#endif
         break;
     case kw_auto:
         getsym();
@@ -401,7 +481,28 @@ decl(TABLE *table)
         break;
     case kw_register:
         getsym();
+        /* SAS/C: register __d0 LONG x  (from __REG__(d0, LONG x)) */
+        accept_m68k_regkw();
         decl(table);
+        break;
+    case kw_asm:
+        /*
+         * SAS/C __asm (compiler-specific.h __ASM__): registerized
+         * parameter convention.  May appear as a declaration specifier.
+         */
+        getsym();
+        decl_asm_pending = 1;
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_ASM;
+        break;
+    case kw_aligned:
+        /* SAS/C __aligned: force 4-byte alignment (like alignas(4)). */
+        getsym();
+        if (decl_alignas < 4)
+            decl_alignas = 4;
+        decl(table);
+        apply_decl_alignas(head);
         break;
     case kw_const:
         getsym();
@@ -602,13 +703,19 @@ decl(TABLE *table)
 /*
  * SAS/C allows calling-convention keywords between the base type and the
  * declarator:  void __stdargs (*f)(long);  void __saveds foo(void);
+ * Also __asm from compiler-specific.h __ASM__.
  */
 void
 decl_callconv(void)
 {
     while (lastst == kw_stdargs || lastst == kw_regargs
-           || lastst == kw_saveds || lastst == kw_interrupt) {
-        if (head != NULL) {
+           || lastst == kw_saveds || lastst == kw_interrupt
+           || lastst == kw_asm) {
+        if (lastst == kw_asm) {
+            decl_asm_pending = 1;
+            if (head != NULL)
+                head->qualifiers |= QUAL_ASM;
+        } else if (head != NULL) {
             if (lastst == kw_stdargs)
                 head->qualifiers |= QUAL_STDARGS;
             else if (lastst == kw_regargs)
@@ -702,12 +809,39 @@ decl1(void)
         decl2();
         break;
     case star:
+        /*
+         * pointer: * type-qualifier-list_opt pointer_opt
+         * Qualifiers after * bind to the pointer (int *const p).
+         */
         temp1 = maketype(bt_pointer, 4);
         temp1->btp = head;
         head = temp1;
         if (tail == NULL)
             tail = head;
         getsym();
+        while (lastst == kw_const || lastst == kw_volatile
+               || lastst == kw_restrict || lastst == kw_asm
+               || lastst == kw_stdargs || lastst == kw_regargs
+               || lastst == kw_saveds || lastst == kw_interrupt) {
+            if (lastst == kw_const)
+                temp1->qualifiers |= QUAL_CONST;
+            else if (lastst == kw_volatile)
+                temp1->qualifiers |= QUAL_VOLATILE;
+            else if (lastst == kw_asm) {
+                /* LONG (* __asm name)(args) — __asm binds to the function. */
+                decl_asm_pending = 1;
+                temp1->qualifiers |= QUAL_ASM;
+            } else if (lastst == kw_stdargs)
+                temp1->qualifiers |= QUAL_STDARGS;
+            else if (lastst == kw_regargs)
+                temp1->qualifiers |= QUAL_REGARGS;
+            else if (lastst == kw_saveds)
+                temp1->qualifiers |= QUAL_SAVEDS;
+            else if (lastst == kw_interrupt)
+                temp1->qualifiers |= QUAL_INTERRUPT;
+            /* restrict: accepted, no QUAL bit yet */
+            getsym();
+        }
         decl1();
         break;
     case openpa:
@@ -726,7 +860,7 @@ decl1(void)
             temp4->btp = head;
             if (temp4->type == bt_pointer && temp4->val_flag != 0
                 && head != NULL)
-                temp4->size = typesize_mul(temp4->size, head->size);
+                temp4->size = typesize_mul(temp4->size, type_size(head));
         }
         head = temp3;
         break;
@@ -757,7 +891,8 @@ decl2(void)
         }
         decl2();
         if (head != NULL) {
-            temp1->size = typesize_mul(temp1->size, head->size);
+            /* type_size() ignores poisoned tp->size for builtins. */
+            temp1->size = typesize_mul(temp1->size, type_size(head));
         }
         temp1->btp = head;
         head = temp1;
@@ -769,6 +904,10 @@ decl2(void)
         temp1 = maketype(bt_func, 0);
         temp1->val_flag = 1;
         temp1->btp = head;
+        if (decl_asm_pending) {
+            temp1->qualifiers |= QUAL_ASM;
+            decl_asm_pending = 0;
+        }
         head = temp1;
         if (lastst == closepa) {
             getsym();
@@ -818,7 +957,9 @@ alignment(TYP *tp)
     int             forced;
 
     if (tp == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to alignment.\n" );
+#endif
         return (AL_CHAR);
     }
     switch (tp->type) {
@@ -934,6 +1075,7 @@ declare(table, al, ilc, ztype, ral)
     apply_decl_alignas(dhead);
     for (;;) {
         declid = NULL;
+        decl_asm_pending = 0;
         decl1();
 
         if (head == NULL) {
@@ -943,33 +1085,112 @@ declare(table, al, ilc, ztype, ral)
         
         if (ral == sc_member && al == sc_auto || ral == sc_parameter) {
             ral = sc_parameter; /* Parameter Decl */
-            switch (head->type) {
-            case bt_uchar:
-            case bt_ushort:
-                head = tail = maketype(bt_unsigned, 4);
-                break;
-            case bt_char:
-            case bt_short:
-            case bt_enum:
-                head = tail = maketype(bt_long, 4);
-                break;
-            case bt_float:
-                head = tail = maketype(bt_double, 8);
-                break;
-            }
             /*
-             * Decay only unsized array declarators (char *argv[]) to a
-             * real pointer.  The old test cleared val_flag for every
-             * bt_pointer — including char *incldir[10] — so type_size()
-             * returned 4, BSS was DS.b 4, and include-path pointers
-             * smashed into prepbuffer (nested NDK includes failed).
+             * Keep char/short/enum as declared so &param and sizeof work.
+             * Float is still widened to double to match parmlist (en_cfd pushes
+             * 8 bytes).  Func.c places char at +3 and short at +2 in a
+             * 4-byte big-endian slot.
              */
-            if (head->type == bt_pointer && head->val_flag != 0
-                && head->size == 0)
+            if (head->type == bt_float)
+                head = tail = maketype(bt_double, 8);
+            /*
+             * C89: a parameter declared as "array of T" is adjusted to
+             * "pointer to T".  Only apply here (parameters), never to
+             * globals like char *incldir[10] (array of pointers).
+             */
+            if (head->type == bt_pointer && head->val_flag != 0) {
                 head->val_flag = 0;
+                head->size = 4;
+            }
         }
 
-        if (declid != NULL) {   /* otherwise just struct tag... */
+        if (declid != NULL || (al == sc_member && lastst == colon)) {
+            /*
+             * C89 bitfields: type declarator_opt : width ;
+             * Pack consecutive fields into storage units of the base type.
+             */
+            if (al == sc_member && lastst == colon) {
+                int             width;
+                int             unit_bytes;
+                int             unit_bits;
+                int             byte_off;
+
+                getsym();
+                width = (int) intexpr();
+                if (width < 0 || width > 32) {
+                    error(ERR_SYNTAX, "invalid bitfield width");
+                    width = 1;
+                }
+                unit_bytes = type_size(head);
+                if (unit_bytes <= 0)
+                    unit_bytes = 4;
+                if (unit_bytes > 4)
+                    unit_bytes = 4;
+                unit_bits = unit_bytes * 8;
+
+                if (width == 0) {
+                    /* Zero-width: align to next unit boundary. */
+                    bf_bits_used = unit_bits;
+                } else {
+                    if (bf_bits_used < 0 || bf_unit_bytes != unit_bytes
+                        || bf_bits_used + width > unit_bits) {
+                        num = alignment(head);
+                        if (num <= 0)
+                            num = 1;
+                        if (ztype != bt_union) {
+                            while (safe_lmod(ilc + nbytes, num) != 0)
+                                ++nbytes;
+                            byte_off = ilc + nbytes;
+                            nbytes += unit_bytes;
+                        } else {
+                            byte_off = ilc;
+                            if (unit_bytes > nbytes)
+                                nbytes = unit_bytes;
+                        }
+                        bf_bits_used = 0;
+                        bf_unit_bytes = unit_bytes;
+                    } else {
+                        if (ztype == bt_union)
+                            byte_off = ilc;
+                        else
+                            byte_off = ilc + nbytes - unit_bytes;
+                    }
+
+                    if (declid != NULL) {
+                        sp = (SYM *) xalloc(SZ_SYM);
+                        sp->name = declid;
+                        sp->storage_class = al;
+                        sp->storage_type = ral;
+                        sp->next = NULL;
+                        sp->tp = head;
+                        sp->value.i = SYM_BF_ENC(byte_off, bf_bits_used,
+                            width);
+                        insert(sp, table);
+#ifdef  GENERATE_DBX
+                        dbx_ident(sp);
+#endif
+                    }
+                    bf_bits_used += width;
+                }
+
+                if (lastst == semicolon)
+                    break;
+                needpunc(comma);
+                if (!declbegin(table, lastst))
+                    break;
+                head = dhead;
+                continue;
+            }
+
+            /* Non-bitfield member ends the current bitfield unit. */
+            if (al == sc_member) {
+                bf_bits_used = -1;
+                bf_unit_bytes = 0;
+            }
+
+            if (declid == NULL)
+                goto decl_list_tail;
+
             sp = (SYM *) xalloc(SZ_SYM);
             sp->name = declid;
             sp->storage_class = al;
@@ -1001,11 +1222,13 @@ declare(table, al, ilc, ztype, ral)
                 }
             }
             else if (ztype == bt_union)
-                sp->value.i = ICON16L((long)ilc);
+                sp->value.i = (long) ilc;
             else if (al != sc_auto)
-                sp->value.i = ICON16L((long)(ilc + nbytes));
+                sp->value.i = (long) ilc + (long) nbytes;
             else
-                sp->value.i = ICON16L((long)-(ilc + nbytes + type_size(head)));
+                /* Full 32-bit frame offset; ICON16L truncated past ±32K. */
+                sp->value.i = -(long) ilc - (long) nbytes
+                    - (long) type_size(head);
 
             if (sp->tp->type == bt_func) {
                 if (sp->storage_class == sc_global || 
@@ -1070,6 +1293,7 @@ declare(table, al, ilc, ztype, ral)
             }
         }
 
+    decl_list_tail:
         if (lastst == semicolon)
             break;
 
@@ -1286,19 +1510,25 @@ structbody(tp, ztype)
     int             slc;
 
     if (tp == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to structbody.\n" );
+#endif
         return;
     }
     tp->lst.head = tp->lst.tail = NULL;
     slc = 0;
     tp->val_flag = 1;
     tp->size = -1;
+    bf_bits_used = -1;
+    bf_unit_bytes = 0;
     while (lastst != end) {
         if (ztype == bt_struct)
             slc += declare(&(tp->lst), sc_member, slc, ztype, sc_member);
         else
             slc = imax(slc, declare(&tp->lst, sc_member, 0, ztype, sc_member));
     }
+    bf_bits_used = -1;
+    bf_unit_bytes = 0;
 
     /*
      * The size of a structure includes padding, which should be a power
@@ -1368,6 +1598,13 @@ dodecl(defclass)
         case kw_alignas:
             /* Prefix form: alignas(8) int x; — stay in loop for the type. */
             parse_alignas();
+            /*
+             * parse_alignas always consumes the alignas token.  If the
+             * following tokens are not a valid alignas(...), lastst may
+             * still be unusable; avoid spinning forever on kw_alignas.
+             */
+            if (lastst == kw_alignas)
+                getsym();
             break;
         case asmconst:
             addauto(asmstmt());
@@ -1391,14 +1628,11 @@ dodecl(defclass)
                 error(ERR_ILLCLASS, NULL);
             goto do_decl;
         case kw_const:
-            getsym();
-            if (defclass != sc_auto && defclass != sc_member)
-                error(ERR_ILLCLASS, NULL);
-            goto do_decl;
         case kw_volatile:
-            getsym();
-            if (defclass != sc_auto && defclass != sc_member)
-                error(ERR_ILLCLASS, NULL);
+            /*
+             * Type qualifiers, not storage classes — leave the token for
+             * decl() so QUAL_CONST / QUAL_VOLATILE are applied to the type.
+             */
             goto do_decl;
         case id:
             if ((tp = istypedef(&lsyms)) != NULL)
@@ -1432,6 +1666,16 @@ dodecl(defclass)
         case kw_restrict:
         case kw_inline:
         case kw_noreturn:
+        case kw_asm:
+        case kw_aligned:
+        case kw_chip:
+        case kw_far:
+        case kw_near:
+        case kw_fast:
+        case kw_interrupt:
+        case kw_regargs:
+        case kw_stdargs:
+        case kw_saveds:
         case kw_struct:
         case kw_union:
         case kw_enum:
@@ -1557,12 +1801,13 @@ declproto(TABLE *table)  /* table is the argument table for the function */
 
 declproto_one:
         /*
-         * Decay only unsized arrays (char *argv[]) to pointers — not
-         * sized arrays of pointers (see declare() comment above).
+         * C89: parameter "array of T" adjusts to "pointer to T"
+         * (including sized arrays like int a[10]).
          */
-        if (head->type == bt_pointer && head->val_flag != 0
-            && head->size == 0)
+        if (head->type == bt_pointer && head->val_flag != 0) {
             head->val_flag = 0;
+            head->size = 4;
+        }
 
         sp = (SYM *) xalloc(SZ_SYM);
         sp->name = declid;
@@ -1572,6 +1817,10 @@ declproto_one:
 
         sp->value.i = nbytes;
         sp->tp = head;
+
+        /* Float params match 8-byte push; keep char/short declared type. */
+        if (sp->tp->type == bt_float)
+            sp->tp = maketype(bt_double, 8);
 
         /*
          * Advance with type_size(), not raw tp->size.  Poisoned size (high
@@ -1588,31 +1837,17 @@ declproto_one:
                 if (psz <= 0)
                     psz = 4;
             }
-            if (psz < 4) {
-                if (psz == 1)
-                    sp->value.i += 1;
-                nbytes += 2;
-            }
+            /*
+             * Stack slots match the caller (parmlist pushes 4 for
+             * char/short).  Keep declared char/short type for &/sizeof.
+             */
+            if (psz == 1 || psz == 2)
+                nbytes += 4;
             else
                 nbytes += psz;
         }
 
         sp2 = copysym(sp);
-
-        switch (sp->tp->type) {
-        case bt_uchar:
-        case bt_ushort:
-            sp->tp = maketype(bt_unsigned, 4);
-            break;
-        case bt_char:
-        case bt_short:
-        case bt_enum:
-            sp->tp = maketype(bt_long, 4);
-            break;
-        case bt_float:
-            sp->tp = maketype(bt_double, 8);
-            break;
-        }
 
         insert(sp, &lsyms); /* Insert into the local symbols */
         insert(sp2, table); /* Insert into the function list */

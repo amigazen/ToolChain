@@ -407,7 +407,9 @@ checkcases(head)
         while (cur != NULL) {
             if ((!(cur->s1 || cur->s2) && cur->label == top->label)
                 || (cur->s2 && top->s2)) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, " duplicate case label %d\n", cur->label);
+#endif
                 return TRUE;
             }
             cur = cur->next;

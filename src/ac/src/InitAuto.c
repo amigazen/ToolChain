@@ -57,7 +57,7 @@ doinitauto(sp)
     snp = (struct snode *) xalloc(sizeof(struct snode));
     snp->stype = st_expr;
 
-    ep1 = makenode(en_autocon, ICON16L(sp->value.i), NULL);
+    ep1 = makenode(en_autocon, icon_unpoison(sp->value.i), NULL);
     ep1->constflag = 0;
 
     tp1 = sp->tp;

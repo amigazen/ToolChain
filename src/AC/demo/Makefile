@@ -21,17 +21,26 @@ PASS_TESTS = \
 	test_bss_arrays \
 	test_ac_debug_brace \
 	test_param_addr \
+	test_fp_assign \
+	test_large_frame \
+	test_line_comments \
 	test_cclib_syntax \
 	test_static_assert \
 	test_types_suffixes \
+	test_c89_pp_cond \
+	test_c89_stringize \
+	test_c89_token_paste \
+	test_c89_typedefs \
+	test_c89_qualifiers \
 	ac_tests
 
 FAIL_SRC = $(DEMODIR)/test_static_assert_fail.c
 FAIL_OUT = $(OUTDIR)/test_static_assert_fail.s
 PASS_ASM = $(PASS_TESTS:%=$(OUTDIR)/%.s)
 BSS_ASM = $(OUTDIR)/test_bss_arrays.s
+FRAME_ASM = $(OUTDIR)/test_large_frame.s
 
-.PHONY: all check check-pass check-fail check-cli check-bss dirs clean help
+.PHONY: all check check-pass check-fail check-cli check-bss check-frame dirs clean help
 
 all: check
 
@@ -42,7 +51,7 @@ help:
 dirs:
 	mkdir -p $(OUTDIR)
 
-check: check-pass check-bss check-fail check-cli
+check: check-pass check-bss check-frame check-fail check-cli
 	@echo "--- demo suite OK with $(CC) -> $(OUTDIR) ---"
 
 check-pass: dirs $(PASS_ASM)
@@ -55,6 +64,15 @@ check-bss: $(BSS_ASM)
 	@grep -q 'DS\.b[[:space:]]*20' $(BSS_ASM) || (echo "FAIL: expected DS.b 20 for long[5]"; exit 1)
 	@grep -q 'DS\.b[[:space:]]*16' $(BSS_ASM) || (echo "FAIL: expected DS.b 16 for short[8]/char[16]/intptr[4]"; exit 1)
 	@echo "  ok test_bss_arrays DS.b sizes"
+
+# Frames >32K: link #0 plus suba.l #size,A7 (not a truncated link #d16).
+check-frame: $(FRAME_ASM)
+	@echo "  check large-frame prologue in test_large_frame.s"
+	@grep -qi 'suba' $(FRAME_ASM) || (echo "FAIL: expected suba for frame >32K"; exit 1)
+	@grep -Eiq 'link[[:space:]]+A[0-7],#0([^0-9]|$)' $(FRAME_ASM) \
+		|| grep -Eiq 'link[[:space:]]+A[0-7],#\+?0([^0-9]|$)' $(FRAME_ASM) \
+		|| (echo "FAIL: expected link An,#0 for frame >32K"; exit 1)
+	@echo "  ok test_large_frame prologue"
 
 $(OUTDIR)/%.s: $(DEMODIR)/%.c
 	@echo "  $(CC) $<"

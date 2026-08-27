@@ -126,6 +126,14 @@ static long ac_exiting;
 static short ac_math_opened;
 static short ac_sing_opened;
 
+/*
+ * Set to 1 to print CRT startup breadcrumbs (acdbg: crt ...).
+ * Errors (cannot open library, SetupSTDIO failed) always print.
+ */
+#if !defined(AC_CRT_DEBUG)
+#define AC_CRT_DEBUG 0
+#endif
+
 static void
 ac_dos_msg(msg)
 char *msg;
@@ -141,6 +149,17 @@ char *msg;
 	out = Output();
 	if (out != 0)
 		Write(out, msg, n);
+}
+
+static void
+ac_crt_dbg(msg)
+char *msg;
+{
+#if AC_CRT_DEBUG
+	ac_dos_msg(msg);
+#else
+	msg = msg;
+#endif
 }
 
 static void
@@ -277,9 +296,9 @@ ac_crt_entry()
 	DOSBase = dos;
 
 	/* Early breadcrumb: crash before main leaves no Cmain acdbg lines. */
-	ac_dos_msg("acdbg: crt enter\n");
+	ac_crt_dbg("acdbg: crt enter\n");
 
-	ac_dos_msg("acdbg: crt utility\n");
+	ac_crt_dbg("acdbg: crt utility\n");
 	util = OpenLibrary("utility.library", 37L);
 	if (util == 0)
 		util = OpenLibrary("utility.library", 0L);
@@ -291,17 +310,17 @@ ac_crt_entry()
 	}
 	UtilityBase = util;
 
-	ac_dos_msg("acdbg: crt FindTask\n");
+	ac_crt_dbg("acdbg: crt FindTask\n");
 	pr = FindTask((char *)0);
 	if (pr->pr_CLI == 0L) {
 		WaitPort(&pr->pr_MsgPort);
 		WBenchMsg = (struct WBStartup *)GetMsg(&pr->pr_MsgPort);
 	} else if (DOSBase->lib_Version >= 37) {
-		ac_dos_msg("acdbg: crt GetArgStr\n");
+		ac_crt_dbg("acdbg: crt GetArgStr\n");
 		aptr = GetArgStr();
 	}
 
-	ac_dos_msg("acdbg: crt cclib\n");
+	ac_crt_dbg("acdbg: crt cclib\n");
 	CCLibBase = OpenLibrary("cclib.library", 4L);
 	if (CCLibBase == 0) {
 		ac_dos_msg("ac: cannot open cclib.library v4\n");
@@ -335,7 +354,7 @@ ac_crt_entry()
 		ac_sing_opened = 1;
 	}
 
-	ac_dos_msg("acdbg: crt SetupSTDIO\n");
+	ac_crt_dbg("acdbg: crt SetupSTDIO\n");
 	/*
 	 * Pass exit as the abort hook so Ctrl-C runs atexit + ClearSTDIO.
 	 * SetupSTDIO returns non-zero on success (cclib contract).
@@ -349,10 +368,10 @@ ac_crt_entry()
 		goto fail;
 	}
 
-	ac_dos_msg("acdbg: crt GetSTDIO\n");
+	ac_crt_dbg("acdbg: crt GetSTDIO\n");
 	ud = GetSTDIO();
 	if (ud != 0) {
-		ac_dos_msg("acdbg: crt -> main\n");
+		ac_crt_dbg("acdbg: crt -> main\n");
 		rv = main((int)ud->_argc, ud->_argv);
 	} else
 		rv = 20;

@@ -87,10 +87,18 @@ search(str, ptr)
 {
     register int    newkey;
     register SYM   *answer = NULL;
+    register int    n;
 
     newkey = hashkey(str);
 
+    /*
+     * Cap walk length: a circular SYM.next (bad insert) would hang the
+     * compiler with no diagnostic — seen as returncode 20 after Ctrl-C.
+     */
+    n = 0;
     while (ptr != NULL) {
+        if (++n > 100000)
+            break;
         if (ptr->key == newkey)
             if (ptr->name != NULL && strcmp(str, ptr->name) == 0)
                 answer = ptr;
