@@ -198,6 +198,71 @@ test_feature_macros()
 #endif
 }
 
+static int
+param_set_char(c, v)
+    char c;
+    int v;
+{
+    char *p;
+
+    p = &c;
+    *p = (char) v;
+    return (int) (unsigned char) c;
+}
+
+static int
+param_set_short(s, v)
+    short s;
+    int v;
+{
+    short *p;
+
+    p = &s;
+    *p = (short) v;
+    return (int) s;
+}
+
+static long
+sizeof_cparam(c)
+    char c;
+{
+    return (long) sizeof(c);
+}
+
+static long
+sizeof_sparam(s)
+    short s;
+{
+    return (long) sizeof(s);
+}
+
+static void
+test_param_addr()
+{
+    /*
+     * &char/&short param must hit the low bytes of the 4-byte BE slot.
+     */
+    expect_long("param/&char_write", (long) param_set_char(0, 0x5A), 0x5AL);
+    expect_long("param/&short_write", (long) param_set_short(0, 0x1234), 0x1234L);
+    expect_long("param/sizeof_char_param", sizeof_cparam(0), 1L);
+    expect_long("param/sizeof_short_param", sizeof_sparam(0), 2L);
+}
+
+static void
+test_bss_array_sizes()
+{
+    /*
+     * Regression: typesize_mul / type_size used to leave a bare count in
+     * tp->size so sizeof(int[10]) was 10 and BSS was DS.b 10.
+     */
+    expect_long("bss/sizeof_int10", (long) sizeof(int[10]), 40L);
+    expect_long("bss/sizeof_long5", (long) sizeof(long[5]), 20L);
+    expect_long("bss/sizeof_short8", (long) sizeof(short[8]), 16L);
+    expect_long("bss/sizeof_char16", (long) sizeof(char[16]), 16L);
+    expect_long("bss/sizeof_ptr10", (long) sizeof(char *[10]), 40L);
+    expect_long("bss/sizeof_intptr4", (long) sizeof(int *[4]), 16L);
+}
+
 static void
 test_compile_only_notes()
 {
@@ -207,6 +272,9 @@ test_compile_only_notes()
      */
     dejagnu_untested("compile/test_static_assert.c");
     dejagnu_untested("compile/test_cclib_syntax.c");
+    dejagnu_untested("compile/test_bss_arrays.c");
+    dejagnu_untested("compile/test_ac_debug_brace.c");
+    dejagnu_untested("compile/test_param_addr.c");
 }
 
 static void
@@ -248,6 +316,8 @@ main(void)
     test_alignas();
     test_bool_nullptr();
     test_types_size();
+    test_bss_array_sizes();
+    test_param_addr();
     test_feature_macros();
     test_compile_only_notes();
 

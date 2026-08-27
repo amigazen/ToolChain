@@ -7,6 +7,16 @@ This document outlines the comprehensive roadmap for bringing the PDC (Publicly 
 The PDC compiler (version 3.33) has basic ANSI C features but lacks full compliance with modern C standards. This TODO prioritizes C89/C90 compliance first, then C99 features.
 
 ### Recent Improvements (Latest Update)
+- ✅ **Amiga soft-float self-host (gen-0 → ac-self → ac-self2)** - Soft-float codegen and frame spills work through gen-2; `getfrac`/`getexp` emit `.Fl2d` / `.FD*` correctly
+- ✅ **`make_autocon` always allocates** - Fixed `#if AC_DEBUG` dangling-`if` that skipped `xalloc` in framed functions and smashed `&call_library` via a stale A2 (empty `jsr` after first `.Fl2d`)
+- ✅ **`#if AC_DEBUG` dangling-if audit** - Remaining sources use braced ifs or `#if` around diag only; rule documented in `C.h`; `demo/test_ac_debug_brace.c` smoke
+- ✅ **Global array BSS sizing** - `type_size()` recomputes count×elemsize when `tp->size` is a bare count; `typesize_mul` no longer returns count-only on poisoned elemsize; PreProc restored to real `FILE *inclfile[10]` etc.; `GetSym.c`/`Cmain.c` externs updated (no more `incl*_buf`); `demo/test_bss_arrays.c` + `bss/sizeof_*` in `ac_tests`
+- ✅ **char/short parameter addressing** - Keep declared type; BE 4-byte slot at +3/+2 in `Func.c`; `demo/test_param_addr.c` + `param/&*` in `ac_tests`
+- ✅ **Soft-float results in fresh frame slots** - `float_result_mem()` parks D0:D1; `make_legal(F_FREG)` no longer reuses one `float_auto` cell
+- ✅ **`link A5,#-N` frame size** - Placeholder immediates patched from final `lc_auto` (no empty `link A5,#` on float-return functions)
+- ✅ **Double returns reload D0:D1** - `genreturn` reloads from memory when the result is not already in registers
+- ✅ **Float const-fold restored** - `Optimize.c` `dooper`/`opt0` fold `v.f` again after soft-float ABI was fixed
+- ✅ **Lexer avoids float literals in GetSym** - `getfrac`/`getexp` use casts only so ac-self does not re-enter float lexing while compiling itself
 - ✅ **#pragma once** - Implemented single-include optimization
 - ✅ **#warning directive** - Added non-standard warning directive
 - ✅ **#error directive** - Enhanced error message formatting
@@ -404,17 +414,19 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 #### 1.4.1 Assembly Generation
 - [ ] **Optimization improvements** - Better peephole optimization
 - [ ] **Register allocation** - Improve register usage
-- [ ] **Stack management** - Fix stack frame handling
+- [x] **Stack management** - Soft-float/long-long frame spills and `link A5,#-N` sizing work on Amiga self-host; push-safe frameless omit still restricted
 - [ ] **Function calls** - Ensure proper calling conventions
-- [ ] **Return value handling** - Fix return value passing
+- [x] **Return value handling** - Double returns reload D0:D1 from memory when needed; long long already uses D0:D1
 
 #### 1.4.2 Known Bug Fixes
-- [ ] **Function parameter addressing** - Fix address-of parameter bug
-- [ ] **Floating-point operations** - Fix arithmetic assignment operators
+- [x] **Function parameter addressing** - char/short params keep declared type; `Func.c` places them at +3/+2 in a 4-byte big-endian slot so `&param` works; float still widens to double for the 8-byte push
+- [x] **Soft-float library codegen (self-host)** - Repeated `.Fl2d` / `.FD*` in one function (e.g. `GetSym` `getfrac`) emit correctly; root cause was `make_autocon` skipping `xalloc` when `AC_DEBUG` was off
+- [ ] **Floating-point arithmetic assignment** - `+=` / `-=` / etc. on float/double still worth a dedicated pass
 - [ ] **Stack frame limits** - Fix 32K stack frame limitation
 - [ ] **Buffer flushing** - Fix interactive file buffering
 - [x] **Parsing `unsigned long int`** - C89 allows optional `int` after `unsigned`/`signed`/`short`/`long` (and combinations like `unsigned long int`). Decl accepts any-order type-specifier lists via `decl_int_specs()`.
-- [ ] **Global array BSS sizing** - `T *foo[10]` / `int foo[10]` can emit `DS.b 10` under ac-self when element size is poisoned `(e_sc<<16)|n` and `typesize_mul` falls back to the count. Include-path tables use `char foo_buf[40]` instead. Still fix `typesize_mul` / TYP.size poison for general arrays.
+- [x] **Global array BSS sizing** - `type_size()` recovers count×elemsize when `tp->size` looks like a bare count; `typesize_mul` uses 4-byte fallback instead of count-only; PreProc uses real pointer arrays again
+- [x] **`#if AC_DEBUG` dangling-if audit** - Pattern documented in `C.h`; no remaining dangerous cases after `make_autocon` / `initstack` fixes
 
 ### 1.5 Error Handling and Diagnostics
 
@@ -456,7 +468,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - **Storage / ABI**: 8-byte memory (big-endian hi then lo); args as two stack longs; return in D0:D1; CSE does not park values in a single D-reg
   - **Constants**: `ival` + `ival_hi` pair (C89-safe); `LL`/`ULL` nodes carry both halves; global init emits two `DC.l`
   - **Codegen**: `add.l`/`addx.l` (and sub/subx) on D0:D1; `putconst` emits full 32-bit immediates (no `ICON16L` truncate); `addx`/`subx` opcode names fixed
-  - **Still open**: long long mul/div/mod quality; some narrow casts may still emit `move.f`; soft-float `.f` length mnemonic for size 8 is legacy FP naming
+  - **Still open**: long long mul/div/mod quality; some narrow casts may still emit `move.f`; soft-float self-host path is fixed (see §1.4.2)
 - [ ] **Complex types** - `_Complex` and `_Imaginary` types (or define `__STDC_NO_COMPLEX__`)
 - [x] **Boolean type** - `_Bool` / `bool` keywords and type system
   - [x] **`stdbool.h` vs keywords** - header no longer `#define`s `true`/`false` (keywords provide them)
@@ -537,16 +549,36 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - [x] **POSIX host struct sizes** - `SZ_SYM`/`SZ_TYP`/`SZ_ENODE` use `sizeof` on Mac/Linux; `xalloc` 8-byte-aligns on LP64
 - [x] **`long long` on m68k** - hi/lo memory + D0:D1 ops; see §2.1.1
 
-### 3.4 C23 still to do (not simple aliases)
+### 3.4 C23 / modern C still to do
 
-#### Remaining type-system work
+Near-term product goal: compile a real SSH stack on Amiga (prefer **Dropbear**
+as the first target — largely C89/C99-portable; **OpenSSH** as the stretch
+target). `__STDC_NO_*` macros are temporary honesty, **not** feature completion.
+Full C23 remains the long-term goal; order work by what SSH code actually uses.
+
+#### SSH-facing priority (do these before exotic C23)
+- [ ] **Solid `long long` compares/casts** - no more mistaken `.FDcmp` on `ull != 0`
+- [ ] **`__func__`** - logging / assert paths
+- [ ] **Flexible array members** - `T name[];` at end of struct (packet buffers)
+- [ ] **Designated initializers** - `.field =` / `[index] =`
+- [ ] **Compound literals** - `(type){...}` (OpenSSH ML-KEM / modern crypto)
+- [ ] **Anonymous structs/unions** - unnamed members (very common in C trees)
+- [ ] **Declarations after statements** - C99 mixed decls (OpenSSH sntrup / newer files)
+- [ ] **VLAs** - needed for some OpenSSH crypto paths; Dropbear can disable those
+- [ ] **Preprocessor robustness** - complex `#if` / `defined()` (configure output)
+- [ ] **`u8` string prefixes** - treat as ordinary strings initially
+
+OpenSSH *requires* C99 variadic macros (`__VA_ARGS__`) — already present.
+Dropbear can build closer to C89 if post-quantum options are off.
+
+#### Remaining type-system work (full C23; not “done” via NO_* macros)
 - [ ] **`_BitInt(N)`** - bit-precise integers (widths 1..64 on m68k) (+ `wb`/`uwb` suffixes)
 - [ ] **`typeof` / `typeof_unqual`** - type of expression / unqualified type
 - [x] **`alignof` / `_Alignof`**, **`alignas` / `_Alignas`** - + `<stdalign.h>`; forced align stored in TYP `_pad_typ` (CNOP 2/4/8)
 - [ ] **`auto` type inference** - deduce type from initializer
 - [ ] **`constexpr`** - compile-time constant objects
-- [ ] **`_Atomic`** - or define `__STDC_NO_ATOMICS__` as `1`
-- [ ] **`_Complex` / `_Imaginary`** - or define `__STDC_NO_COMPLEX__` as `1`
+- [ ] **`_Atomic`** - real atomics (today only `__STDC_NO_ATOMICS__=1`)
+- [ ] **`_Complex` / `_Imaginary`** - real complex types (today only `__STDC_NO_COMPLEX__=1`)
 - [ ] **`nullptr_t`** - distinct null-pointer type (today `nullptr` is `void*`)
 
 #### Often grouped with C23/C99 types (not keywords alone)
@@ -564,7 +596,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 
 #### Keywords / other
 - [x] **`static_assert` / `_Static_assert`** - compile-time assert (const-expr [, message]); file and block scope
-- [ ] **`thread_local` / `_Thread_local`** - or document as unsupported + `__STDC_NO_THREADS__`
+- [ ] **`thread_local` / `_Thread_local`** - real TLS (today only `__STDC_NO_THREADS__=1`)
 
 #### Preprocessor / macros
 - [ ] **`__func__`** - string of current function name (`lastfunc`)
@@ -573,7 +605,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - [ ] **`__VA_OPT__(...)`** - optional variadic macro tokens
 - [ ] **`#embed`** - binary resource inclusion
 - [ ] **Bump `__STDC_VERSION__`** toward `202311L` once a documented subset is claimed
-- [x] **Feature-absence macros** - `__STDC_NO_ATOMICS__`, `__STDC_NO_THREADS__`, `__STDC_NO_COMPLEX__`, `__STDC_NO_VLA__` as `1`
+- [x] **Feature-absence macros (interim)** - `__STDC_NO_ATOMICS__`, `__STDC_NO_THREADS__`, `__STDC_NO_COMPLEX__`, `__STDC_NO_VLA__` as `1` until real support lands
 
 #### Larger language features
 - [ ] **`_Generic`** - type-generic selection
@@ -583,13 +615,14 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 ## Implementation Priority
 
 ### High Priority (Must Fix)
-1. **Function parameter addressing bug** - Critical for basic functionality
-2. **Floating-point arithmetic** - Essential for math operations
-3. **Stack frame limitations** - Prevents large programs from compiling
-4. **Buffer flushing** - Affects I/O reliability
-5. **Complete preprocessor** - Required for most C programs
-6. ✅ **SAS/C parameter passing** - `__regargs` and `__stdargs` for library compatibility - **COMPLETED**
-7. **SAS/C memory management** - `__chip`, `__far`, `__near` for Amiga development
+1. ✅ **Function parameter addressing bug** - char/short `&param` / sizeof fixed (BE slot layout) - **COMPLETED**
+2. ✅ **Soft-float self-host codegen** - Amiga gen-2 soft-float path works (`make_autocon` / `float_result_mem` / link sizing) - **PAUSED HERE**
+3. **Floating-point arithmetic assignment** - Remaining FP assign-op edge cases
+4. **Stack frame limitations** - Prevents large programs from compiling
+5. **Buffer flushing** - Affects I/O reliability
+6. **Complete preprocessor** - Required for most C programs
+7. ✅ **SAS/C parameter passing** - `__regargs` and `__stdargs` for library compatibility - **COMPLETED**
+8. **SAS/C memory management** - `__chip`, `__far`, `__near` for Amiga development
 
 ### Medium Priority (Should Fix)
 1. **Standard library completeness** - Needed for portability

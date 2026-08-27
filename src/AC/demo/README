@@ -19,6 +19,16 @@ What gets built
 ---------------
 - `demo-out/<cc>/*.s` — compile-only smokes for each `test_*.c`
 - `demo-out/<cc>/ac_tests` — linked DejaGnu driver (`/demo/ac_tests.c`)
+- `demo-out/<cc>/cli/` — command-line option smoke outputs
+
+New smokes this turn
+--------------------
+- `test_bss_arrays.c` — global `int[10]` / `char*[10]` must get `DS.b 40` (not 10)
+- `test_ac_debug_brace.c` — documents the AC_DEBUG dangling-if brace rule
+- `ac_tests` also runs runtime `bss/sizeof_*` expects
+
+CLI options: `make demo-cli-self2` (also runs as part of `make demo-self2`).
+See `cli_opts.txt`.
 
 Example output
 --------------

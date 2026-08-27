@@ -31,6 +31,13 @@
 #   make report-ac             list bootstrap/ac/*.s
 #   make report-self           list bootstrap/self/*.s
 #
+# Demo regression suite (/demo):
+#
+#   make demo-self2 / demo-run-self2   DejaGnu ac_tests + compile smokes
+#   Run:  demo-out/ac-self2/ac_tests
+#   make demo-ac / demo-self / demo
+#   make clean-demo
+#
 # Toolchain (github/TCC/SDK):
 #
 #   C runtime = cclib.library (shared) + AC-native CRT in crt/ -- NOT ac.lib.
@@ -165,6 +172,11 @@ LINKLOG_SELF   = $(OUTDIR_SELF)/link.log
 	cclib-crt \
 	report report-ac report-self \
 	hello-dos \
+	demo demo-ac demo-self demo-self2 \
+	demo-run-ac demo-run-self demo-run-self2 \
+	demo-cli demo-cli-ac demo-cli-self demo-cli-self2 demo-cli-body \
+	demo-compile-ac demo-compile-self demo-compile-self2 \
+	demo-fail-ac demo-fail-self demo-fail-self2 clean-demo \
 	clean clean-ac clean-self clean-hello-dos clean-cclib-crt
 
 all: bootstrap-ac
@@ -195,6 +207,15 @@ help:
 	@echo "  Smoke test (existing ac-self2 only — does not rebuild the compiler):"
 	@echo "    make hello-dos           build $(HELLO_BIN); log: $(HELLO_CLOG)"
 	@echo "    Verbose: -a annotate asm, -l listing; -q quiet (no -v flag)"
+	@echo ""
+	@echo "  Demo regression (DejaGnu/GCC .sum output via ac_tests):"
+	@echo "    make demo-self2          compile smokes + link ac_tests"
+	@echo "    make demo-run-self2       build and run the suite"
+	@echo "    make demo-cli-self2       exercise AC command-line options"
+	@echo "    Run:  demo-out/ac-self2/ac_tests"
+	@echo "    make demo-ac / demo-self / demo"
+	@echo "    make demo-fail-self2      expect static_assert reject"
+	@echo "    make clean-demo"
 	@echo ""
 	@echo "  make clean             remove both trees and linked binaries"
 	@echo ""
@@ -350,6 +371,207 @@ $(HELLO_BIN): $(HELLO_WITH)
 	@echo "--- link log ($(HELLO_BIN)) ---"
 	- type $(HELLO_LOG)
 
+# --- demo regression suite ---
+# Sources: /demo (Amiga parent).  Output: demo-out/<compiler>/
+#
+#   make demo-self2     compile-check each test_*.c + link ac_tests (DejaGnu)
+#   demo-out/ac-self2/ac_tests
+#
+# ac_tests prints GCC/DejaGnu-style PASS/FAIL + Summary (compiler .sum format).
+DEMO_DIR       = /demo
+DEMO_OUT_AC    = demo-out/ac
+DEMO_OUT_SELF  = demo-out/ac-self
+DEMO_OUT_SELF2 = demo-out/ac-self2
+
+# Compile-only language smokes (must produce .s; not linked).
+DEMO_COMPILE = \
+	test_align \
+	test_binlit \
+	test_bss_arrays \
+	test_ac_debug_brace \
+	test_param_addr \
+	test_cclib_syntax \
+	test_static_assert \
+	test_types_suffixes
+
+# Runnable DejaGnu suite.
+DEMO_SUITE = ac_tests
+
+DEMO_ASM_AC    = $(DEMO_COMPILE:%=$(DEMO_OUT_AC)/%.s)
+DEMO_ASM_SELF  = $(DEMO_COMPILE:%=$(DEMO_OUT_SELF)/%.s)
+DEMO_ASM_SELF2 = $(DEMO_COMPILE:%=$(DEMO_OUT_SELF2)/%.s)
+
+$(DEMO_OUT_AC)/%.s: $(DEMO_DIR)/%.c
+	-makedir demo-out
+	-makedir $(DEMO_OUT_AC)
+	@echo "  $(ACC) $<"
+	$(ACC) $(ACFLAGS) -q -c -o $@ $<
+
+$(DEMO_OUT_SELF)/%.s: $(DEMO_DIR)/%.c
+	-makedir demo-out
+	-makedir $(DEMO_OUT_SELF)
+	@echo "  $(ACSELF_CC) $<"
+	$(ACSELF_CC) $(ACFLAGS) -q -c -o $@ $<
+
+$(DEMO_OUT_SELF2)/%.s: $(DEMO_DIR)/%.c
+	-makedir demo-out
+	-makedir $(DEMO_OUT_SELF2)
+	@echo "  $(BIN_SELF) $<"
+	$(BIN_SELF) $(ACFLAGS) -q -c -o $@ $<
+
+$(DEMO_OUT_AC)/$(DEMO_SUITE).o: $(DEMO_OUT_AC)/$(DEMO_SUITE).s
+	$(A68K) -o$@ $<
+
+$(DEMO_OUT_SELF)/$(DEMO_SUITE).o: $(DEMO_OUT_SELF)/$(DEMO_SUITE).s
+	$(A68K) -o$@ $<
+
+$(DEMO_OUT_SELF2)/$(DEMO_SUITE).o: $(DEMO_OUT_SELF2)/$(DEMO_SUITE).s
+	$(A68K) -o$@ $<
+
+$(DEMO_OUT_AC)/$(DEMO_SUITE): $(DEMO_OUT_AC)/$(DEMO_SUITE).o $(CRT_OBJS)
+	-delete $@.with QUIET
+	-delete $@.blink.log QUIET
+	@echo from $(CRT_START) + >$@.with
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $< >>$@.with
+	@echo library $(word 1,$(LIBS)) >>$@.with
+	@echo "to $@" >>$@.with
+	@echo ver $@.blink.log >>$@.with
+	$(LINKER) with $@.with
+	@echo "--- link log ($@) ---"
+	- type $@.blink.log
+
+$(DEMO_OUT_SELF)/$(DEMO_SUITE): $(DEMO_OUT_SELF)/$(DEMO_SUITE).o $(CRT_OBJS)
+	-delete $@.with QUIET
+	-delete $@.blink.log QUIET
+	@echo from $(CRT_START) + >$@.with
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $< >>$@.with
+	@echo library $(word 1,$(LIBS)) >>$@.with
+	@echo "to $@" >>$@.with
+	@echo ver $@.blink.log >>$@.with
+	$(LINKER) with $@.with
+	@echo "--- link log ($@) ---"
+	- type $@.blink.log
+
+$(DEMO_OUT_SELF2)/$(DEMO_SUITE): $(DEMO_OUT_SELF2)/$(DEMO_SUITE).o $(CRT_OBJS)
+	-delete $@.with QUIET
+	-delete $@.blink.log QUIET
+	@echo from $(CRT_START) + >$@.with
+	@echo $(CRT_DIR)/ac_crt.o $(CRT_DIR)/ac_lvos.o $< >>$@.with
+	@echo library $(word 1,$(LIBS)) >>$@.with
+	@echo "to $@" >>$@.with
+	@echo ver $@.blink.log >>$@.with
+	$(LINKER) with $@.with
+	@echo "--- link log ($@) ---"
+	- type $@.blink.log
+
+demo-ac: cclib-crt $(DEMO_ASM_AC) $(DEMO_OUT_AC)/$(DEMO_SUITE) demo-cli-ac
+	@echo "--- demo-ac OK; run $(DEMO_OUT_AC)/$(DEMO_SUITE) ---"
+
+demo-self: cclib-crt $(DEMO_ASM_SELF) $(DEMO_OUT_SELF)/$(DEMO_SUITE) demo-cli-self
+	@echo "--- demo-self OK; run $(DEMO_OUT_SELF)/$(DEMO_SUITE) ---"
+
+demo-self2: cclib-crt $(DEMO_ASM_SELF2) $(DEMO_OUT_SELF2)/$(DEMO_SUITE) demo-cli-self2
+	@echo "--- demo-self2 OK; run $(DEMO_OUT_SELF2)/$(DEMO_SUITE) ---"
+
+demo: demo-ac demo-self demo-self2
+	@echo "--- demo suite built for $(ACC), $(ACSELF_CC), $(BIN_SELF) ---"
+
+demo-run-ac: demo-ac
+	$(DEMO_OUT_AC)/$(DEMO_SUITE)
+
+demo-run-self: demo-self
+	$(DEMO_OUT_SELF)/$(DEMO_SUITE)
+
+demo-run-self2: demo-self2
+	$(DEMO_OUT_SELF2)/$(DEMO_SUITE)
+
+# --- AC command-line option smoke (see /demo/cli_opts.txt) ---
+CLI_PROBE   = $(DEMO_DIR)/cli_probe.c
+CLI_MIN     = $(DEMO_DIR)/cli_min.c
+CLI_INCDIR  = $(DEMO_DIR)/cli_inc
+
+demo-cli-ac: CLI_CC=$(ACC)
+demo-cli-ac: CLI_DIR=$(DEMO_OUT_AC)/cli
+demo-cli-ac: demo-cli-body
+
+demo-cli-self: CLI_CC=$(ACSELF_CC)
+demo-cli-self: CLI_DIR=$(DEMO_OUT_SELF)/cli
+demo-cli-self: demo-cli-body
+
+demo-cli-self2: CLI_CC=$(BIN_SELF)
+demo-cli-self2: CLI_DIR=$(DEMO_OUT_SELF2)/cli
+demo-cli-self2: demo-cli-body
+
+demo-cli: demo-cli-ac demo-cli-self demo-cli-self2
+	@echo "--- demo-cli OK for $(ACC), $(ACSELF_CC), $(BIN_SELF) ---"
+
+demo-cli-body:
+	@echo "--- CLI option smoke with $(CLI_CC) -> $(CLI_DIR) ---"
+	-makedir demo-out
+	-makedir $(CLI_DIR)
+	@echo "  -c -o -q -D -I"
+	$(CLI_CC) -q -c -o $(CLI_DIR)/probe.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -D/-U"
+	$(CLI_CC) -q -c -o $(CLI_DIR)/probe_u.s -DCLI_MUST_BE_SET=42 -DCLI_MUST_BE_UNDEF=1 -UCLI_MUST_BE_UNDEF -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -a -b -g -l -r -S (on cli_probe)"
+	$(CLI_CC) -q -c -a -b -g -l -r -S -o $(CLI_DIR)/probe_flags.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -n (optimize off; uses cli_min — #if compares break under -n)"
+	$(CLI_CC) -q -c -n -o $(CLI_DIR)/min_n.s $(CLI_MIN)
+	@echo "  -f gcc|sasc|pdc and -f 5"
+	$(CLI_CC) -q -c -f gcc -o $(CLI_DIR)/probe_fgcc.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	$(CLI_CC) -q -c -f sasc -o $(CLI_DIR)/probe_fsasc.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	$(CLI_CC) -q -c -f pdc -o $(CLI_DIR)/probe_fpdc.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	$(CLI_CC) -q -c -f 5 -o $(CLI_DIR)/probe_fp.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -W column|no-column|error|no-error"
+	$(CLI_CC) -q -c -W column -o $(CLI_DIR)/probe_wcol.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	$(CLI_CC) -q -c -W no-column -o $(CLI_DIR)/probe_wnocol.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	$(CLI_CC) -q -c -W error -o $(CLI_DIR)/probe_werr.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	$(CLI_CC) -q -c -W no-error -o $(CLI_DIR)/probe_wnoerr.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -E (preprocess-only flag accepted)"
+	$(CLI_CC) -q -E -c -o $(CLI_DIR)/probe_E.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -P 0 (precomp enable)"
+	$(CLI_CC) -q -c -P 0 -o $(CLI_DIR)/probe_P.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -L (not implemented message)"
+	$(CLI_CC) -q -c -L ignored -o $(CLI_DIR)/probe_L.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -s (strip toggle; documented unimplemented)"
+	$(CLI_CC) -q -c -s -o $(CLI_DIR)/probe_s.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
+	@echo "  -? help (exits 1)"
+	-$(CLI_CC) -?
+	@echo "--- CLI option smoke OK ($(CLI_CC)) ---"
+
+demo-compile-ac: $(DEMO_ASM_AC)
+	@echo "--- demo-compile-ac OK ---"
+
+demo-compile-self: $(DEMO_ASM_SELF)
+	@echo "--- demo-compile-self OK ---"
+
+demo-compile-self2: $(DEMO_ASM_SELF2)
+	@echo "--- demo-compile-self2 OK ---"
+
+demo-fail-ac:
+	-makedir demo-out
+	-makedir $(DEMO_OUT_AC)
+	-delete $(DEMO_OUT_AC)/test_static_assert_fail.s QUIET
+	-$(ACC) $(ACFLAGS) -q -c -o $(DEMO_OUT_AC)/test_static_assert_fail.s $(DEMO_DIR)/test_static_assert_fail.c
+	@echo "--- expect-fail $(ACC): confirm static_assert error above ---"
+
+demo-fail-self:
+	-makedir demo-out
+	-makedir $(DEMO_OUT_SELF)
+	-delete $(DEMO_OUT_SELF)/test_static_assert_fail.s QUIET
+	-$(ACSELF_CC) $(ACFLAGS) -q -c -o $(DEMO_OUT_SELF)/test_static_assert_fail.s $(DEMO_DIR)/test_static_assert_fail.c
+	@echo "--- expect-fail $(ACSELF_CC): confirm static_assert error above ---"
+
+demo-fail-self2:
+	-makedir demo-out
+	-makedir $(DEMO_OUT_SELF2)
+	-delete $(DEMO_OUT_SELF2)/test_static_assert_fail.s QUIET
+	-$(BIN_SELF) $(ACFLAGS) -q -c -o $(DEMO_OUT_SELF2)/test_static_assert_fail.s $(DEMO_DIR)/test_static_assert_fail.c
+	@echo "--- expect-fail $(BIN_SELF): confirm static_assert error above ---"
+
+clean-demo:
+	-delete demo-out ALL QUIET
+
 report-ac: bootstrap-ac
 	@echo "--- $(ACC) bootstrap report ($(OUTDIR_AC)) ---"
 	-list $(OUTDIR_AC)/#?.s
@@ -389,4 +611,4 @@ clean-cclib-crt:
 	-delete $(CRT_DIR)/ac_crt.s QUIET
 	-delete $(CRT_DIR)/ac_lvos.o QUIET
 
-clean: clean-ac clean-self clean-hello-dos clean-cclib-crt
+clean: clean-ac clean-self clean-hello-dos clean-cclib-crt clean-demo
