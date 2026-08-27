@@ -44,6 +44,7 @@ extern int      gen_flibcall(struct enode *node, int argbytes);
 extern int      gen_syscall(struct enode *node, int argbytes);
 extern int      gen_tagcall(struct enode *node, int argbytes);
 extern void     call_library();
+extern struct amode *float_result_mem();
 
 #define MAX_SHIFT   8
 
@@ -135,7 +136,9 @@ make_offset(node)
     struct amode   *ap;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in make_offset.\n" );
+#endif
         return NULL;
     }
 
@@ -180,6 +183,8 @@ make_delta(ap1, delta)
         ap1->offset = makenode(en_icon, delta, NULL);
         break;
     case am_indx:
+        if (ap1->offset == NULL)
+            break;
         if (ap1->offset->nodetype == en_icon) {
             long sum;
 
@@ -189,7 +194,9 @@ make_delta(ap1, delta)
         }
         break;
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- uncoded operand in make_delta\n" );
+#endif
         break;
     }
     return (ap1);
@@ -274,7 +281,38 @@ make_legal(ap, flags, size)
     struct amode   *ap2, *ap3, *mem;
 
     if (ap == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL pointer in make_legal\n" );
+#endif
+        return;
+    }
+
+    /*
+     * Size-8 check must run before the "already in An/Dn" early returns.
+     * Otherwise F_ALL|F_DREG accepts a single D-reg as a legal 64-bit
+     * value and later code emits move.f / wrong soft-float setup.
+     */
+    if (size == 8 && !(flags & F_FREG)) {
+        switch (ap->mode) {
+        case am_ind:
+        case am_indx:
+        case am_indx2:
+        case am_xpc:
+        case am_direct:
+        case am_indx3:
+            if (flags & F_MEM)
+                return;
+            break;
+        default:
+            break;
+        }
+        mem = ll_to_mem(ap);
+        ap->mode = mem->mode;
+        ap->preg = mem->preg;
+        ap->sreg = mem->sreg;
+        ap->deep = mem->deep;
+        ap->offset = mem->offset;
+        ap->tempflag = 1;
         return;
     }
 
@@ -308,22 +346,6 @@ make_legal(ap, flags, size)
             break;
         }
     }
-    /*
-     * 64-bit integers must not be forced into a single D-register
-     * (move.f).  Prefer memory; F_FREG path below handles FP.
-     */
-    if (size == 8 && (flags & F_DREG) && !(flags & F_FREG)) {
-        mem = ll_to_mem(ap);
-        ap->mode = mem->mode;
-        ap->preg = mem->preg;
-        ap->sreg = mem->sreg;
-        ap->deep = mem->deep;
-        ap->offset = mem->offset;
-        ap->tempflag = 1;
-        if (flags & F_MEM)
-            return;
-        /* Fall through only if caller insisted on a register result. */
-    }
     if (flags & F_DREG) {
         freeop(ap); /* maybe we can use it... */
         ap2 = temp_data();  /* allocate to dreg */
@@ -355,8 +377,11 @@ make_legal(ap, flags, size)
     if (flags & F_FREG) {
         if (ap->mode == am_dreg || ap->mode == am_immed) {
             /*
-             * Integer in a double expression: convert with .Fl2d and keep
-             * the result on the stack so gen_fbinary can pass A0 to FD*.
+             * Integer in a double expression: convert with .Fl2d and park
+             * in a fresh frame slot (not the shared float_auto).  Reusing
+             * one slot for every make_legal F_FREG clobbered the previous
+             * operand and left gen_fbinary with a dead EA — ac-self then
+             * emitted empty "jsr" / "move.l" in getfrac (2nd Fl2d).
              */
             if (ap->mode == am_immed) {
                 gen_code(op_move, 4, ap, makedreg((enum e_am) 0));
@@ -365,16 +390,8 @@ make_legal(ap, flags, size)
             }
             PdcFlags |= PDC_IEEEDOUBLE;
             call_library(".Fl2d");
-            if (float_auto == 0) {
-                lc_auto += 8;
-                float_auto = lc_auto;
-            }
-            ap2 = make_autocon(-float_auto);
-            gen_code(op_move, 4, makedreg((enum e_am) 0), ap2);
-            ap2 = make_delta(ap2, 4);
-            gen_code(op_move, 4, makedreg((enum e_am) 1), ap2);
             freeop(ap);
-            ap3 = make_autocon(-float_auto);
+            ap3 = float_result_mem();
             ap->mode = ap3->mode;
             ap->preg = ap3->preg;
             ap->sreg = ap3->sreg;
@@ -383,7 +400,9 @@ make_legal(ap, flags, size)
             ap->signedflag = ap3->signedflag;
             ap->tempflag = 1;
         } else if (ap->mode == am_areg) {
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, "DIAG -- Error in make_legal\n" );
+#endif
         } else {
             ap3 = temp_float();
             ap2 = copy_addr(ap);
@@ -454,11 +473,23 @@ do_extend(ap, isize, osize, flags, is_signed)
     struct amode   *ap1;
 
     if (ap == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in do_extend.\n" );
+#endif
         return;
     }
 
     if (isize == osize)
+        return;
+
+    /*
+     * do_extend used to strip F_MEM then make_legal(..., isize) with only
+     * F_AREG|F_DREG.  For a double EA requested as size 4 (soft-float wants
+     * the address, not a load), that became flags==0 / size 8 and fell into
+     * the A-reg path → illegal "move.f 8(A0),A0".  64-bit objects stay in
+     * memory; there is no 68000 sign-extend between 4 and 8 via An/Dn.
+     */
+    if (isize == 8 || osize == 8)
         return;
 
     if (ap->mode != am_areg && ap->mode != am_dreg)
@@ -517,7 +548,9 @@ isshort(node)
     long            v;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in isshort.\n" );
+#endif
         return FALSE;
     }
     if (node->nodetype != en_icon)
@@ -537,7 +570,9 @@ isbyte(node)
     long            v;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in isbyte.\n" );
+#endif
         return FALSE;
     }
     if (node->nodetype != en_icon)
@@ -555,7 +590,9 @@ gen_extend(node, flags, size)
     int             siz1, siz2, is_signed;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_extend.\n" );
+#endif
         return NULL;
     }
 
@@ -611,7 +648,9 @@ gen_index(node)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_index.\n" );
+#endif
         return NULL;
     }
     if (node->v.p[0]->nodetype == en_tempref &&
@@ -687,8 +726,13 @@ gen_index(node)
         gen_code(op_add, 4, ap1, ap2);  /* add right to address reg */
         ap2->mode = am_ind; /* make indirect        */
         freeop(ap1);
-        ap1 = request_reg(ap2);
-        return ap1; /* return indirect      */
+        /*
+         * Do not request_reg(ap2): it re-allocates the same A0/A1 and
+         * gen_push-spills the live pointer onto the stack with no matching
+         * pop — stack leak that trashes argv during getopt (ac-self
+         * "can't open input ahafadaba...").
+         */
+        return ap2;
     }
     else {
         ap3 = temp_addr();
@@ -697,8 +741,7 @@ gen_index(node)
         ap3->mode = am_ind;             /* make indirect        */
         freeop(ap2);                    /* release any temps in ap2 */
         freeop(ap1);
-        ap1 = request_reg(ap3);
-        return ap1;                     /* return indirect      */
+        return ap3;
     }
 }
 
@@ -709,13 +752,64 @@ make_autocon(lab)
 {
     struct amode   *ap1;
 
+    /*
+     * Always xalloc.  A bare
+     *   if (omit_frame && lab < 0)
+     * #if AC_DEBUG
+     *       fprintf(...);
+     * #endif
+     *   ap1 = xalloc(...);
+     * made xalloc the if-body when AC_DEBUG was off — framed functions
+     * then skipped allocation and wrote through a stale A2 (often
+     * &call_library after gen_fsconvert's lea).  That smashed the first
+     * soft-float helper; getfrac's 2nd .Fl2d became an empty "jsr".
+     */
+#if AC_DEBUG
+    if (omit_frame && lab < 0)
+        fprintf(AC_DIAG_STREAM,
+            "DIAG -- frame slot requested in frameless function\n");
+#endif
     ap1 = (struct amode *) xalloc(sizeof(struct amode));
     ap1->signedflag = 1;
     ap1->mode = am_indx;
-    ap1->preg = (enum e_am) Options.Frame;
+    ap1->preg = (enum e_am) frame_areg();
     ap1->deep = 0;
-    ap1->offset = makenode(en_icon, (long) lab, NULL);
+    ap1->offset = makenode(en_icon, frame_disp((long) lab), NULL);
     return ap1;
+}
+
+/*
+ * Address register used for locals/params: A7 when frameless, else -f frame.
+ */
+int
+frame_areg()
+{
+    if (omit_frame)
+        return 7;
+    return Options.Frame;
+}
+
+/*
+ * Param offsets are laid out as if link ran (first arg at 8). Without a
+ * frame they live at 4(A7), or 4+4*k(A7) after saving k longwords.
+ */
+long
+frame_disp(off)
+    long            off;
+{
+    int             k;
+    int             m;
+
+    if (!omit_frame)
+        return off;
+    if (off <= 0)
+        return off;
+    k = 0;
+    for (m = save_mask; m != 0; m >>= 1) {
+        if (m & 1)
+            ++k;
+    }
+    return off - 4L + (4L * (long) k);
 }
 
 
@@ -733,7 +827,9 @@ gen_deref(node, flags, size)
     int             is_signed;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_deref.\n" );
+#endif
         return NULL;
     }
 
@@ -767,7 +863,31 @@ gen_deref(node, flags, size)
         break;
     }
 
-    if (node->nodetype == en_d_ref) {
+    /*
+     * Double frame locals must use the autocon path below (n(A5)).
+     * The old catch-all for every en_d_ref ran first, turned #autocon
+     * into a temp An via peep (lea → am_direct), then returned 0(An).
+     * A later lea of that amode could emit "lea ,A0" (A68k error) —
+     * seen compiling getfrac's ((double)digs)/scale in selfhost-ac.
+     */
+    if (node->nodetype == en_d_ref
+        && node->v.p[0] != NULL
+        && node->v.p[0]->nodetype != en_autocon
+        && node->v.p[0]->nodetype != en_add) {
+        /*
+         * Label/global doubles: keep am_direct so soft-float can
+         * lea Lxxx,A0 once.  Loading into An then returning 0(An)
+         * forced gen_fbinary to push/lea around every .FD* call.
+         */
+        if (node->v.p[0]->nodetype == en_labcon
+            || node->v.p[0]->nodetype == en_nacon) {
+            ap1 = gen_expr(node->v.p[0], F_IMMED | F_ALL, 4);
+            if (ap1->mode == am_immed) {
+                ap1->mode = am_direct;
+                ap1->signedflag = 1;
+                return ap1;
+            }
+        }
         ap1 = gen_expr(node->v.p[0], F_ALL, 4);
         if (ap1->mode == am_areg) {
             ap1->signedflag = 1;
@@ -794,9 +914,10 @@ gen_deref(node, flags, size)
         ap1 = (struct amode *) xalloc(sizeof(struct amode));
         ap1->signedflag = node->v.p[0]->signedflag;
         ap1->mode = am_indx;
-        ap1->preg = (enum e_am) Options.Frame;
+        ap1->preg = (enum e_am) frame_areg();
         ap1->deep = 0;
-        ap1->offset = makenode(en_icon, ICON16L(node->v.p[0]->v.i), NULL);
+        ap1->offset = makenode(en_icon,
+            frame_disp(ICON16L(node->v.p[0]->v.i)), NULL);
         do_extend(ap1, siz1, size, flags, is_signed);
         make_legal(ap1, flags, size);
         return ap1;
@@ -830,7 +951,9 @@ gen_unary(node, flags, size, op)
     struct amode   *ap, *ap3, *hi, *lo, *d0, *d1;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_unary.\n" );
+#endif
         return NULL;
     }
 
@@ -889,7 +1012,9 @@ gen_binary(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_binary.\n" );
+#endif
         return NULL;
     }
 
@@ -953,7 +1078,9 @@ gen_llbinary(node, flags, size, op)
 
     (void)size;
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llbinary.\n" );
+#endif
         return NULL;
     }
 
@@ -1014,7 +1141,9 @@ gen_llmul(node, flags, size)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llmul.\n" );
+#endif
         return NULL;
     }
 
@@ -1073,7 +1202,9 @@ gen_lldiv(node, flags, size)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_lldiv.\n" );
+#endif
         return NULL;
     }
 
@@ -1132,7 +1263,9 @@ gen_llmod(node, flags, size)
     struct amode   *ap1, *ap2, *ap3;
     
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llmod.\n" );
+#endif
         return NULL;
     }
 
@@ -1191,7 +1324,9 @@ gen_llextend(node, flags, size)
     struct amode   *ap1, *ap2;
     
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_llextend.\n" );
+#endif
         return NULL;
     }
 
@@ -1247,7 +1382,9 @@ gen_xbin(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_xbin.\n" );
+#endif
         return NULL;
     }
 
@@ -1291,7 +1428,9 @@ gen_shift(node, flags, size, op)
     struct enode   *ep1;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_shift.\n" );
+#endif
         return NULL;
     }
 
@@ -1346,7 +1485,9 @@ swap_nodes(node)
     struct enode   *temp;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in swap_nodes.\n" );
+#endif
         return;
     }
     temp = node->v.p[0];
@@ -1369,7 +1510,9 @@ gen_modiv(node, flags, size, op )
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_modiv.\n" );
+#endif
         return NULL;
     }
 
@@ -1474,7 +1617,9 @@ gen_mul(node, flags, size, op)
     int             i, b2, bits, mask, last;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_mul.\n" );
+#endif
         return NULL;
     }
 
@@ -1580,7 +1725,9 @@ gen_hook(node, flags, size)
     int             false_label, end_label;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_hook.\n" );
+#endif
         return NULL;
     }
 
@@ -1642,7 +1789,9 @@ gen_asadd(node, flags, size, op)
     int             ssize;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asadd.\n" );
+#endif
         return NULL;
     }
     ssize = natural_size(node->v.p[0]);
@@ -1673,7 +1822,9 @@ gen_aslogic(node, flags, size, op)
     int             ssize;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_aslogic.\n" );
+#endif
         return NULL;
     }
     ssize = natural_size(node->v.p[0]);
@@ -1714,7 +1865,9 @@ gen_asshift(node, flags, size, op)
     struct enode   *ep1;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asshift.\n" );
+#endif
         return NULL;
     }
 
@@ -1760,7 +1913,9 @@ gen_asmul(node, flags, size)
     int             mask, b2, bits, i, last, numbits;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asmul.\n" );
+#endif
         return NULL;
     }
 
@@ -1869,7 +2024,9 @@ gen_asmodiv(node, flags, size, op)
     struct amode   *ap1, *ap2, *ap3;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_asmodiv.\n" );
+#endif
         return NULL;
     }
 
@@ -2050,7 +2207,9 @@ gen_assign(node, flags, size)
     int             ssize, is_signed, size1, size2;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_assign.\n" );
+#endif
         return NULL;
     }
 
@@ -2080,7 +2239,9 @@ gen_assign(node, flags, size)
 		is_signed = 1;
         break;
 	default:
+#if AC_DEBUG
 		fprintf(AC_DIAG_STREAM, "DIAG -- Uncoded LHS\n" );
+#endif
 		break;
     }
 
@@ -2171,7 +2332,9 @@ gen_aincdec(node, flags, size, op)
     int             siz1, amount;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_aincdec.\n" );
+#endif
         return NULL;
     }
 
@@ -2324,7 +2487,9 @@ getsize(node)
     case en_cond:
         return getsize(node->v.p[1]);
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- getsize error.\n" );
+#endif
         break;
     }
     return 0;
@@ -2342,7 +2507,9 @@ push_param(ep, size)
     struct amode   *ap1, *ap2;
 
     if (ep == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL pointer in push_param\n" );
+#endif
         return (0);
     }
 
@@ -2412,7 +2579,9 @@ gen_fcall(node, flags)
     int             i;
 
     if (node == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- null node in gen_fcall.\n" );
+#endif
         return NULL;
     }
 
@@ -2425,8 +2594,35 @@ gen_fcall(node, flags)
             if (!gen_flibcall(node, i)) {
                 if (!gen_syscall(node, i)) {
                     if (!gen_tagcall(node, i)) {
-                        if (node->v.p[0]->nodetype == en_nacon)
-                            gen_code(op_jsr, 0, make_offset(node->v.p[0]), NULL);
+                        if (node->v.p[0]->nodetype == en_nacon) {
+                            /*
+                             * bsr.w (4 bytes) for symbols defined in this TU
+                             * (sc_global gets XDEF).  jsr.abs (6 bytes) for
+                             * XREF externals/library.  A68k rejects bsr on XREF.
+                             */
+                            SYM            *csp;
+                            int             use_bsr;
+
+                            use_bsr = 0;
+                            csp = gsearch(node->v.p[0]->v.sp);
+                            if (csp != NULL) {
+                                if (csp->storage_class == sc_static)
+                                    use_bsr = 1;
+                                else if (csp->storage_class != sc_external
+                                         && csp->storage_class != sc_library) {
+                                    if (csp->tp != NULL
+                                        && (csp->tp->type == bt_ifunc
+                                            || csp->tp->type == bt_func))
+                                        use_bsr = 1;
+                                }
+                            }
+                            if (use_bsr)
+                                gen_code(op_bsr, 0,
+                                         make_offset(node->v.p[0]), NULL);
+                            else
+                                gen_code(op_jsr, 0,
+                                         make_offset(node->v.p[0]), NULL);
+                        }
                         else {
                             ap = gen_expr(node->v.p[0], F_AREG, 4);
                             make_legal(ap, F_AREG, 4);
@@ -2502,7 +2698,13 @@ gen_expr(node, flags, size)
         ap1->signedflag = node->signedflag;
         ap1->mode = am_immed;
         ap1->offset = node;
-        if (node->nodetype == en_icon && (node->size == 8 || size == 8)) {
+        /*
+         * Only true long-long constants (node->size == 8).  The size
+         * argument is the caller's preferred width — double contexts
+         * pass 8 for F_FREG, which must NOT treat an int icon as a
+         * 64-bit bit-pattern (that skipped .Fl2d and broke soft-float).
+         */
+        if (node->nodetype == en_icon && node->size == 8) {
             /* Materialize 64-bit constant as hi/lo memory words. */
             ap1 = ll_to_mem(ap1);
             make_legal(ap1, flags, 8);
@@ -2515,8 +2717,8 @@ gen_expr(node, flags, size)
         ap2 = (struct amode *) xalloc(sizeof(struct amode));
         ap2->signedflag = node->signedflag;
         ap2->mode = am_immed;
-        ap2->preg = (enum e_am) Options.Frame;  /* frame pointer */
-        ap2->offset = node; /* use as constant node */
+        ap2->preg = (enum e_am) frame_areg();
+        ap2->offset = node; /* use as constant node; putconst adjusts */
         if (!(flags & F_IMMED)) {
             natsize = natural_size(node);
             if (natsize > size)
@@ -2715,7 +2917,9 @@ gen_expr(node, flags, size)
     case en_fcall:
         return gen_fcall(node, flags);
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- uncoded node in gen_expr.\n");
+#endif
         return NULL;
     }
     return NULL;
@@ -2863,7 +3067,9 @@ natural_size(node)
     case en_cond:
         return natural_size(node->v.p[1]);
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- natural size error.\n" );
+#endif
         break;
     }
     return 0;

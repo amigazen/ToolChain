@@ -688,37 +688,59 @@ getbase(b)
 
 /*
  * getfrac - get fraction part of a floating number.
+ *
+ * Digits and the 10^n scale are gathered as integers so this function's
+ * own source has no floating literals (1.0 / 10.0).  Compiling GetSym.c
+ * with ac-self used to re-enter getfrac while lexing those literals and
+ * die mid-_getfrac; casts only need .Fl2d/.FDdiv/.FDadd at runtime.
  */
 
 void
 getfrac()
 {
-    double          frmul;
+    long            digs;
+    long            scale;
+    int             n, maxn;
 
-    frmul = 0.1;
-    while (isdigit(lastch)) {
-        rval += frmul * (lastch - '0');
+    digs = 0;
+    n = 0;
+    maxn = 9;       /* fit in signed 32-bit with room */
+    while (lastch >= '0' && lastch <= '9') {
+        if (n < maxn)
+            digs = digs * 10 + (lastch - '0');
+        n++;
         getch();
-        frmul *= 0.1;
     }
+    if (n == 0)
+        return;
+    if (n > maxn)
+        n = maxn;
+    scale = 1;
+    while (n-- > 0)
+        scale = scale * 10;
+    rval = rval + ((double) digs) / ((double) scale);
 }
 
 /*
  * getexp - get exponent part of floating number.
- * 
- * this algorithm is primative but usefull.  Floating exponents are limited to
- * +/-255 but most hardware won't support more anyway.
+ *
+ * Same rule as getfrac: no floating literals in this source.  Exponent
+ * magnitude is capped at 310; scale with square-and-multiply on doubles
+ * built only from integer casts.
  */
 
 void
 getexp()
 {
-    int             nexp = 0;
+    int             neg;
+    long            e;
+    double          base, acc;
 
     if (lastst != rconst)
-        rval = ival;
+        rval = (double) ival;
+    neg = 0;
     if (lastch == '+' || lastch == '-') {
-        nexp = (lastch == '-');
+        neg = (lastch == '-');
         getch();
     }
     getbase(10);
@@ -726,14 +748,20 @@ getexp()
     if (ival > 310)
         error(ERR_FPCON, NULL);
     else {
-        if (nexp) {
-            while (ival-- > 0)
-                rval *= 0.1;
+        e = ival;
+        if (e < 0)
+            e = -e;
+        base = (double) 10;
+        if (neg)
+            base = ((double) 1) / base;
+        acc = (double) 1;
+        while (e > 0) {
+            if (e & 1)
+                acc = acc * base;
+            base = base * base;
+            e >>= 1;
         }
-        else {
-            while (ival-- > 0)
-                rval *= 10.0;
-        }
+        rval = rval * acc;
     }
     lastst = rconst;
 }
@@ -817,7 +845,8 @@ getnumber()
 void
 getdotnumber()
 {
-    rval = 0.0;     /* float the integer part */
+    /* No "0.0" literal — see getfrac comment (ac-self compiling GetSym). */
+    rval = (double) 0;
     getfrac();      /* add the fractional part */
     lastst = rconst;
 

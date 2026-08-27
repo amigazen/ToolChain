@@ -92,7 +92,9 @@ move_stack(st, loc, index, delta)
         stackstate[index].state = sr_void2;
         break;
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- case error in move_stack\n");
+#endif
         break;
     }
 }
@@ -123,7 +125,9 @@ pop_stack(st, loc)
         }
     }
     if (index < 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "PDC-BUG: pop_stack\n");
+#endif
         return;
     }
     delta = 0;
@@ -154,7 +158,7 @@ pop_stack(st, loc)
             break;
         case sr_addr:
             for (i = deep + 2; i < next_addr; i += 2) {
-                if (addrtbl[i] != sr_empty || addrtbl[i] != sr_void) {
+                if (addrtbl[i] != sr_empty && addrtbl[i] != sr_void) {
                     move_stack(st, loc, index, delta);
                     ++stackptr;
                     return;
@@ -164,25 +168,25 @@ pop_stack(st, loc)
             addrtbl[deep] = sr_addr;
             break;
         case sr_data:
-            for (i = deep + 3; i < next_data; i += 3) {
-                if (datatbl[i] != sr_empty || datatbl[i] != sr_void) {
+            for (i = deep + 2; i < next_data; i += 2) {
+                if (datatbl[i] != sr_empty && datatbl[i] != sr_void) {
                     move_stack(st, loc, index, delta);
                     ++stackptr;
                     return;
                 }
             }
-            gen_pop((enum e_am) (imod3(deep)), am_dreg);
+            gen_pop((enum e_am) (imod2(deep)), am_dreg);
             datatbl[deep] = sr_data;
             break;
         case sr_float:
-            for (i = deep + 3; i < next_data; i += 3) {
-                if (datatbl[i] != sr_empty || datatbl[i] != sr_void) {
+            for (i = deep + 2; i < next_data; i += 2) {
+                if (datatbl[i] != sr_empty && datatbl[i] != sr_void) {
                     move_stack(st, loc, index, delta);
                     ++stackptr;
                     return;
                 }
             }
-            gen_pop((enum e_am) (imod3(deep)), am_freg);
+            gen_pop((enum e_am) (imod2(deep)), am_freg);
             datatbl[deep] = sr_float;
             datatbl[deep + 1] = sr_float;
             break;
@@ -265,9 +269,10 @@ initstack()
         break;
     }
 
+#if AC_DEBUG
     if (stackptr != 0)
         fprintf(AC_DIAG_STREAM, "DIAG -- Temporaries are left on the stack\n");
-
+#endif
     next_data = 0;
     next_addr = 0;
     stackptr = 0;
@@ -294,7 +299,9 @@ check_float(ap)
     int             loc;
 
     if (ap->mode != am_freg || (int) ap->preg != 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- check_float: not a F_FREG\n");
+#endif
         return (NULL);
     }
 
@@ -333,7 +340,9 @@ check_float(ap)
         return (ap2);
     }
 
+#if AC_DEBUG
     fprintf(AC_DIAG_STREAM, "DIAG -- check_float: not a float\n");
+#endif
     return (NULL);
 }
 
@@ -349,7 +358,9 @@ validate(ap)
     int             loc;
 
     if (ap == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- validate: NULL argument\n");
+#endif
         return;
     }
 
@@ -365,7 +376,9 @@ validate(ap)
         if (datatbl[loc] == sr_float)
             return; /* NOT on the stack */
         if (datatbl[loc] != sr_fpush) { /* ERROR in type        */
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, "DIAG -- validate: not freg\n");
+#endif
             return;
         }
         datatbl[loc] = sr_float;
@@ -375,13 +388,15 @@ validate(ap)
         break;
 
     case am_dreg:
-        if ((int) ap->preg > 2)
+        if ((int) ap->preg > 1)
             return; /* not a temporary */
         loc = ap->deep;
         if (datatbl[loc] == sr_data)
             return; /* NOT on the stack */
         if (datatbl[loc] != sr_dpush) { /* ERROR in type        */
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, "DIAG -- validate: not dreg\n");
+#endif
             return;
         }
         datatbl[loc] = sr_data;
@@ -396,7 +411,9 @@ validate(ap)
         if (addrtbl[loc] == sr_addr)
             return; /* NOT on the stack */
         if (addrtbl[loc] != sr_apush) { /* ERROR in type        */
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, "DIAG -- validate: not areg\n");
+#endif
             return;
         }
         addrtbl[loc] = sr_addr;
@@ -412,13 +429,15 @@ avail_data(num)
 {
     int             loc;
 
-    if (num > 2 || num < 0) {
+    if (num > 1 || num < 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- avail_data: error in argument\n");
+#endif
         return (FALSE);
     }
 
     for (loc = next_addr; loc >= 0; --loc)
-        if (imod3(loc) == num)
+        if (imod2(loc) == num)
             break;
 
     while (loc >= 0) {
@@ -442,7 +461,9 @@ avail_addr(num)
     int             loc;
 
     if (num > 1 || num < 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- avail_addr: error in argument\n");
+#endif
         return (FALSE);
     }
 
@@ -506,21 +527,26 @@ temp_data()
 
     ap = (struct amode *) xalloc(sizeof(struct amode));
     ap->mode = am_dreg;
-    ap->preg = (enum e_am) (imod3(next_data));
+/*
+ * Temporary DATA registers are D0–D1 only (Amiga/SAS callee-saved starts
+ * at D2).  Older PDC used D0–D2 via imod3; that left D2 live across jsr
+ * without a movem save and broke callers that follow the Amiga ABI.
+ */
+    ap->preg = (enum e_am) (imod2(next_data));
     ap->deep = next_data;
     ap->signedflag = 1;
 
     datatbl[next_data] = sr_data;
 
-    for (loc = next_data - 3; loc >= 0; loc -= 3) {
+    for (loc = next_data - 2; loc >= 0; loc -= 2) {
         if (datatbl[loc] != sr_void) {
             if (datatbl[loc] == sr_data) {
                 push_stack(sr_data, loc);
-                gen_push((enum e_am) (imod3(next_data)), am_dreg);
+                gen_push((enum e_am) (imod2(next_data)), am_dreg);
                 datatbl[loc] = sr_dpush;
             }
             else if (datatbl[loc] == sr_float) {
-                if (imod3(loc) != 0)
+                if (imod2(loc) != 0)
                     --loc;
                 push_stack(sr_float, loc);
                 gen_push((enum e_am) 0, am_freg);
@@ -547,27 +573,27 @@ temp_float()
     struct amode   *ap;
     int             loc;
 
-    while ((imod3(next_data)) != 0)    /* Find next D0:D1 pair */
+    while ((imod2(next_data)) != 0)    /* Find next D0:D1 pair */
         datatbl[next_data++] = sr_void;
 
     ap = (struct amode *) xalloc(sizeof(struct amode));
     ap->mode = am_freg;
-    ap->preg = (enum e_am) (imod3(next_data));
+    ap->preg = (enum e_am) (imod2(next_data));
     ap->deep = next_data;
     ap->signedflag = 1;
 
     datatbl[next_data] = sr_float;
 
-    for (loc = next_data - 3; loc >= 0; loc -= 3) {
+    for (loc = next_data - 2; loc >= 0; loc -= 2) {
         if (datatbl[loc] != sr_void) {
             if (datatbl[loc] == sr_data) {
                 push_stack(sr_data, loc);
-                gen_push((enum e_am) (imod3(next_data)), am_dreg);
+                gen_push((enum e_am) (imod2(next_data)), am_dreg);
                 datatbl[loc] = sr_dpush;
             }
             else if (datatbl[loc] == sr_float) {
                 push_stack(sr_float, loc);
-                gen_push((enum e_am) (imod3(next_data)), am_freg);
+                gen_push((enum e_am) (imod2(next_data)), am_freg);
                 datatbl[loc] = sr_fpush;
                 datatbl[loc + 1] = sr_fpush;
             }
@@ -577,11 +603,11 @@ temp_float()
 
     datatbl[++next_data] = sr_float;
 
-    for (loc = next_data - 3; loc >= 0; loc -= 3) {
+    for (loc = next_data - 2; loc >= 0; loc -= 2) {
         if (datatbl[loc] != sr_void) {
             if (datatbl[loc] == sr_data) {
                 push_stack(sr_data, loc);
-                gen_push((enum e_am) (imod3(next_data)), am_dreg);
+                gen_push((enum e_am) (imod2(next_data)), am_dreg);
                 datatbl[loc] = sr_dpush;
             }
             break;
@@ -607,11 +633,13 @@ freeop(ap)
         return;     /* no registers used */
 
     if (ap->mode == am_dreg) {  /* DATA register        */
-        if ((int) ap->preg < 3) {   /* D0:D2                */
+        if ((int) ap->preg < 2) {   /* D0:D1 temps only     */
             loc = ap->deep;
             if (loc != next_data - 1) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, "freeop LOC: %d   NEXT_DATA: %d\n",
                         loc, next_data);
+#endif
             }
             datatbl[loc] = sr_empty;    /* Reset status         */
             loc = next_data - 1;
@@ -628,8 +656,10 @@ freeop(ap)
         if ((int) ap->preg < 1) {   /* only 1, D0:D1        */
             loc = ap->deep;
             if (loc != next_data - 2) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, "freeop FLOAT: %d   NEXT_DATA: %d\n",
                         loc, next_data);
+#endif
             }
             datatbl[loc] = sr_empty;    /* Reset status    */
             datatbl[loc + 1] = sr_empty;    /* of both halves  */
@@ -647,8 +677,10 @@ freeop(ap)
         if ((int) ap->preg < 2) {   /* A0:A1                */
             loc = ap->deep;
             if (loc != next_addr - 1) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, "freeop ADDR: %d   NEXT_DATA: %d\n",
                         loc, next_data);
+#endif
             }
             addrtbl[loc] = sr_empty;    /* Reset status         */
             loc = next_addr - 1;
@@ -666,13 +698,18 @@ freeop(ap)
 void
 flush_regs()
 {
-    struct amode   *ap1, *ap2, *ap3;
+    struct amode   *ap1, *ap2;
 
+    /*
+     * Push live temps by allocating over them, then free the new slots.
+     * Only two data temps (D0–D1).  A third temp_data() reuses D0 and
+     * gen_push-es the first allocation with no matching pop — seen as
+     * move.l D0,-(A7) before every strcmp/strchr in getopt (ac-self
+     * then exited 1 right after main).
+     */
     ap1 = temp_data();
     ap2 = temp_data();
-    ap3 = temp_data();
 
-    freeop(ap3);
     freeop(ap2);
     freeop(ap1);
 
@@ -681,7 +718,6 @@ flush_regs()
 
     freeop(ap2);
     freeop(ap1);
-
 }
 
 struct amode   *
@@ -689,7 +725,9 @@ request_addr(num)
     int             num;
 {
     if (num > 1 || num < 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- request_addr: num out of range\n");
+#endif
         return (NULL);
     }
 
@@ -703,12 +741,14 @@ struct amode   *
 request_data(num)
     int             num;
 {
-    if (num > 2 || num < 0) {
+    if (num > 1 || num < 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- request_data: num out of range\n");
+#endif
         return (NULL);
     }
 
-    while ((imod3(next_data)) != num)
+    while ((imod2(next_data)) != num)
         datatbl[next_data++] = sr_void;
 
     return (temp_data());
@@ -719,11 +759,13 @@ request_float(num)
     int             num;
 {
     if (num != 0) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- request_float: num out of range\n");
+#endif
         return (NULL);
     }
 
-    while ((imod3(next_data)) != num)
+    while ((imod2(next_data)) != num)
         datatbl[next_data++] = sr_void;
 
     return (temp_float());
@@ -742,7 +784,7 @@ request_reg(ap)
     case am_freg:
         return (request_float(0));  /* floating point reg   */
     case am_dreg:
-        if ((int) ap->preg < 3) {
+        if ((int) ap->preg < 2) {
             ap2 = request_data((int) ap->preg);
             return (ap2);   /* Data register                */
         }

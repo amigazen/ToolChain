@@ -178,21 +178,51 @@ fetchdouble(node, result)
     double         *result;
 {
     double         *ptr;
+    long           *rp;
 
     if (result == NULL)
         return (0);
 
-    *result = 0.0;
+    /* No "0.0" literal — two long stores (IEEE +0.0). */
+    rp = (long *) (void *) result;
+    rp[0] = 0;
+    rp[1] = 0;
 
     if (node->nodetype == en_d_ref) {
         if (node->v.p[0]->nodetype == en_labcon) {
             if ((ptr = (double *) getlit(node->v.p[0]->v.i)) != NULL) {
-                *result = *ptr;
+                rp = (long *) (void *) result;
+                rp[0] = ((long *) (void *) ptr)[0];
+                rp[1] = ((long *) (void *) ptr)[1];
                 return (1);
             }
         }
     }
     return (0);
+}
+
+/*
+ * IEEE bit tests for 0 / 1 identities in opt0 — avoids emitting soft-float
+ * compares for `d == 0.0` / `d == 1.0` when folding trees.
+ */
+static int
+dbl_is_pm0(d)
+    double         *d;
+{
+    unsigned long  *u;
+
+    u = (unsigned long *) (void *) d;
+    return ((u[0] & 0x7fffffffUL) == 0UL && u[1] == 0UL);
+}
+
+static int
+dbl_is_one(d)
+    double         *d;
+{
+    unsigned long  *u;
+
+    u = (unsigned long *) (void *) d;
+    return (u[0] == 0x3ff00000UL && u[1] == 0UL);
 }
 
 void
@@ -373,10 +403,10 @@ dooper(node)
     case en_cdl:
     case en_cfl:
         ep->nodetype = en_icon;
-        ep->v.i = ep->v.p[0]->v.f;
+        ep->v.i = (long) ep->v.p[0]->v.f;
         break;
     case en_cld:
-        rval = ep->v.p[0]->v.i;
+        rval = (double) ep->v.p[0]->v.i;
         ep = makenode(en_labcon, floatlit(rval), NULL);
         *node = makenode(en_d_ref, ep, NULL);
         break;
@@ -465,7 +495,9 @@ ref_double(node)
     ep = node->v.p[0];
     if (ep->nodetype != en_fcon) {
         dptr = (double *) remlit(ep->v.p[0]->v.i);
-        ep->v.f = *dptr;
+        /* Copy IEEE bits — no soft-float load/store. */
+        ((long *) (void *) &ep->v.f)[0] = ((long *) (void *) dptr)[0];
+        ((long *) (void *) &ep->v.f)[1] = ((long *) (void *) dptr)[1];
         ep->nodetype = en_fcon;
     }
 }
@@ -495,7 +527,10 @@ ref2_double(node)
         ep = node->v.p[i];
         if (ep->nodetype != en_fcon) {
             if ((dptr = (double *) remlit(ep->v.p[0]->v.i)) != NULL) {
-                ep->v.f = *dptr;
+                ((long *) (void *) &ep->v.f)[0] =
+                    ((long *) (void *) dptr)[0];
+                ((long *) (void *) &ep->v.f)[1] =
+                    ((long *) (void *) dptr)[1];
                 ep->nodetype = en_fcon;
             }
         }
@@ -802,14 +837,14 @@ opt0(node)
         opt0(&(ep->v.p[0]));
         opt0(&(ep->v.p[1]));
         if (fetchdouble(ep->v.p[0], &dval)) {
-            if (dval == 0.0) {  /* 0.0 + X */
+            if (dbl_is_pm0(&dval)) {    /* 0 + X */
                 *node = ep->v.p[1];
                 (void) remlit(ep->v.p[0]->v.p[0]->v.i);
                 return;
             }
         }
         if (fetchdouble(ep->v.p[1], &dval)) {
-            if (dval == 0.0) {  /* X + 0.0 */
+            if (dbl_is_pm0(&dval)) {    /* X + 0 */
                 *node = ep->v.p[0];
                 (void) remlit(ep->v.p[1]->v.p[0]->v.i);
                 return;
@@ -823,7 +858,7 @@ opt0(node)
         opt0(&(ep->v.p[0]));
         opt0(&(ep->v.p[1]));
         if (fetchdouble(ep->v.p[0], &dval)) {
-            if (dval == 0.0) {  /* 0.0 - X */
+            if (dbl_is_pm0(&dval)) {    /* 0 - X → -X */
                 (void) remlit(ep->v.p[0]->v.p[0]->v.i);
                 (*node)->v.p[0] = (*node)->v.p[1];
                 (*node)->v.p[1] = NULL;
@@ -832,7 +867,7 @@ opt0(node)
             }
         }
         if (fetchdouble(ep->v.p[1], &dval)) {
-            if (dval == 0.0) {  /* X - 0.0 */
+            if (dbl_is_pm0(&dval)) {    /* X - 0 */
                 *node = ep->v.p[0];
                 (void) remlit(ep->v.p[1]->v.p[0]->v.i);
                 return;
@@ -846,22 +881,22 @@ opt0(node)
         opt0(&(ep->v.p[0]));
         opt0(&(ep->v.p[1]));
         if (fetchdouble(ep->v.p[0], &dval)) {
-            if (dval == 0.0) {  /* 0.0 * X */
+            if (dbl_is_pm0(&dval)) {    /* 0 * X */
                 *node = ep->v.p[0];
                 return;
             }
-            if (dval == 1.0) {  /* 1.0 * X */
+            if (dbl_is_one(&dval)) {    /* 1 * X */
                 *node = ep->v.p[1];
                 (void) remlit(ep->v.p[0]->v.p[0]->v.i);
                 return;
             }
         }
         if (fetchdouble(ep->v.p[1], &dval)) {
-            if (dval == 0.0) {  /* X * 0.0 */
+            if (dbl_is_pm0(&dval)) {    /* X * 0 */
                 *node = ep->v.p[1];
                 return;
             }
-            if (dval == 1.0) {  /* X * 1.0 */
+            if (dbl_is_one(&dval)) {    /* X * 1 */
                 *node = ep->v.p[0];
                 (void) remlit(ep->v.p[1]->v.p[0]->v.i);
                 return;
@@ -875,13 +910,13 @@ opt0(node)
         opt0(&(ep->v.p[0]));
         opt0(&(ep->v.p[1]));
         if (fetchdouble(ep->v.p[0], &dval)) {
-            if (dval == 0.0) {  /* 0.0 / X */
+            if (dbl_is_pm0(&dval)) {    /* 0 / X */
                 *node = ep->v.p[0];
                 return;
             }
         }
         if (fetchdouble(ep->v.p[1], &dval)) {
-            if (dval == 1.0) {  /* X / 1.0 */
+            if (dbl_is_one(&dval)) {    /* X / 1 */
                 *node = ep->v.p[0];
                 (void) remlit(ep->v.p[1]->v.p[0]->v.i);
                 return;

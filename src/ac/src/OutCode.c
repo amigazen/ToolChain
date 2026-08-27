@@ -230,7 +230,9 @@ itoa(x)
     do {
         d = safe_lmod(x, 10);
         if (d < 0 || d > 9) {
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, "DIAG -- itoa has a problem\n");
+#endif
             return (ptr);
         }
         x = safe_ldiv(x, 10);
@@ -331,11 +333,19 @@ putop(op, len)
                 lenstr = ".l";
                 break;
             case 8:
-                lenstr = ".f";
+                /*
+                 * Legacy PDC printed ".f" here.  A68k rejects it.
+                 * gen_code must split 64-bit moves into two .l first;
+                 * if anything still reaches putop with len 8, use .l so
+                 * assembly does not fail (wrong but visible in review).
+                 */
+                lenstr = ".l";
                 break;
             default:
                 lenstr = ".x";
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, "DIAG -- illegal length field.\n" );
+#endif
                 break;
             }
             fprintf( output, "\t%s%s", ptr->s, lenstr );
@@ -349,7 +359,9 @@ putop(op, len)
         }
     } while (low <= high);
 
+#if AC_DEBUG
     fprintf(AC_DIAG_STREAM, "DIAG -- illegal opcode.\n" );
+#endif
 }
 
 /*
@@ -361,12 +373,15 @@ putconst(offset)
     struct enode   *offset;
 {
     if (offset == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to putconst.\n" );
+#endif
         return;
     }
     switch (offset->nodetype) {
     case en_autocon:
-        fprintf(output, "%d(A%d)", (int)ICON16L(offset->v.i), Options.Frame);
+        fprintf(output, "%d(A%d)",
+            (int) frame_disp(ICON16L(offset->v.i)), frame_areg());
         break;
     case en_tempref:
         fprintf(output, "%d", offset->v.i);
@@ -402,8 +417,10 @@ putconst(offset)
         putconst(offset->v.p[0]);
         break;
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- illegal constant node (%d)\n", 
                          offset->nodetype );
+#endif
         break;
     }
 }
@@ -417,7 +434,9 @@ putamode(ap)
     struct amode   *ap;
 {
     if (ap == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to putamode.\n" );
+#endif
         return;
     }
     switch (ap->mode) {
@@ -466,7 +485,9 @@ putamode(ap)
         put_mask((long) (ap->offset));
         break;
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- illegal address mode.\n" );
+#endif
         fprintf( output, "<DIAG -- illegal address mode.>" );
         break;
     }
@@ -763,7 +784,9 @@ genref(sp, offset)
     char            sign;
 
     if (sp == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to genref.\n" );
+#endif
         return;
     }
     if (offset >= 0) 
@@ -822,7 +845,9 @@ genalignment(align)
         fprintf( output, "\tCNOP\t0,%d\n", align);
         break;
     default:
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- invalid alignment\n" );
+#endif
         break;
     }
     return (align);
@@ -878,7 +903,9 @@ stringconcat(index, s)
     struct slit    *lp;
 
     if (s == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to stringconcat.\n" );
+#endif
         return (0);
     }
 
@@ -915,7 +942,9 @@ stringlit(s)
     struct slit    *lp;
 
     if (s == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL argument to stringlit.\n" );
+#endif
         return (0);
     }
     ++global_flag;      /* always allocate from global space. */
@@ -1023,10 +1052,20 @@ dumplits()
 {
     char           *cp;
     int             i, count;
+    int             n;
 
+    n = 0;
     while (strtab != NULL) {
+        if (++n > 100000)
+            break;
         cseg();
         nl();
+        /*
+         * Doubles need at least 2-byte alignment for move.l on 68000;
+         * CNOP 0,4 keeps abs.l loads of rconst labels safe.
+         */
+        if (strtab->type == rconst)
+            fprintf(output, "\tCNOP\t0,4\n");
         put_label( strtab->label );
         cp = strtab->str;
         count = strtab->len;

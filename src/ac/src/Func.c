@@ -286,7 +286,9 @@ check_table(head)
             if (Options.List) {
                 fprintf( list, err_fmt, head->name );
             }
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, err_fmt, head->name );
+#endif
         }
         head = head->next;
     }

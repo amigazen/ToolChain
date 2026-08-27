@@ -90,7 +90,9 @@ xalloc(siz)
 #endif
 
     if (siz > 2048) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- xalloc, size greater than 2048\n" );
+#endif
         exit(1);
     }
 
@@ -110,7 +112,9 @@ for (bp = glbblk; bp; bp = bp->next);
             ++glballoc;
             bp = (struct blk *) malloc( sizeof(struct blk) + 2047 );
             if (bp == NULL) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, " not enough memory.\n" );
+#endif
                 exit(1);
             }
             memset( (char *)bp, 0, sizeof(struct blk) + 2047 );
@@ -135,7 +139,9 @@ for (bp = glbblk; bp; bp = bp->next);
             ++localloc;
             bp = (struct blk *) malloc( sizeof(struct blk) + 2047 );
             if (bp == NULL) {
+#if AC_DEBUG
                 fprintf(AC_DIAG_STREAM, " not enough local memory.\n" );
+#endif
                 exit(1);
             }
             memset( (char *)bp, 0, sizeof(struct blk) + 2047 );
@@ -149,7 +155,9 @@ for (bp = glbblk; bp; bp = bp->next);
     }
 done:
     if (mem == NULL) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "DIAG -- NULL responce from xalloc\n" );
+#endif
     }
     return (mem);
 }
@@ -310,8 +318,10 @@ release_local()
             nbuf = lastfunc->name;
         else
             nbuf = "**PDC**";
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, "%s : %d bytes local tables.\n", 
                          nbuf, blkcnt * 2048L );
+#endif
     }
 }
 
@@ -337,7 +347,9 @@ release_global()
     strtab = NULL;      /* clear literal table */
 
     if (!Options.Quiet) {
+#if AC_DEBUG
         fprintf(AC_DIAG_STREAM, " releasing %d bytes global tables\n", 
                          blkcnt * 2048L );
+#endif
     }
 }

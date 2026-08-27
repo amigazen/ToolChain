@@ -37,7 +37,9 @@
 #include    "Cglbdec.h"
 
 void   opt3();
+void   opt_omit_frame();
 extern char    *xalloc();
+extern struct amode *make_delta();
 
 struct ocode   *peep_head = NULL, *peep_tail = NULL;
 
@@ -95,6 +97,33 @@ gen_code(op, len, ap1, ap2)
     struct amode   *ap1, *ap2;
 {
     struct ocode   *new;
+    struct amode   *s2, *d2;
+
+    /*
+     * A68k has no .f size (PDC-ism).  Any 64-bit move must be two .l
+     * transfers — same model SAS/C uses.  An/Dn cannot hold 8 bytes;
+     * make_legal must not request that, but split here as a backstop.
+     */
+    if (op == op_move && len == 8 && ap1 != NULL && ap2 != NULL) {
+        if (ap2->mode == am_areg
+            && ap1->mode != am_areg && ap1->mode != am_dreg
+            && ap1->mode != am_immed && ap1->mode != am_freg) {
+            /* Memory EA → An: address of the 64-bit object. */
+            gen_code(op_lea, 0, ap1, ap2);
+            return;
+        }
+        if (ap2->mode == am_dreg || ap1->mode == am_areg
+            || ap1->mode == am_dreg) {
+            gen_code(op_move, 4, ap1, ap2);
+            return;
+        }
+        gen_code(op_move, 4, ap1, ap2);
+        s2 = make_delta(copy_addr(ap1), 4);
+        d2 = make_delta(copy_addr(ap2), 4);
+        if (s2 != NULL && d2 != NULL)
+            gen_code(op_move, 4, s2, d2);
+        return;
+    }
 
     new = (struct ocode *) xalloc(sizeof(struct ocode));
     new->opcode = op;
@@ -138,15 +167,222 @@ flush_peep()
  * output all code and labels in the peep list.
  */
 {
+    int             nflush;
+
     if (Options.Optimize)
         opt3();     /* do the peephole optimizations */
+    /*
+     * Push-safe frameless leaves: drop link/unlk and retarget params
+     * to A7 only when the body never changes SP (no jsr/bsr/pea/-(A7)
+     * except prologue/epilogue movem). Must run after opt3 — peep_move
+     * can turn stack moves into pea.
+     */
+    if (Options.Optimize)
+        opt_omit_frame();
+    nflush = 0;
     while (peep_head != NULL) {
+        if (++nflush > 100000)
+            break;
         if (peep_head->opcode == op_label)
             put_label((long) (peep_head->oper1));
         else
             put_ocode(peep_head);
         peep_head = peep_head->fwd;
     }
+    peep_head = peep_tail = NULL;
+    /* Survive Amiga guru mid-TU: keep .s durable for bootstrap bisect. */
+    if (output != NULL)
+        fflush(output);
+}
+
+/*
+ * Push-safe frameless leaf: omit link/unlk when params can live at A7.
+ * Unsafe if the body pushes (calls, pea, -(A7)) — A5 stays fixed across
+ * those, A7 does not.  Earlier unrestricted omit broke ac-self2.
+ */
+static int
+frame_ref_neg(ap)
+    struct amode   *ap;
+{
+    if (ap == NULL)
+        return 0;
+    if ((int) ap->preg != Options.Frame)
+        return 0;
+    if (ap->mode == am_indx || ap->mode == am_indx2 || ap->mode == am_indx3) {
+        if (ap->offset != NULL && ap->offset->nodetype == en_icon
+            && ap->offset->v.i < 0)
+            return 1;
+    }
+    if (ap->mode == am_immed && ap->offset != NULL
+        && ap->offset->nodetype == en_autocon && ap->offset->v.i < 0)
+        return 1;
+    return 0;
+}
+
+static void
+rewrite_frame_ap(ap, k)
+    struct amode   *ap;
+    int             k;
+{
+    long            off;
+    struct enode   *ep;
+
+    if (ap == NULL)
+        return;
+    if ((int) ap->preg != Options.Frame)
+        return;
+    if (ap->mode == am_indx || ap->mode == am_indx2 || ap->mode == am_indx3) {
+        if (ap->offset != NULL && ap->offset->nodetype == en_icon) {
+            off = ap->offset->v.i;
+            if (off > 0) {
+                /* New node: copy_addr shares offset pointers. */
+                ep = (struct enode *) xalloc(sizeof(struct enode));
+                *ep = *ap->offset;
+                ep->v.i = off - 4L + (4L * (long) k);
+                ap->offset = ep;
+            }
+            ap->preg = (enum e_am) 7;
+        }
+        return;
+    }
+    if (ap->mode == am_immed && ap->offset != NULL
+        && ap->offset->nodetype == en_autocon) {
+        off = ap->offset->v.i;
+        if (off > 0) {
+            ep = (struct enode *) xalloc(sizeof(struct enode));
+            *ep = *ap->offset;
+            ep->v.i = off - 4L + (4L * (long) k);
+            ap->offset = ep;
+        }
+        ap->preg = (enum e_am) 7;
+    }
+}
+
+static int
+pushes_stack(ap)
+    struct amode   *ap;
+{
+    if (ap == NULL)
+        return 0;
+    if (ap->mode == am_adec && (int) ap->preg == 7)
+        return 1;
+    return 0;
+}
+
+static int
+touches_sp(ap)
+    struct amode   *ap;
+{
+    if (ap == NULL)
+        return 0;
+    if ((int) ap->preg != 7)
+        return 0;
+    if (ap->mode == am_areg || ap->mode == am_ainc || ap->mode == am_adec
+        || ap->mode == am_indx || ap->mode == am_indx2 || ap->mode == am_indx3)
+        return 1;
+    return 0;
+}
+
+static void
+peep_delete(ip)
+    struct ocode   *ip;
+{
+    if (ip->back != NULL)
+        ip->back->fwd = ip->fwd;
+    else
+        peep_head = ip->fwd;
+    if (ip->fwd != NULL)
+        ip->fwd->back = ip->back;
+    else
+        peep_tail = ip->back;
+}
+
+void
+opt_omit_frame()
+{
+    struct ocode   *p;
+    struct ocode   *linkp;
+    struct ocode   *unlkp;
+    int             k;
+    int             m;
+    int             blocked;
+    int             saw_prologue_movem;
+
+    linkp = NULL;
+    unlkp = NULL;
+    blocked = 0;
+    saw_prologue_movem = 0;
+    k = 0;
+    for (m = save_mask; m != 0; m >>= 1) {
+        if (m & 1)
+            ++k;
+    }
+
+    for (p = peep_head; p != NULL; p = p->fwd) {
+        if (p->opcode == op_link)
+            linkp = p;
+        else if (p->opcode == op_unlk)
+            unlkp = p;
+        if (p->opcode == op_label || p->opcode == op_comment)
+            continue;
+        /*
+         * jsr/bsr push a return address — SP-relative params would move.
+         * Even a zero-arg call is unsafe without a frame pointer.
+         */
+        if (p->opcode == op_jsr || p->opcode == op_bsr)
+            blocked = 1;
+        if (frame_ref_neg(p->oper1) || frame_ref_neg(p->oper2))
+            blocked = 1;
+        if (p->opcode == op_pea)
+            blocked = 1;
+        if (pushes_stack(p->oper1) || pushes_stack(p->oper2)) {
+            /* Allow the single prologue movem.l mask,-(A7) after link. */
+            if (p->opcode == op_movem && !saw_prologue_movem
+                && p->back != NULL && p->back->opcode == op_link)
+                saw_prologue_movem = 1;
+            else if (p->opcode == op_movem && p->oper2 != NULL
+                     && p->oper2->mode == am_ainc)
+                ; /* epilogue restore */
+            else
+                blocked = 1;
+        }
+        /*
+         * Any other A7 write (addq to SP, etc.) also shifts params.
+         */
+        if (p->opcode != op_link && p->opcode != op_unlk
+            && p->opcode != op_movem) {
+            if (touches_sp(p->oper1) && p->oper2 != NULL)
+                blocked = 1;
+            if (touches_sp(p->oper2)
+                && (p->opcode == op_add || p->opcode == op_sub
+                    || p->opcode == op_addq || p->opcode == op_subq
+                    || p->opcode == op_lea || p->opcode == op_move))
+                blocked = 1;
+        }
+        if (p->opcode != op_link && p->opcode != op_unlk) {
+            if (p->oper1 != NULL && p->oper1->mode == am_areg
+                && (int) p->oper1->preg == Options.Frame)
+                blocked = 1;
+            if (p->oper2 != NULL && p->oper2->mode == am_areg
+                && (int) p->oper2->preg == Options.Frame)
+                blocked = 1;
+        }
+    }
+
+    if (blocked || linkp == NULL || unlkp == NULL)
+        return;
+
+    for (p = peep_head; p != NULL; p = p->fwd) {
+        if (p == linkp || p == unlkp)
+            continue;
+        if (p->opcode == op_label || p->opcode == op_comment)
+            continue;
+        rewrite_frame_ap(p->oper1, k);
+        rewrite_frame_ap(p->oper2, k);
+    }
+
+    peep_delete(linkp);
+    peep_delete(unlkp);
 }
 
 void
@@ -156,11 +392,41 @@ peep_move(ip)
  * peephole optimization for move instructions. makes quick immediates when
  * possible. changes move #0,d to clr d. changes long moves to address
  * registers to short when possible. changes move immediate to stack to pea.
+ * Collapses move.l <ea>,Dn / move.l Dn,An into move.l <ea>,An.
  */
     struct ocode   *ip;
 {
     struct ocode   *prev;
+    struct ocode   *nxt;
     struct enode   *ep;
+
+    /*
+     * move.l <ea>,Dn ; move.l Dn,An  →  move.l <ea>,An
+     * move.l <ea>,Dn ; move.l Dn,Dm  →  move.l <ea>,Dm  (Dn scratch)
+     * Common make_legal / temp_data shuffle; saves 2–4 bytes each.
+     */
+    /*
+     * Only fold when Dn is scratch (D0–D1).  Folding a live D2–D7 into
+     * move <ea>,An drops the Dn value and corrupts later uses.
+     */
+    if (ip->length == 4
+        && ip->oper1 != NULL && ip->oper2 != NULL
+        && ip->oper2->mode == am_dreg
+        && (int) ip->oper2->preg <= 1
+        && ip->fwd != NULL && ip->fwd->opcode == op_move
+        && ip->fwd->length == 4
+        && ip->fwd->oper1 != NULL && ip->fwd->oper2 != NULL
+        && ip->fwd->oper1->mode == am_dreg
+        && ip->fwd->oper1->preg == ip->oper2->preg
+        && (ip->fwd->oper2->mode == am_areg
+            || ip->fwd->oper2->mode == am_dreg)) {
+        ip->oper2 = ip->fwd->oper2;
+        peep_delete(ip->fwd);
+        /* Fall through — may become moveq / lea on the folded insn. */
+    }
+
+    if (ip->oper1 == NULL || ip->oper2 == NULL)
+        return;
 
     if (ip->oper1->mode != am_immed) {
         if (ip->oper1->mode == am_ainc) {   /* move (A7)+,xxxx  */
@@ -227,11 +493,26 @@ peep_move(ip)
 
     ep = ip->oper1->offset;
 
+    if (ep == NULL)
+        return;
+
     if (ep->nodetype != en_icon) {
         if (ip->oper2->mode == am_areg) {
             ip->opcode = op_lea;
             ip->length = 0;
-            ip->oper1->mode = am_direct;
+            /*
+             * move.l #autocon,An → lea n(Fp),An.  Using am_direct left
+             * putconst to print n(A5); am_indx is the real form and avoids
+             * a later lea of a stripped amode becoming "lea ,A0".
+             */
+            if (ep->nodetype == en_autocon) {
+                ip->oper1->mode = am_indx;
+                ip->oper1->preg = (enum e_am) frame_areg();
+                ip->oper1->offset = makenode(en_icon,
+                    frame_disp(ICON16L(ep->v.i)), NULL);
+            }
+            else
+                ip->oper1->mode = am_direct;
         }
         if (ip->oper2->mode == am_adec && (int) ip->oper2->preg == 7) {
             ip->opcode = op_pea;
@@ -242,6 +523,16 @@ peep_move(ip)
         return;
     }
     if (ip->oper2->mode == am_areg) {
+        /*
+         * move #0,An → sub.l An,An (2 bytes) instead of move.l #0,An.
+         */
+        if (ep->v.i == 0) {
+            ip->opcode = op_sub;
+            ip->length = 4;
+            ip->oper1 = ip->oper2;
+            ip->oper2 = copy_addr(ip->oper1);
+            return;
+        }
         if (-32767 < ep->v.i && ep->v.i <= 32767)
             ip->length = 2;
     }
@@ -253,6 +544,34 @@ peep_move(ip)
                 ip->fwd = ip->fwd->fwd;
                 if (ip->fwd != NULL) {
                     ip->fwd->back = ip;
+                }
+            }
+            /*
+             * moveq #n,Dn ; move.l Dn,<ea> → fold when Dn is scratch.
+             * Covers the common moveq #0,D0 / move.l D0,An pattern.
+             */
+            if (ip->fwd != NULL && ip->fwd->opcode == op_move
+                && ip->fwd->length == 4
+                && ip->fwd->oper1 != NULL && ip->fwd->oper2 != NULL
+                && ip->fwd->oper1->mode == am_dreg
+                && ip->fwd->oper1->preg == ip->oper2->preg
+                && (int) ip->oper2->preg <= 1) {
+                if (ip->fwd->oper2->mode == am_areg && ep->v.i == 0) {
+                    ip->opcode = op_sub;
+                    ip->length = 4;
+                    ip->oper1 = ip->fwd->oper2;
+                    ip->oper2 = copy_addr(ip->oper1);
+                    peep_delete(ip->fwd);
+                }
+                else if (ip->fwd->oper2->mode == am_dreg) {
+                    ip->oper2 = ip->fwd->oper2;
+                    peep_delete(ip->fwd);
+                }
+                else if (ip->fwd->oper2->mode == am_areg) {
+                    ip->opcode = op_move;
+                    ip->length = 2;
+                    ip->oper2 = ip->fwd->oper2;
+                    peep_delete(ip->fwd);
                 }
             }
         }
@@ -589,42 +908,49 @@ opt3()
 {
     struct ocode   *ip;
 
-    for (ip = peep_head; ip != NULL; ip = ip->fwd) {
-        switch (ip->opcode) {
-        case op_asl:
-            peep_asl(ip);
-            break;
-        case op_move:
-            peep_move(ip);
-            break;
-        case op_add:
-            peep_add(ip);
-            break;
-        case op_sub:
-            peep_sub(ip);
-            break;
-        case op_cmp:
-            peep_cmp(ip);
-            break;
-        case op_tst:
-            peep_tst(ip);
-            break;
-        case op_muls:
-            peep_muldiv(ip, op_asl);
-            break;
-        case op_divs:
-            peep_muldiv(ip, op_asr);
-            break;
-        case op_mulu:
-            peep_muldiv(ip, op_lsl);
-            break;
-        case op_divu:
-            peep_muldiv(ip, op_lsr);
-            break;
-        case op_bra:
-        case op_jmp:
-        case op_rts:
-            peep_uctran(ip);
+    {
+        int             n;
+
+        n = 0;
+        for (ip = peep_head; ip != NULL; ip = ip->fwd) {
+            if (++n > 100000)
+                break;
+            switch (ip->opcode) {
+            case op_asl:
+                peep_asl(ip);
+                break;
+            case op_move:
+                peep_move(ip);
+                break;
+            case op_add:
+                peep_add(ip);
+                break;
+            case op_sub:
+                peep_sub(ip);
+                break;
+            case op_cmp:
+                peep_cmp(ip);
+                break;
+            case op_tst:
+                peep_tst(ip);
+                break;
+            case op_muls:
+                peep_muldiv(ip, op_asl);
+                break;
+            case op_divs:
+                peep_muldiv(ip, op_asr);
+                break;
+            case op_mulu:
+                peep_muldiv(ip, op_lsl);
+                break;
+            case op_divu:
+                peep_muldiv(ip, op_lsr);
+                break;
+            case op_bra:
+            case op_jmp:
+            case op_rts:
+                peep_uctran(ip);
+            }
         }
     }
 }

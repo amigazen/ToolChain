@@ -48,6 +48,7 @@ extern struct amode *make_label();
 extern struct amode *make_offset();
 extern struct amode *make_immed();
 extern struct amode *gen_expr();
+extern struct ocode *peep_head;
 extern struct amode *ll_to_mem();
 extern struct amode *copy_addr();
 extern struct amode *make_delta();
@@ -722,6 +723,15 @@ genreturn(stmt)
         if (lastfunc->tp->btp->type == bt_double) {
             ap = gen_expr(ep, F_FREG, 8);
             make_legal(ap, F_FREG, 8);
+            /*
+             * Amiga soft-float return: hi/lo in D0:D1.  make_legal may
+             * leave a memory EA after parking Fl2d/.FD* results — reload.
+             */
+            if (ap != NULL && ap->mode != am_freg) {
+                gen_code(op_move, 4, ap, makedreg((enum e_am) 0));
+                gen_code(op_move, 4, make_delta(copy_addr(ap), 4),
+                         makedreg((enum e_am) 1));
+            }
         }
         else if (lastfunc->tp->btp->type == bt_longlong
                  || lastfunc->tp->btp->type == bt_ulonglong) {
@@ -824,7 +834,9 @@ genstmt(stmt)
             gendo(stmt);
             break;
         default:
+#if AC_DEBUG
             fprintf(AC_DIAG_STREAM, "DIAG - unknown statement.\n" );
+#endif
             break;
         }
         stmt = stmt->next;
@@ -840,20 +852,27 @@ genfunc(stmt)
  */
     struct snode   *stmt;
 {
-    int             autolabel, maxlabel;
+    int             maxlabel;
     struct amode   *ap;
     struct amode   *ap2;
-    struct enode   *lnode;
+    struct ocode   *p;
+    long            framesz;
 
     retlab = contlab = breaklab = fnamelab = -1;
+    omit_frame = 0;
 
-    autolabel = nextlabel++;
     maxlabel = nextlabel++;
 
     if (lc_auto & 1)    /* if frame size odd */
         ++lc_auto;  /* make it even */
 
     float_auto = 0;     /* No floating point temporaries */
+
+    /*
+     * Frameless leaves are applied in PeepGen opt_omit_frame after the
+     * body is generated: only when there is no jsr/bsr/pea/-(A7) (except
+     * prologue/epilogue movem) and no local frame slots.
+     */
 
     if (Options.Stack) {
         ap = (struct amode *) xalloc(sizeof(struct amode));
@@ -870,14 +889,14 @@ genfunc(stmt)
         call_library( ".entry" );
     }
 
-    lnode = (struct enode *) xalloc(SZ_ENODE);
-    lnode->nodetype = en_labcon;
-    lnode->v.i = autolabel;
-    ap = (struct amode *) xalloc(sizeof(struct amode));
-    ap->mode = am_immed;
-    ap->offset = lnode;
-
-    gen_code(op_link, 0, makeareg((enum e_am) Options.Frame), ap);
+    /*
+     * Placeholder displacement — patched below once lc_auto is final.
+     * A forward en_labcon/#EQU was fragile: soft-float codegen for
+     * double-returning functions could leave putconst with a dead
+     * offset and emit the illegal "link A5,#" (seen on floatexpr).
+     */
+    gen_code(op_link, 0, makeareg((enum e_am) Options.Frame),
+             make_immed(0L));
 
     /* Handle __saveds functions - save registers that need to be preserved */
     if (lastfunc->tp->qualifiers & QUAL_SAVEDS) {
@@ -900,11 +919,19 @@ genfunc(stmt)
 
     genreturn(NULL);
 
+    if (lc_auto & 1)
+        ++lc_auto;
+    framesz = -(long) ICON16L((long) lc_auto);
+    for (p = peep_head; p != NULL; p = p->fwd) {
+        if (p->opcode == op_link) {
+            p->oper2 = make_immed(framesz);
+            break;
+        }
+    }
+
     nl();
 
     if (Options.Stack) {
         fprintf( output, "L%d\tEQU\t%d\n", maxlabel , maxparmsize+lc_auto );
     }
-
-    fprintf( output, "L%d\tEQU\t%d\n", autolabel , -(int)ICON16L((long)lc_auto) );
 }
