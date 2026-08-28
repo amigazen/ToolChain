@@ -298,13 +298,59 @@ struct snode   *
 forstmt()
 {
     struct snode   *snp;
+    struct snode   *inits;
+    struct snode   *ahead;
+    struct snode   *atail;
+    TABLE           nsyms;
+    SYM            *curr;
+    SYM            *last;
+    int             local_base;
+    int             local_auto;
+    int             used_decl;
 
     snp = makesnode(st_for);
     getsym();
     needpunc(openpa);
-    if (expression(&(snp->label)) == NULL)
+
+    /*
+     * C99: for ( declaration ; cond ; incr ) stmt
+     * Parse as { decl-inits; for (; cond; incr) stmt } with a nested
+     * symbol scope so the declared names end with the for statement.
+     */
+    used_decl = 0;
+    inits = NULL;
+    ahead = NULL;
+    atail = NULL;
+    local_base = 0;
+    local_auto = 0;
+    nsyms.head = NULL;
+    nsyms.tail = NULL;
+
+    if (fordeclbegin()) {
+        used_decl = 1;
+        local_base = lc_base;
+        local_auto = lc_auto;
+        nsyms.head = lsyms.head;
+        nsyms.tail = lsyms.tail;
+        ahead = autohead;
+        atail = autotail;
+        autohead = autotail = NULL;
+        nest_level++;
+
+        dodecl(sc_auto);
+        /* declare() already ate the ';' after the declarator list */
+        inits = autohead;
+        autohead = autotail = NULL;
+        if (lc_auto > lc2_auto)
+            lc2_auto = lc_auto;
         snp->label = NULL;
-    needpunc(semicolon);
+    }
+    else {
+        if (expression(&(snp->label)) == NULL)
+            snp->label = NULL;
+        needpunc(semicolon);
+    }
+
     snp->stype = st_for;
     if (expression(&(snp->exp)) == NULL)
         snp->exp = NULL;
@@ -313,6 +359,33 @@ forstmt()
         snp->s2 = NULL;
     needpunc(closepa);
     snp->s1 = statement();
+
+    if (used_decl) {
+        if (nsyms.head != NULL)
+            last = nsyms.tail;
+        else
+            last = (SYM *) & lsyms.head;
+
+        for (curr = last->next; curr != NULL; curr = curr->next) {
+            if (curr->storage_class == sc_label
+                || curr->storage_class == sc_ulabel)
+                last = curr;
+            else
+                last->next = curr->next;
+        }
+        lsyms.tail = last;
+
+        lc_auto = local_auto;
+        lc_base = local_base;
+        nest_level--;
+
+        autohead = ahead;
+        autotail = atail;
+
+        if (inits != NULL)
+            return joinsnode(inits, snp);
+    }
+
     return snp;
 }
 
@@ -561,6 +634,12 @@ compound(look_ahead)
     ahead = autohead;
     atail = autotail;
 
+    /*
+     * C99: declarations may appear after statements.  Splice each
+     * dodecl's auto-init stmts into the block list in source order
+     * (do not prepend all inits at the end — that reorders mid-block
+     * decls ahead of earlier statements).
+     */
     autohead = autotail = NULL;
     dodecl(sc_auto);
 
@@ -570,24 +649,41 @@ compound(look_ahead)
         lc2_auto = lc_auto;
 
     head = tail = NULL;
-
-
-    while (lastst != end && lastst != eof) {
-        if (head == NULL)
-            head = tail = statement();
-        else
-            tail->next = statement();
+    if (autohead != NULL) {
+        head = tail = autohead;
         while (tail != NULL && tail->next != NULL)
             tail = tail->next;
+        autohead = autotail = NULL;
+    }
+
+    while (lastst != end && lastst != eof) {
+        if (blockdeclbegin()) {
+            dodecl(sc_auto);
+            if (autohead != NULL) {
+                if (head == NULL)
+                    head = autohead;
+                else
+                    tail->next = autohead;
+                tail = autohead;
+                while (tail != NULL && tail->next != NULL)
+                    tail = tail->next;
+                autohead = autotail = NULL;
+            }
+            if (lc_auto > lc2_auto)
+                lc2_auto = lc_auto;
+        }
+        else {
+            if (head == NULL)
+                head = tail = statement();
+            else
+                tail->next = statement();
+            while (tail != NULL && tail->next != NULL)
+                tail = tail->next;
+        }
     }
 
     if (lastst == eof)
         error( ERR_SYNTAX, "Unexpected end of file");
-
-    if (autohead != NULL) {
-        autotail->next = head;
-        head = autohead;
-    }
 
     if (look_ahead)
         getsym();

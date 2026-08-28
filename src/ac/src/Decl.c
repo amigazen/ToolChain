@@ -1334,6 +1334,44 @@ declbegin(table, st)
     return st == star || st == id || st == openpa || st == openbr;
 }
 
+/*
+ * True if lastst begins a block-level declaration (C99 mixed decls).
+ * Matches the tokens dodecl(sc_auto) will accept before falling through
+ * to a statement.
+ */
+int
+blockdeclbegin()
+{
+    switch (lastst) {
+    case kw_static_assert:
+    case kw_alignas:
+    case kw_typedef:
+    case kw_static:
+    case kw_extern:
+    case kw_auto:
+    case kw_register:
+    case asmconst:
+        return 1;
+    default:
+        return castbegin(lastst);
+    }
+}
+
+/*
+ * C99 for-init declaration: only auto/register objects (plus type
+ * specifiers / castbegin).  No typedef/static/extern/static_assert.
+ */
+int
+fordeclbegin()
+{
+    if (lastst == kw_auto || lastst == kw_register || lastst == kw_alignas)
+        return 1;
+    if (lastst == kw_typedef || lastst == kw_static || lastst == kw_extern
+        || lastst == kw_static_assert || lastst == asmconst)
+        return 0;
+    return castbegin(lastst);
+}
+
 void
 declenum(TABLE *table)
 {

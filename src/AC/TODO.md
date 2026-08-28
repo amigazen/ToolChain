@@ -651,8 +651,8 @@ Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly
 ### 2.4 New Language Constructs
 
 #### 2.4.1 Mixed Declarations
-- [ ] **C99-style declarations** - Declarations anywhere in block
-- [ ] **Loop variable scoping** - Variables declared in for loops
+- [x] **C99-style declarations** - Declarations anywhere in block (`Stmt.c` compound + `blockdeclbegin`)
+- [x] **Loop variable scoping** - `for (int i = …)` via `fordeclbegin` + nested lsyms scope
 
 #### 2.4.2 New Operators
 - [ ] **Compound literals** - Runtime object creation
@@ -697,7 +697,7 @@ Full C23 remains the long-term goal; order work by what SSH code actually uses.
 - [ ] **Designated initializers** - `.field =` / `[index] =`
 - [ ] **Compound literals** - `(type){...}` (OpenSSH ML-KEM / modern crypto)
 - [ ] **Anonymous structs/unions** - unnamed members (very common in C trees)
-- [ ] **Declarations after statements** - C99 mixed decls (OpenSSH sntrup / newer files)
+- [x] **Declarations after statements** - C99 mixed decls (`compound` / `for (int i=…)`; see §2.4.1)
 - [ ] **VLAs** - needed for some OpenSSH crypto paths; Dropbear can disable those
 - [ ] **Preprocessor robustness** - complex `#if` / `defined()` (configure output)
 - [ ] **`u8` string prefixes** - treat as ordinary strings initially

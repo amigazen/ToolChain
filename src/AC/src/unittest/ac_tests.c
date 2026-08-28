@@ -1124,6 +1124,28 @@ test_c99_features()
     expect_long("c99/ll/suffix_LL", (long) (1LL + 2LL), 3L);
     expect_long("c99/ll/suffix_ULL", (long) (3ULL + 1ULL), 4L);
 
+    /* Declarations after statements; for (int i = ...) */
+    {
+        int a;
+        int sum;
+        int i;
+
+        a = 1;
+        int b;
+        b = a + 2;
+        expect_long("c99/mixed/after_stmt", (long) b, 3L);
+
+        sum = 0;
+        for (i = 0; i < 4; i = i + 1)
+            sum = sum + i;
+        expect_long("c99/mixed/for_classic", (long) sum, 6L);
+
+        sum = 0;
+        for (int j = 0; j < 4; j = j + 1)
+            sum = sum + j;
+        expect_long("c99/mixed/for_decl", (long) sum, 6L);
+    }
+
     /* _Bool */
     b = 0;
     expect_true("c99/bool/false", !b);

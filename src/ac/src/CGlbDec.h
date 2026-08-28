@@ -71,6 +71,8 @@ extern struct OptTab {
 
 extern void default_options(void);
 extern void dodecl(int defclass);
+extern int  blockdeclbegin(void);
+extern int  fordeclbegin(void);
 extern void do_static_assert(void);
 
 extern long ival;
