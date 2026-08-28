@@ -318,7 +318,7 @@ ref_base(char *base_name)
     SYM            *sp;
 
     /*
-     * Libcall bases (CCLibBase, DOSBase, …) are often already declared
+     * Libcall bases (CCLibBase, DOSBase, ...) are often already declared
      * extern by proto/*.h with value.i == 0.  Without marking them used,
      * list_var skips XREF and A68k reports Undefined Symbol.
      */
@@ -347,7 +347,7 @@ gen_libcall2(struct enode *node, int argbytes, struct libcall *ptr)
     int             count, mask, reg, liboffset, num, ret;
 
     /*
-     * Do not cache LIBCALL_* into locals — self-host aliases autos.
+     * Do not cache LIBCALL_* into locals - self-host aliases autos.
      */
     len = strlen(LIBCALL_ARGS(ptr));
 

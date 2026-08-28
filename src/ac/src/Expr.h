@@ -33,7 +33,7 @@ enum e_node {
     en_asm,             /* Inline-assembler         */
     en_stabs, en_stabn, /* source level debugging   */
     en_cbw, en_cbl, en_cwl, en_clf, en_cld, en_cfd, en_cdf, en_cfl, en_cdl,
-    en_cbll, en_cwll, en_clll, en_cull,  /* long long conversions */
+    en_cbll, en_cwll, en_clll, en_cull,  /* to long long */
     en_icon, en_fcon, en_labcon, en_nacon, en_autocon, en_intrlab,
     en_b_ref, en_w_ref, en_l_ref, en_ub_ref, en_uw_ref,
     en_ul_ref, en_ll_ref, en_ull_ref, en_m_ref, en_f_ref, en_d_ref, en_fcall, en_tempref, 
@@ -57,7 +57,10 @@ enum e_node {
     en_fnegd, en_faddd, en_fsubd, en_fmuld, en_fdivd, en_fmodd,
     en_fadecs, en_faincs, 
     en_fnegs, en_fadds, en_fsubs, en_fmuls, en_fdivs, en_fmods,
-    en_uge, en_ule, en_ult
+    en_uge, en_ule, en_ult,
+    /* Append only: inserting before en_icon shifts every nodetype and
+     * desyncs partially rebuilt objects.  long long -> 32-bit low word. */
+    en_llcl, en_llcul
 };
 
 /* statement node descriptions     */
@@ -79,7 +82,7 @@ struct dnode {
 };
 
 struct enode {
-    short           nodetype;   /* enum e_node — word at 0 (Expr.s makenode) */
+    short           nodetype;   /* enum e_node - word at 0 (Expr.s makenode) */
     short           size;
     short           constflag;
     short           signedflag;

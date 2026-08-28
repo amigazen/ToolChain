@@ -27,19 +27,16 @@
  * Pattern matches C-language keywords and generates tokens.  The lex'er.
  *
  * stype is int (not enum e_sym) so the static table matches Builtins.c's
- * aggregate-init path, which ac-self already compiles.  A runtime kw_add
- * Table is kept strcmp-sorted so searchkw needs no runtime sort.
+ * aggregate-init path, which ac-self already compiles.
+ * searchkw uses an inline linear scan (no cclib strcmp / safe_ldiv).
  */
 
 #include        <stdio.h>
 #include        <stdlib.h>
-#include        <string.h>
 #include        "C.h"
 #include        "Expr.h"
 #include        "Gen.h"
 #include        "Cglbdec.h"
-
-static int      kwblk_len = 0;
 
 struct kwblk {
     char           *word;
@@ -145,39 +142,39 @@ static struct kwblk keywords[] = {
     {(char *) 0, 0}
 };
 
+/*
+ * Inline string equality for keywords.  Do not call cclib strcmp here:
+ * SAS/C-built ./ac inlines the compare in SearchKW; AC-generated
+ * jsr -606(A6) plus safe_ldiv binary search left ac-self unable to
+ * recognize typedef/void (Punctuation cascade on NDK types.h) while
+ * ./ac still compiled the same headers.
+ */
+static int
+kw_streq(a, b)
+    char           *a;
+    char           *b;
+{
+    if (a == NULL || b == NULL)
+        return 0;
+    while (*a != '\0' && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
 enum e_sym
 searchkw()
 {
     struct kwblk   *kwbp;
-    int             low, high, mid, compare;
 
-    if (kwblk_len == 0) {
-        /* keywords[] is kept strcmp-sorted; just count entries once. */
-        kwbp = keywords;
-        while (kwbp->word != NULL) {
-            ++kwblk_len;
-            ++kwbp;
-        }
-    }
-
-    low = 0;
-    high = kwblk_len - 1;
-
-    do {
-        mid = low + safe_ldiv(high - low, 2);
-        kwbp = &keywords[mid];
-
-        compare = strcmp(lastid, kwbp->word);
-
-        if (compare == 0)
+    /*
+     * Linear scan.  ~95 keywords; avoids safe_ldiv mid-point math that
+     * mis-binsearched under ac-self.
+     */
+    for (kwbp = keywords; kwbp->word != NULL; kwbp++) {
+        if (kw_streq(lastid, kwbp->word))
             return (lastst = (enum e_sym) kwbp->stype);
-        else {
-            if (compare > 0)
-                low = mid + 1;
-            else
-                high = mid - 1;
-        }
-    } while (low <= high);
-
+    }
     return (lastst);
 }

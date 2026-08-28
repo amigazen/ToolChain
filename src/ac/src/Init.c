@@ -394,8 +394,11 @@ inittype(tp)
         break;
     case bt_short:
     case bt_ushort:
-    case bt_enum:
         nbytes = initshort();
+        break;
+    case bt_enum:
+        /* Same width as int (type_size / F.3.9); not a 16-bit short. */
+        nbytes = initlong();
         break;
     case bt_float:
         nbytes = initsingle();
@@ -476,7 +479,7 @@ doinit(sp)
         if (sz > MAX_INIT_PAD || sz < 0)
             sz = 0;
         /*
-         * Never emit a BSS/data label with no DS.b — A68k/Blink then
+         * Never emit a BSS/data label with no DS.b - A68k/Blink then
          * produce load files LoadSeg rejects ("not executable").
          */
         if (sz <= 0 && sp->tp != NULL && sp->tp->type != bt_func

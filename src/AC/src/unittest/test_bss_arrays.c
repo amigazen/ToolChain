@@ -41,7 +41,7 @@ int
 main(void)
 {
     /*
-     * sizeof checks — if BSS was undersized, writing these at runtime
+     * sizeof checks - if BSS was undersized, writing these at runtime
      * would smash neighbors; compile+link is the main gate on Amiga.
      */
     if (sizeof(g_int10) != 40)

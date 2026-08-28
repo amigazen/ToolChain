@@ -309,6 +309,63 @@ dump_libcall()
 }
 
 void
+dump_flibcall()
+{
+    struct flibcall *flib;
+
+    putcomp1(TOPLEV_LIBCALL);
+
+    for (flib = flibpragma; flib != NULL; flib = flib->next) 
+        dump_libentry( (struct libcall *)flib );
+   
+    putcomp1(ENDOF_LIBCALL);
+}
+
+void
+dump_syscall()
+{
+    struct syscall  *sys;
+
+    putcomp1(TOPLEV_LIBCALL);
+
+    for (sys = syspragma; sys != NULL; sys = sys->next) 
+        dump_libentry( (struct libcall *)sys );
+   
+    putcomp1(ENDOF_LIBCALL);
+}
+
+void
+dump_tagcall()
+{
+    struct tagcall  *tag;
+
+    putcomp1(TOPLEV_LIBCALL);
+
+    for (tag = tagpragma; tag != NULL; tag = tag->next) 
+        dump_libentry( (struct libcall *)tag );
+   
+    putcomp1(ENDOF_LIBCALL);
+}
+
+void
+dump_msgcall()
+{
+    struct msgcall  *msg;
+
+    putcomp1(TOPLEV_LIBCALL);
+
+    for (msg = msgpragma; msg != NULL; msg = msg->next) {
+        putcomp1(TOPLEV_LIBENTRY);
+        putcomp4(msg->msg_num);
+        putcomp1(msg->msg_state);
+        putcomp1(msg->push_flag);
+        putcomp1(ENDOF_LIBENTRY);
+    }
+   
+    putcomp1(ENDOF_LIBCALL);
+}
+
+void
 dump_tbl(tbl)
     TABLE          *tbl;
 {
@@ -346,6 +403,10 @@ dump_precomp(name)
     dump_tbl(&cmd_local);
 
     dump_libcall();
+    dump_flibcall();
+    dump_syscall();
+    dump_tagcall();
+    dump_msgcall();
 
     fclose(fp);
 
@@ -508,6 +569,161 @@ read_libcall()
 }
 
 void
+read_flibcall()
+{
+    long            ctype;
+    struct flibcall *flib;
+
+    ctype = getcomp1();
+
+    if ((enum e_comp) ctype != TOPLEV_LIBCALL) {
+        fprintf(stderr, "Reading a FLIBCALL start, got [%d]\n", ctype );
+        exit(1);
+    }
+
+    flibpragma = NULL;
+
+    for (;;) {
+        switch (ctype = getcomp1()) {
+        case ENDOF_LIBCALL:
+            return;
+        case TOPLEV_LIBENTRY:
+            ++global_flag;
+            flib = (struct flibcall *) xalloc(sizeof(struct flibcall));
+            --global_flag;
+
+            memset((char *)flib, 0, sizeof(struct flibcall));
+            read_libentry((struct libcall *)flib);
+
+            flib->next = flibpragma;
+            flibpragma = flib;
+
+            break;
+        default:
+            fprintf(stderr, "Reading a FLIBCALL, got [%d]\n", ctype );
+            return;
+        }
+    }
+}
+
+void
+read_syscall()
+{
+    long            ctype;
+    struct syscall  *sys;
+
+    ctype = getcomp1();
+
+    if ((enum e_comp) ctype != TOPLEV_LIBCALL) {
+        fprintf(stderr, "Reading a SYSCALL start, got [%d]\n", ctype );
+        exit(1);
+    }
+
+    syspragma = NULL;
+
+    for (;;) {
+        switch (ctype = getcomp1()) {
+        case ENDOF_LIBCALL:
+            return;
+        case TOPLEV_LIBENTRY:
+            ++global_flag;
+            sys = (struct syscall *) xalloc(sizeof(struct syscall));
+            --global_flag;
+
+            memset((char *)sys, 0, sizeof(struct syscall));
+            read_libentry((struct libcall *)sys);
+
+            sys->next = syspragma;
+            syspragma = sys;
+
+            break;
+        default:
+            fprintf(stderr, "Reading a SYSCALL, got [%d]\n", ctype );
+            return;
+        }
+    }
+}
+
+void
+read_tagcall()
+{
+    long            ctype;
+    struct tagcall  *tag;
+
+    ctype = getcomp1();
+
+    if ((enum e_comp) ctype != TOPLEV_LIBCALL) {
+        fprintf(stderr, "Reading a TAGCALL start, got [%d]\n", ctype );
+        exit(1);
+    }
+
+    tagpragma = NULL;
+
+    for (;;) {
+        switch (ctype = getcomp1()) {
+        case ENDOF_LIBCALL:
+            return;
+        case TOPLEV_LIBENTRY:
+            ++global_flag;
+            tag = (struct tagcall *) xalloc(sizeof(struct tagcall));
+            --global_flag;
+
+            memset((char *)tag, 0, sizeof(struct tagcall));
+            read_libentry((struct libcall *)tag);
+
+            tag->next = tagpragma;
+            tagpragma = tag;
+
+            break;
+        default:
+            fprintf(stderr, "Reading a TAGCALL, got [%d]\n", ctype );
+            return;
+        }
+    }
+}
+
+void
+read_msgcall()
+{
+    long            ctype;
+    struct msgcall  *msg;
+
+    ctype = getcomp1();
+
+    if ((enum e_comp) ctype != TOPLEV_LIBCALL) {
+        fprintf(stderr, "Reading a MSGCALL start, got [%d]\n", ctype );
+        exit(1);
+    }
+
+    msgpragma = NULL;
+
+    for (;;) {
+        switch (ctype = getcomp1()) {
+        case ENDOF_LIBCALL:
+            return;
+        case TOPLEV_LIBENTRY:
+            ++global_flag;
+            msg = (struct msgcall *) xalloc(sizeof(struct msgcall));
+            --global_flag;
+
+            memset((char *)msg, 0, sizeof(struct msgcall));
+            /* For msgcall, we need to read different fields */
+            msg->msg_num = getcomp4();
+            msg->msg_state = getcomp1();
+            msg->push_flag = getcomp1();
+
+            msg->next = msgpragma;
+            msgpragma = msg;
+
+            break;
+        default:
+            fprintf(stderr, "Reading a MSGCALL, got [%d]\n", ctype );
+            return;
+        }
+    }
+}
+
+void
 read_tbl(tbl)
     TABLE          *tbl;
 {
@@ -573,6 +789,10 @@ read_precomp(name)
     read_tbl(&cmd_include);
 
     read_libcall();
+    read_flibcall();
+    read_syscall();
+    read_tagcall();
+    read_msgcall();
 
     fclose(fp);
 
@@ -690,6 +910,9 @@ fmt_type(tp, prev)
     case bt_char:
         prepend("char ");
         break;
+    case bt_bool:
+        prepend("_Bool ");
+        break;
     case bt_uchar:
         prepend("unsigned char ");
         break;
@@ -704,6 +927,12 @@ fmt_type(tp, prev)
         break;
     case bt_long:
         prepend("long ");
+        break;
+    case bt_longlong:
+        prepend("long long ");
+        break;
+    case bt_ulonglong:
+        prepend("unsigned long long ");
         break;
     case bt_float:
         prepend("float ");
@@ -960,6 +1189,90 @@ fmt_libcall()
         fmt_libentry( lb );
 }
 
+void
+fmt_flibentry( flib )
+    struct flibcall *flib;
+{
+    fprintf( fp, "#pragma flibcall %s %s %s %s\n",
+             flib->basename, flib->funcname, flib->offset, flib->args );
+}
+
+void
+fmt_flibcall()
+{
+    struct flibcall *flib;
+
+    for (flib = flibpragma; flib != NULL; flib = flib->next) 
+        fmt_flibentry( flib );
+}
+
+void
+fmt_sysentry( sys )
+    struct syscall  *sys;
+{
+    fprintf( fp, "#pragma syscall %s %s %s %s\n",
+             sys->basename, sys->funcname, sys->offset, sys->args );
+}
+
+void
+fmt_syscall()
+{
+    struct syscall  *sys;
+
+    for (sys = syspragma; sys != NULL; sys = sys->next) 
+        fmt_sysentry( sys );
+}
+
+void
+fmt_tagentry( tag )
+    struct tagcall  *tag;
+{
+    fprintf( fp, "#pragma tagcall %s %s %s %s\n",
+             tag->basename, tag->funcname, tag->offset, tag->args );
+}
+
+void
+fmt_tagcall()
+{
+    struct tagcall  *tag;
+
+    for (tag = tagpragma; tag != NULL; tag = tag->next) 
+        fmt_tagentry( tag );
+}
+
+void
+fmt_msgentry( msg )
+    struct msgcall  *msg;
+{
+    const char *state_str;
+    
+    switch (msg->msg_state) {
+    case 0: state_str = "error"; break;
+    case 1: state_str = "warn"; break;
+    case 2: state_str = "ignore"; break;
+    case 3: state_str = "pop"; break;
+    default: state_str = "error"; break;
+    }
+    
+    if (msg->msg_state == 3) {
+        /* pop doesn't have push flag */
+        fprintf( fp, "#pragma msg %d %s\n", msg->msg_num, state_str );
+    } else if (msg->push_flag) {
+        fprintf( fp, "#pragma msg %d %s push\n", msg->msg_num, state_str );
+    } else {
+        fprintf( fp, "#pragma msg %d %s\n", msg->msg_num, state_str );
+    }
+}
+
+void
+fmt_msgcall()
+{
+    struct msgcall  *msg;
+
+    for (msg = msgpragma; msg != NULL; msg = msg->next) 
+        fmt_msgentry( msg );
+}
+
 
 void
 fmt_define(tbl)
@@ -1025,6 +1338,10 @@ fmt_precomp(name)
     fmt_tbl(&gsyms);
     fprintf( fp, comment_string );
     fmt_libcall();
+    fmt_flibcall();
+    fmt_syscall();
+    fmt_tagcall();
+    fmt_msgcall();
     fprintf( fp, comment_string );
     fmt_include(&cmd_local);
 

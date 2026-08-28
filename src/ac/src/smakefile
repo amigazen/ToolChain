@@ -52,7 +52,7 @@ LIBS	= sc:lib/sc.lib sc:lib/scm.lib lib:amiga.lib
 OBJS=	Analyze.o Expr.o Init.o Optimize.o Register.o Func.o Force.o \
 		Intexpr.o Outcode.o Searchkw.o GenCode.o GenFloat.o List.o \
 		Peepgen.o Stmt.o Cmain.o FrontEnd.o ParseCc.o GenStmt.o Memmgt.o \
-		Precomp.o Preproc.o Decl.o Getsym.o Symbol.o Builtins.o
+		Precomp.o Preproc.o Pptoken.o Decl.o Getsym.o Symbol.o Builtins.o
 OBJSS=  Cglbdef.o
 
 # The following files, along with 'config.h' are required in order to use Manx
@@ -145,6 +145,9 @@ Precomp.o: Precomp.c
 
 Preproc.o: Preproc.c 
 	sc $(DEBUG) Preproc.c
+
+Pptoken.o: PpToken.c
+	sc $(DEBUG) PpToken.c
 
 Decl.o: Decl.c 
 	sc $(DEBUG) Decl.c
@@ -281,6 +284,11 @@ bootstrap-sasc:
 	copy Preproc.sasc.s $(OUTDIR_SASC)/Preproc.s
 	-delete Preproc.sasc.o QUIET
 	-delete Preproc.sasc.s QUIET
+	sc $(SASCFLAGS) OBJECTNAME=Pptoken.sasc.o PpToken.c
+	omd >Pptoken.sasc.s Pptoken.sasc.o
+	copy Pptoken.sasc.s $(OUTDIR_SASC)/Pptoken.s
+	-delete Pptoken.sasc.o QUIET
+	-delete Pptoken.sasc.s QUIET
 	sc $(SASCFLAGS) OBJECTNAME=Decl.sasc.o Decl.c
 	omd >Decl.sasc.s Decl.sasc.o
 	copy Decl.sasc.s $(OUTDIR_SASC)/Decl.s

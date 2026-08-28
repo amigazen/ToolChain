@@ -1,0 +1,29 @@
+/*
+ * cli_opts.txt - checklist of AC command-line options exercised by
+ * make demo-cli-ac / demo-cli-self / demo-cli-self2 (and host check-cli).
+ *
+ * getopt string: ABGNQRSabglnqrsd:D:F:f:I:L:o:P:p:u:U:cEW:?
+ *
+ * Exercised (must accept / produce .s without crash):
+ *   -c -o -q -a -b -g -l -r -S -E -s
+ *   -n on cli_min.c (#if comparisons currently break under -n)
+ *   -D -U -I
+ *   -f gcc|sasc|pdc  -f 5
+ *   -W column|no-column|error|no-error
+ *   -P 0
+ *   -L dir (prints not-implemented; dir must not be treated as a source file)
+ *
+ * Not run by demo-cli (help dump is noisy / exits 1):
+ *   -?  (try by hand: ac -?)
+ *
+ * Front-end basename:
+ *   ac / ac-self / ac-self2  — PDC getopt (this checklist)
+ *   cc                       — POSIX/gcc options (-O optimize, -o outfile, …)
+ *                              make install-cc  (copy ac-self2 -> cc)
+ *   sc                       — future SAS/C ReadArgs (not implemented)
+ *
+ * Known gaps / best-effort:
+ *   -E does not yet mean preprocess-only output
+ *   -P file round-trip not deeply verified
+ *   -n + #if expr is a preprocessor bug to fix later
+ */

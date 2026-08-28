@@ -102,6 +102,9 @@ maketype(enum e_bt bt, int siz)
     tp->sname = NULL;
     tp->lst.head = NULL;
     tp->lst.tail = NULL;
+    tp->btp = NULL;
+    tp->qualifiers = 0;  /* Initialize qualifiers to none */
+    tp->mem_section = 0; /* Initialize memory section to none */
     return tp;
 }
 
@@ -170,6 +173,54 @@ decl(TABLE *table)
         getsym();
         decl(table);
         break;
+    case kw_chip:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_CHIP;
+        break;
+    case kw_far:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_FAR;
+        break;
+    case kw_near:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_NEAR;
+        break;
+    case kw_fast:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->mem_section = MEM_FAST;
+        break;
+    case kw_interrupt:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_INTERRUPT;
+        break;
+    case kw_regargs:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_REGARGS;
+        break;
+    case kw_stdargs:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_STDARGS;
+        break;
+    case kw_saveds:
+        getsym();
+        decl(table);
+        if (head != NULL)
+            head->qualifiers |= QUAL_SAVEDS;
+        break;
     case kw_char:
         head = tail = maketype(bt_char, 1);
         getsym();
@@ -187,11 +238,21 @@ decl(TABLE *table)
         getsym();
         if (lastst == kw_int)
             getsym();
+        else if (lastst == kw_long) {
+            /* long long - 64-bit integer */
+            head = tail = maketype(bt_longlong, 8);
+            getsym();
+        }
         is_class_error();
         break;
     case kw_int:
     case kw_void:
         head = tail = maketype(bt_long, 4);
+        getsym();
+        is_class_error();
+        break;
+    case kw_bool:
+        head = tail = maketype(bt_bool, 1);
         getsym();
         is_class_error();
         break;
@@ -229,6 +290,11 @@ decl(TABLE *table)
         case kw_long:
             head = tail = maketype(bt_unsigned, 4);
             getsym();
+            if (lastst == kw_long) {
+                /* unsigned long long - 64-bit unsigned integer */
+                head = tail = maketype(bt_ulonglong, 8);
+                getsym();
+            }
             break;
         default:
             head = tail = maketype(bt_unsigned, 4);
@@ -373,6 +439,7 @@ alignment(TYP *tp)
     switch (tp->type) {
     case bt_char:
     case bt_uchar:
+    case bt_bool:
         return AL_CHAR;
     case bt_short:
     case bt_ushort:
@@ -380,6 +447,9 @@ alignment(TYP *tp)
     case bt_long:
     case bt_unsigned:
         return AL_LONG;
+    case bt_longlong:
+    case bt_ulonglong:
+        return AL_LONG;  /* 8-byte alignment on 68000 */
     case bt_enum:
         return AL_SHORT;
     case bt_pointer:

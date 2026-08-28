@@ -52,7 +52,7 @@ struct blk {
 
 /*
  * Byte offset of blk.m.  On Amiga (32-bit) next is 4 bytes.  On LP64 hosts
- * next is 8 bytes — using 4 overwrote blk->next and crashed in release_local.
+ * next is 8 bytes - using 4 overwrote blk->next and crashed in release_local.
  * (Amiga ac-self must keep the literal 4; do not use sizeof here for target.)
  */
 #if defined(AC_HOST_POSIX)

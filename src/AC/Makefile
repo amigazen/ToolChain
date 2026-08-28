@@ -3,9 +3,10 @@
 # Run GNU make from THIS directory (github/TCC/src/ac), not from src/.
 #
 #   make mac              Build host AC on macOS/Linux with cc/clang (POSIX)
-#   make test             Demo regression suite on the host
-#   make test-demo-suite  Compile demo/ tests + ac_tests
-#   make test-demo        Legacy ac_feature_demo.c (needs Amiga headers)
+#   make test             Unit test suite on the host
+#   make test-unittest    Compile unittest/ smokes + ac_tests
+#   make test-demo        Legacy alias for test-unittest
+#   make test-feature     Legacy ac_feature_demo.c (needs Amiga headers)
 #   make bootstrap        AC compiles its own sources to build/bootstrap/*.s
 #   make bootstrap-self   gen-2: AC recompiles all sources (self-host regression)
 #   make selfhost           mac + gen-1 + gen-2 + poison validation (run before Amiga)
@@ -86,6 +87,7 @@ CSOURCES = \
 	PeepGen.c \
 	PreComp.c \
 	PreProc.c \
+	PpToken.c \
 	Register.c \
 	SearchKW.c \
 	Stmt.c \
@@ -97,7 +99,7 @@ AMIGA_OBJECTS = $(CSOURCES:%.c=$(AMIGA_OBJDIR)/%.o)
 BOOT_ASM = $(CSOURCES:%.c=$(BOOTDIR)/%.s)
 BOOT_ASM_GEN2 = $(CSOURCES:%.c=$(BOOTDIR)/gen2/%.s)
 
-.PHONY: all mac amiga clean test test-demo test-demo-suite bootstrap bootstrap-report bootstrap-self selfhost check-bootstrap check-selfhost validate-asm validate-selfhost
+.PHONY: all mac amiga clean test test-demo test-unittest test-demo-suite test-feature bootstrap bootstrap-report bootstrap-self selfhost check-bootstrap check-selfhost validate-asm validate-selfhost
 
 all: mac
 
@@ -123,16 +125,16 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
 $(AMIGA_OBJDIR)/%.o: $(SRCDIR)/%.c | $(AMIGA_OBJDIR)
 	$(AMIGA_CC) $(AMIGA_CFLAGS) -c -o $@ $<
 
-test: mac test-demo-suite
+test: mac test-unittest
 
-# Demo regression suite (same tests Amiga make demo-ac / demo-self / demo-self2 run).
-test-demo-suite: $(BINDIR)/AC
-	$(MAKE) -f demo/Makefile check CC=./AC ACFLAGS= \
-		DEMODIR=demo OUTDIR=demo/out/host QUIET=-q
+# Unit test suite (same smokes Amiga make demo-ac / demo-self / demo-self2 run).
+test-unittest test-demo-suite test-demo: $(BINDIR)/AC
+	$(MAKE) -f src/unittest/Makefile check CC=./AC ACFLAGS= \
+		DEMODIR=src/unittest OUTDIR=src/unittest/out/host QUIET=-q
 
 # Full feature demo needs Amiga target headers; run on AmigaOS or with -Isrc/include.
-test-demo: $(BINDIR)/AC
-	cd demo && ../$(BINDIR)/AC -c -I../$(INCDIR) -I. -o ../$(OBJDIR)/ac_feature_demo.s ac_feature_demo.c 2>../$(OBJDIR)/ac_feature_demo.err
+test-feature: $(BINDIR)/AC
+	cd src/unittest && ../../$(BINDIR)/AC -c -I../include -I. -o ../../$(OBJDIR)/ac_feature_demo.s ac_feature_demo.c 2>../../$(OBJDIR)/ac_feature_demo.err
 	@echo "--- stderr (diagnostics) ---"
 	@cat $(OBJDIR)/ac_feature_demo.err
 	@echo "--- generated assembly (first 40 lines) ---"
@@ -220,4 +222,4 @@ check-bootstrap-grep: bootstrap
 	fi
 
 clean:
-	rm -rf $(OBJDIR) $(AMIGA_OBJDIR) $(BINDIR)/AC $(BINDIR)/AC-amiga demo/out
+	rm -rf $(OBJDIR) $(AMIGA_OBJDIR) $(BINDIR)/AC $(BINDIR)/AC-amiga src/unittest/out

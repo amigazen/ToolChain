@@ -80,6 +80,20 @@ hashkey(str)            /* Compute a sliding XOR of the name */
 
 #endif
 
+static int
+sym_streq(a, b)
+    char           *a;
+    char           *b;
+{
+    if (a == NULL || b == NULL)
+        return 0;
+    while (*a != '\0' && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
 SYM            *
 search(str, ptr)
     register char  *str;
@@ -93,14 +107,15 @@ search(str, ptr)
 
     /*
      * Cap walk length: a circular SYM.next (bad insert) would hang the
-     * compiler with no diagnostic — seen as returncode 20 after Ctrl-C.
+     * compiler with no diagnostic - seen as returncode 20 after Ctrl-C.
+     * Inline equality -- same cclib-strcmp avoidance as searchkw.
      */
     n = 0;
     while (ptr != NULL) {
         if (++n > 100000)
             break;
         if (ptr->key == newkey)
-            if (ptr->name != NULL && strcmp(str, ptr->name) == 0)
+            if (ptr->name != NULL && sym_streq(str, ptr->name))
                 answer = ptr;
         ptr = ptr->next;
     }
@@ -153,7 +168,7 @@ remove_symbol(char *s, TABLE *table)
         ptr = table->head;
 
         if (ptr != NULL && ptr->key == newkey) {
-            if (ptr->name != NULL && strcmp(s, ptr->name) == 0) {
+            if (ptr->name != NULL && sym_streq(s, ptr->name)) {
                 table->head = ptr->next;
                 if (table->head == NULL)
                     table->tail = NULL;
@@ -166,7 +181,7 @@ remove_symbol(char *s, TABLE *table)
 
         while (ptr != NULL) {
             if (ptr->key == newkey) {
-                if (ptr->name != NULL && strcmp(s, ptr->name) == 0) {
+                if (ptr->name != NULL && sym_streq(s, ptr->name)) {
                     last->next = ptr->next;
                     if (table->tail == ptr)
                         table->tail = last;

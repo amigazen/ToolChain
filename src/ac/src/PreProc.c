@@ -23,13 +23,15 @@
  */
 
 /*
- * PreProc.c Built-in preprocessor
+ * PreProc.c - built-in preprocessor (token-based Phase-3 core).
+ *
+ * Directives and macros are handled here.  Expansion uses heap PPT tokens
+ * (PpToken.c); GetSym still receives text via prepdefine() pushback.
  */
 
 #include    <stdio.h>
 #include    <stdlib.h>
 #include    <string.h>
-#include    <ctype.h>
 
 #ifdef AZTEC_C
 #define isidch(x)    ((ctp_[(x)+1] & 0x07) || ((x) == '_') || ((x) == '$'))
@@ -41,8 +43,10 @@
 #include    "Cglbdec.h"
 #include    "host_posix.h"
 #include    "FrontEnd.h"
+#include    "PpToken.h"
 
 extern char    *itoa(int x);
+extern char     in_line[];
 
 #define LPAR    '('
 #define RPAR    ')'
@@ -83,7 +87,7 @@ char            prepbuffer[1024];
  * same list (no "dir of parent header" search).
  *
  * Order matters: C library headers (stdio/stdlib) must come from cclib or
- * local include/ — not from NDK include:, which has SAS-isms AC rejects
+ * local include/ -- not from NDK include:, which has SAS-isms AC rejects
  * (e.g. "unsigned long int").  NDK is last so dos/exec/proto still resolve.
  */
 void
@@ -94,7 +98,7 @@ install_bootstrap_includes(void)
         incldir[inclnum++] = "///SDK/cclib.library/SDK/Include_H/";
         incldir[inclnum++] = "compinc/";
         incldir[inclnum++] = "include/";
-        /* NDK last — dos/, exec/, proto/, … */
+        /* NDK last -- dos/, exec/, proto/, ... */
         incldir[inclnum++] = "include:";
     }
 }
@@ -226,7 +230,7 @@ doinclude()
     method = TRUE;  /* <> search; set FALSE for "file" */
     oneline = TRUE;
 
-    while (isspace(lastch)) /* Skip the white space */
+    while (pp_is_white(lastch)) /* Skip the white space */
         getch();
 
     if (lastch == QUOT) {   /* #include "file.h"    */
@@ -240,14 +244,19 @@ doinclude()
             }
             method = FALSE;
             /*
-             * Quoted includes: search beside the including file first
-             * (dir of curfile), then as a literal/cwd path, then -I.
-             * Angle-bracket includes skip the beside-caller step.
+             * SAS/C F.3.13 quoted #include "file" search order:
+             *   1. current directory (literal / cwd path)
+             *   2. directory of the file containing the #include
+             *   3. -I / includedirectory list
+             *   4. INCLUDE: (or host INCLUDE macro)
+             * Angle brackets skip steps 1-2 (handled below).
              */
-            if (include_beside_caller(prepbuffer, laststr)
+            fp = fopen(laststr, "r");
+            if (fp == NULL
+                && include_beside_caller(prepbuffer, laststr)
                 && (fp = fopen(prepbuffer, "r")) != NULL)
                 strcpy(laststr, prepbuffer);
-            if (fp == NULL && (fp = fopen(laststr, "r")) == NULL) {
+            if (fp == NULL) {
                 for (num = 0; num < inclnum && fp == NULL; num++) {
                     strcpy(prepbuffer, incldir[num]);
                     strcat(prepbuffer, laststr);
@@ -258,7 +267,7 @@ doinclude()
             if (fp == NULL) {
                 strcpy(prepbuffer, INCLUDE);
                 strcat(prepbuffer, laststr);
-                if ((fp = fopen(prepbuffer, "r")) != NULL) 
+                if ((fp = fopen(prepbuffer, "r")) != NULL)
                     strcpy(laststr, prepbuffer);
             }
         }
@@ -306,9 +315,9 @@ doinclude()
          * list; a missing NDK assign shows up here as include: + name.
          */
         fprintf(AC_DIAG_STREAM, "Can't open include file \"%s\"\n", filename);
+        fprintf(AC_DIAG_STREAM, "  tried: %s\n", filename);
         if (method == FALSE && include_beside_caller(prepbuffer, filename))
             fprintf(AC_DIAG_STREAM, "  tried: %s\n", prepbuffer);
-        fprintf(AC_DIAG_STREAM, "  tried: %s\n", filename);
         for (num = 0; num < inclnum; num++) {
             strcpy(prepbuffer, incldir[num]);
             strcat(prepbuffer, filename);
@@ -361,7 +370,7 @@ static void
 get_macro_param()
 {
     lastid[0] = '\0';
-    while (isspace(lastch))
+    while (pp_is_white(lastch))
         getch();
     if (lastch == '.') {
         getch();
@@ -464,7 +473,7 @@ dodefine()
             else
                 sp1 = make_macro_formal(lastid, 0);
             sp->tp->lst.head = sp->tp->lst.tail = sp1;
-            while (isspace(lastch)) /* Skip the white space     */
+            while (pp_is_white(lastch)) /* Skip the white space     */
                 getch();
             while (lastch == ',' && sp1->value.i == 0) {
                 getch();    /* Skip the comma           */
@@ -480,11 +489,11 @@ dodefine()
                 sp1 = make_macro_formal(lastid, 0);
                 sp->tp->lst.tail->next = sp1;
                 sp->tp->lst.tail = sp1;
-                while (isspace(lastch)) /* Skip the white space     */
+                while (pp_is_white(lastch)) /* Skip the white space     */
                     getch();
             }
         }
-        while (isspace(lastch)) /* Skip the white space         */
+        while (pp_is_white(lastch)) /* Skip the white space         */
             getch();
         if (lastch != /*-(-*/ ')')
             error(ERR_DEFINE, "missing right parenthesis");
@@ -507,7 +516,7 @@ dodefine()
             if (!in_quote && comment_depth == 0
                 && *ptr == '/' && *(ptr + 1) == '/')
                 break;
-            if (!isspace(*ptr))
+            if (!pp_is_white((unsigned char) *ptr))
                 valid = TRUE;
             if (*ptr == '"')
                 in_quote = !in_quote;
@@ -591,6 +600,552 @@ doendif()
         prestat = inclstat[prepdepth];
     }
     ac_getline(incldepth == 0);
+}
+
+/*
+ * Token-based #if / #elif evaluation (heap tokens via PpToken.c).
+ * No ctype/_type; always parse both sides of && / ||.
+ */
+
+static PPTOKEN *pp_ev_cur;
+static int      pp_ev_depth;
+
+static long     pp_eval_lor();  /* forward */
+
+static void
+pp_ev_advance()
+{
+    if (pp_ev_cur != NULL)
+        pp_ev_cur = pp_ev_cur->next;
+}
+
+static int
+pp_ev_is_punct(code)
+    int             code;
+{
+    return pp_ev_cur != NULL
+        && pp_ev_cur->kind == PPT_PUNCT
+        && pp_ev_cur->punct == code;
+}
+
+static long
+pp_parse_number(text)
+    char           *text;
+{
+    long            v;
+    int             base;
+    int             d;
+    unsigned char  *p;
+
+    v = 0;
+    base = 10;
+    p = (unsigned char *) text;
+    if (p == NULL || *p == '\0')
+        return 0;
+    if (*p == '0') {
+        p++;
+        if (*p == 'x' || *p == 'X') {
+            p++;
+            base = 16;
+        }
+        else if (*p >= '0' && *p <= '7')
+            base = 8;
+        else {
+            /* lone 0 with optional suffixes */
+            while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L')
+                p++;
+            return 0;
+        }
+    }
+    for (;;) {
+        if (*p >= '0' && *p <= '9')
+            d = *p - '0';
+        else if (*p >= 'a' && *p <= 'f')
+            d = *p - 'a' + 10;
+        else if (*p >= 'A' && *p <= 'F')
+            d = *p - 'A' + 10;
+        else
+            break;
+        if (d >= base)
+            break;
+        v = v * base + d;
+        p++;
+    }
+    while (*p == 'u' || *p == 'U' || *p == 'l' || *p == 'L')
+        p++;
+    return v;
+}
+
+/*
+ * Replace defined IDENT / defined ( IDENT ) with a PPT_NUMBER 0/1.
+ * Operates on a token list; returns a new list (arena).
+ */
+static PPTOKEN *
+pp_rewrite_defined(head)
+    PPTOKEN        *head;
+{
+    PPTOKEN        *out;
+    PPTOKEN        *tail;
+    PPTOKEN        *t;
+    PPTOKEN        *name_tok;
+    int             seen;
+    int             isdef;
+    char           *digit;
+
+    out = NULL;
+    tail = NULL;
+    t = head;
+    while (t != NULL) {
+        if (t->kind == PPT_IDENT && pp_is_defined_kw(t->text)) {
+            t = t->next;
+            seen = 0;
+            name_tok = NULL;
+            if (t != NULL && t->kind == PPT_PUNCT && t->punct == '(') {
+                seen = 1;
+                t = t->next;
+            }
+            if (t != NULL && t->kind == PPT_IDENT) {
+                name_tok = t;
+                t = t->next;
+            }
+            if (seen) {
+                if (t != NULL && t->kind == PPT_PUNCT && t->punct == ')')
+                    t = t->next;
+                else
+                    error(ERR_PUNCT, "expected ) after defined(");
+            }
+            isdef = (name_tok != NULL && name_tok->text != NULL
+                     && search(name_tok->text, defsyms.head) != NULL);
+            digit = isdef ? litlate("1") : litlate("0");
+            pp_list_append(&out, &tail,
+                           pp_tok_new(PPT_NUMBER, 0, digit));
+            continue;
+        }
+        pp_list_append(&out, &tail, pp_tok_dup(t));
+        t = t->next;
+    }
+    return out;
+}
+
+/*
+ * Expand object-like macros in a #if token list (tp == NULL).
+ * Function-like macros are left as identifiers (become 0 in primary).
+ */
+static PPTOKEN *
+pp_expand_object_macros(head, depth)
+    PPTOKEN        *head;
+    int             depth;
+{
+    PPTOKEN        *out;
+    PPTOKEN        *tail;
+    PPTOKEN        *t;
+    PPTOKEN        *exp;
+    SYM            *sp;
+
+    out = NULL;
+    tail = NULL;
+    if (depth > 32)
+        return pp_list_dup(head);
+
+    for (t = head; t != NULL; t = t->next) {
+        if (t->kind == PPT_IDENT && t->text != NULL
+            && !pp_is_defined_kw(t->text)) {
+            sp = search(t->text, defsyms.head);
+            if (sp != NULL && sp->value.s != NULL && sp->tp == NULL) {
+                exp = pp_tokenize(sp->value.s);
+                exp = pp_expand_object_macros(exp, depth + 1);
+                while (exp != NULL) {
+                    pp_list_append(&out, &tail, pp_tok_dup(exp));
+                    exp = exp->next;
+                }
+                continue;
+            }
+        }
+        pp_list_append(&out, &tail, pp_tok_dup(t));
+    }
+    return out;
+}
+
+static long
+pp_ev_primary()
+{
+    long            v;
+    SYM            *sp;
+    PPTOKEN        *saved;
+    PPTOKEN        *exp;
+
+    if (pp_ev_cur == NULL) {
+        error(ERR_SYNTAX, "bad token in #if");
+        return 0L;
+    }
+
+    if (pp_ev_is_punct('(')) {
+        pp_ev_advance();
+        v = pp_eval_lor();
+        if (pp_ev_is_punct(')'))
+            pp_ev_advance();
+        else
+            error(ERR_PUNCT, "expected ) in #if");
+        return v;
+    }
+
+    if (pp_ev_cur->kind == PPT_NUMBER) {
+        v = pp_parse_number(pp_ev_cur->text);
+        pp_ev_advance();
+        return v;
+    }
+
+    if (pp_ev_cur->kind == PPT_CHAR) {
+        /* Narrow: use first character after opening quote if present. */
+        {
+            char           *s;
+
+            s = pp_ev_cur->text;
+            v = 0;
+            if (s != NULL && s[0] == '\'' && s[1] != '\0') {
+                if (s[1] == '\\' && s[2] != '\0')
+                    v = (unsigned char) s[2];
+                else
+                    v = (unsigned char) s[1];
+            }
+        }
+        pp_ev_advance();
+        return v;
+    }
+
+    if (pp_ev_cur->kind == PPT_IDENT) {
+        /*
+         * defined should already be rewritten; leftover treated as 0.
+         * Object macros should already be expanded; leftover id => 0.
+         * Still try one-shot expansion for safety.
+         */
+        sp = search(pp_ev_cur->text, defsyms.head);
+        if (sp != NULL && sp->value.s != NULL && sp->tp == NULL) {
+            if (pp_ev_depth > 32) {
+                pp_ev_advance();
+                return 0L;
+            }
+            saved = pp_ev_cur->next;
+            exp = pp_tokenize(sp->value.s);
+            exp = pp_expand_object_macros(exp, 0);
+            pp_ev_cur = exp;
+            ++pp_ev_depth;
+            v = pp_eval_lor();
+            --pp_ev_depth;
+            pp_ev_cur = saved;
+            return v;
+        }
+        pp_ev_advance();
+        return 0L;
+    }
+
+    error(ERR_SYNTAX, "bad token in #if");
+    pp_ev_advance();
+    return 0L;
+}
+
+static long
+pp_ev_unary()
+{
+    long            v;
+
+    if (pp_ev_is_punct('!')) {
+        pp_ev_advance();
+        return !pp_ev_unary();
+    }
+    if (pp_ev_is_punct('~')) {
+        pp_ev_advance();
+        return ~pp_ev_unary();
+    }
+    if (pp_ev_is_punct('-')) {
+        pp_ev_advance();
+        return -pp_ev_unary();
+    }
+    if (pp_ev_is_punct('+')) {
+        pp_ev_advance();
+        return pp_ev_unary();
+    }
+    return pp_ev_primary();
+}
+
+static long
+pp_ev_mul()
+{
+    long            v;
+    long            r;
+
+    v = pp_ev_unary();
+    for (;;) {
+        if (pp_ev_is_punct('*')) {
+            pp_ev_advance();
+            v = v * pp_ev_unary();
+        }
+        else if (pp_ev_is_punct('/')) {
+            pp_ev_advance();
+            r = pp_ev_unary();
+            v = (r == 0) ? 0 : v / r;
+        }
+        else if (pp_ev_is_punct('%')) {
+            pp_ev_advance();
+            r = pp_ev_unary();
+            v = (r == 0) ? 0 : v % r;
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_add()
+{
+    long            v;
+
+    v = pp_ev_mul();
+    for (;;) {
+        if (pp_ev_is_punct('+')) {
+            pp_ev_advance();
+            v = v + pp_ev_mul();
+        }
+        else if (pp_ev_is_punct('-')) {
+            pp_ev_advance();
+            v = v - pp_ev_mul();
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_shift()
+{
+    long            v;
+
+    v = pp_ev_add();
+    for (;;) {
+        if (pp_ev_is_punct(PP_SHL)) {
+            pp_ev_advance();
+            v = v << (int) pp_ev_add();
+        }
+        else if (pp_ev_is_punct(PP_SHR)) {
+            pp_ev_advance();
+            v = (long) ((unsigned long) v >> (int) pp_ev_add());
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_rel()
+{
+    long            v;
+
+    v = pp_ev_shift();
+    for (;;) {
+        if (pp_ev_is_punct(PP_LE)) {
+            pp_ev_advance();
+            v = (v <= pp_ev_shift()) ? 1L : 0L;
+        }
+        else if (pp_ev_is_punct(PP_GE)) {
+            pp_ev_advance();
+            v = (v >= pp_ev_shift()) ? 1L : 0L;
+        }
+        else if (pp_ev_is_punct('<')) {
+            pp_ev_advance();
+            v = (v < pp_ev_shift()) ? 1L : 0L;
+        }
+        else if (pp_ev_is_punct('>')) {
+            pp_ev_advance();
+            v = (v > pp_ev_shift()) ? 1L : 0L;
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_eq()
+{
+    long            v;
+
+    v = pp_ev_rel();
+    for (;;) {
+        if (pp_ev_is_punct(PP_EQ)) {
+            pp_ev_advance();
+            v = (v == pp_ev_rel()) ? 1L : 0L;
+        }
+        else if (pp_ev_is_punct(PP_NE)) {
+            pp_ev_advance();
+            v = (v != pp_ev_rel()) ? 1L : 0L;
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_bitand()
+{
+    long            v;
+
+    v = pp_ev_eq();
+    for (;;) {
+        if (pp_ev_is_punct('&')) {
+            pp_ev_advance();
+            v = v & pp_ev_eq();
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_bitxor()
+{
+    long            v;
+
+    v = pp_ev_bitand();
+    for (;;) {
+        if (pp_ev_is_punct('^')) {
+            pp_ev_advance();
+            v = v ^ pp_ev_bitand();
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_bitor()
+{
+    long            v;
+
+    v = pp_ev_bitxor();
+    for (;;) {
+        if (pp_ev_is_punct('|')) {
+            pp_ev_advance();
+            v = v | pp_ev_bitxor();
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_ev_land()
+{
+    long            v;
+    long            r;
+
+    v = pp_ev_bitor();
+    for (;;) {
+        if (pp_ev_is_punct(PP_LAND)) {
+            pp_ev_advance();
+            /* Always parse RHS -- do not short-circuit the token walk. */
+            r = pp_ev_bitor();
+            v = (v && r) ? 1L : 0L;
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+static long
+pp_eval_lor()
+{
+    long            v;
+    long            r;
+
+    v = pp_ev_land();
+    for (;;) {
+        if (pp_ev_is_punct(PP_LOR)) {
+            pp_ev_advance();
+            r = pp_ev_land();
+            v = (v || r) ? 1L : 0L;
+        }
+        else
+            break;
+    }
+    return v;
+}
+
+/*
+ * Evaluate a #if/#elif expression from the rest of the physical line.
+ * lastch is the first expression character; lptr points after it.
+ */
+static int
+pp_eval_line()
+{
+    char           *line;
+    int             cap;
+    int             len;
+    unsigned char  *src;
+    PPTOKEN        *toks;
+    long            v;
+    char           *neu;
+    int             i;
+
+    /*
+     * Build a heap copy of the remainder of the line (join splices).
+     * Back up so lastch is included.
+     */
+    if (lastch != -1 && lastch != '\n' && lastch != '\0')
+        --lptr;
+    src = lptr;
+
+    ++global_flag;
+    cap = 128;
+    line = (char *) xalloc(cap);
+    len = 0;
+
+    for (;;) {
+        if (*src == '\0' || *src == '\n')
+            break;
+        if (*src == '\\'
+            && (src[1] == '\0' || src[1] == '\n' || src[1] == '\r')) {
+            if (ac_getline(incldepth == 0))
+                break;
+            src = (unsigned char *) in_line;
+            continue;
+        }
+        if (len + 2 >= cap) {
+            neu = (char *) xalloc(cap * 2);
+            for (i = 0; i < len; i++)
+                neu[i] = line[i];
+            line = neu;
+            cap *= 2;
+        }
+        line[len++] = (char) *src;
+        src++;
+    }
+    line[len] = '\0';
+    --global_flag;
+
+    /* Consume the line so callers do not re-scan it as C tokens. */
+    lptr = src;
+    lastch = ' ';
+
+    ++global_flag;
+    toks = pp_tokenize(line);
+    toks = pp_rewrite_defined(toks);
+    toks = pp_expand_object_macros(toks, 0);
+    pp_ev_cur = toks;
+    pp_ev_depth = 0;
+    v = pp_eval_lor();
+    if (pp_ev_cur != NULL)
+        error(ERR_SYNTAX, "junk after #if expression");
+    --global_flag;
+    pp_list_free(toks);
+    return (v != 0);
 }
 
 void
@@ -708,9 +1263,11 @@ doif()
 
     oneline = TRUE;     /* The expresion must be on one line */
 
-    getsym();       /* get past #if */
-
-    value = intexpr();  /* get the expression */
+    /*
+     * Tokenize the rest of the line, rewrite defined(), expand object
+     * macros, then evaluate with the token #if parser.
+     */
+    value = pp_eval_line();
 
     oneline = FALSE;
 
@@ -723,30 +1280,38 @@ doif()
     ac_getline(incldepth == 0);
 }
 
-char    *
-getparm(buffer)
-    char    *buffer;
-{
-    char    *ptr;
-    int     paren, state;
+/*
+ * Macro argument collection and token-based expansion.
+ * Arguments land in the arena via litlate; expansion walks PPT tokens.
+ */
 
-    /*
-     * Leading/trailing whitespace is not part of a macro argument
-     * (C89).  Without this, CAT(a, b) keeps the space after the comma
-     * and a##b pastes into "a b" instead of "ab".
-     */
-    while (isspace(lastch))
+static char *
+pp_collect_arg(stop_comma)
+    int             stop_comma;
+{
+    char           *buf;
+    int             cap;
+    int             len;
+    int             paren;
+    int             state;
+    char           *neu;
+    int             i;
+
+    while (pp_is_white(lastch))
         getch();
 
-    ptr = buffer;
-    state = paren = 0;
+    ++global_flag;
+    cap = 128;
+    buf = (char *) xalloc(cap);
+    len = 0;
+    paren = 0;
+    state = 0;
 
     for (;;) {
-        switch (state) {
-        case 0:
-            if (lastch == EOF)
-                goto done;
-            else if (lastch == QUOT)
+        if (lastch == EOF || lastch == -1)
+            break;
+        if (state == 0) {
+            if (lastch == QUOT)
                 state = 1;
             else if (lastch == SQUOT)
                 state = 2;
@@ -754,173 +1319,120 @@ getparm(buffer)
                 ++paren;
             else if (lastch == RPAR) {
                 if (paren <= 0)
-                    goto done;
+                    break;
                 --paren;
             }
-            else if (lastch == COMMA) {
-                if (paren <= 0) {
-                    getch();
-                    goto done;
+            else if (stop_comma && lastch == COMMA && paren <= 0) {
+                getch();
+                break;
+            }
+        }
+        else if (state == 1) {
+            if (lastch == QUOT)
+                state = 0;
+            else if (lastch == BSLASH) {
+                if (len + 2 >= cap) {
+                    neu = (char *) xalloc(cap * 2);
+                    for (i = 0; i < len; i++)
+                        neu[i] = buf[i];
+                    buf = neu;
+                    cap *= 2;
                 }
-            }
-            else if (lastch == BSLASH) {
-                *ptr++ = lastch;
+                buf[len++] = (char) lastch;
                 getch();
             }
-            break;
-        case 1:
-            if (lastch == EOF)
-                goto done;
-            else if (lastch == QUOT)
+        }
+        else if (state == 2) {
+            if (lastch == SQUOT)
                 state = 0;
             else if (lastch == BSLASH) {
-                *ptr++ = lastch;
+                if (len + 2 >= cap) {
+                    neu = (char *) xalloc(cap * 2);
+                    for (i = 0; i < len; i++)
+                        neu[i] = buf[i];
+                    buf = neu;
+                    cap *= 2;
+                }
+                buf[len++] = (char) lastch;
                 getch();
             }
-            break;
-        case 2:
-            if (lastch == EOF)
-                goto done;
-            else if (lastch == SQUOT)
-                state = 0;
-            else if (lastch == BSLASH) {
-                *ptr++ = lastch;
-                getch();
-            }
-            break;
         }
-        if (lastch != EOF) {
-            *ptr++ = lastch;
-            getch();
+
+        if (len + 2 >= cap) {
+            neu = (char *) xalloc(cap * 2);
+            for (i = 0; i < len; i++)
+                neu[i] = buf[i];
+            buf = neu;
+            cap *= 2;
         }
-    }
-done:
-    *ptr = '\0';
-    while (ptr > buffer && isspace((unsigned char) ptr[-1])) {
-        --ptr;
-        *ptr = '\0';
-    }
-    return(litlate(buffer));
-}
-
-char    *
-getvarargs(buffer)
-    char    *buffer;
-{
-    char    *ptr;
-    int     paren, state;
-
-    /* Match getparm: leading spaces are not part of the argument. */
-    while (isspace(lastch))
+        buf[len++] = (char) lastch;
         getch();
-
-    ptr = buffer;
-    state = paren = 0;
-
-    /* Collect all remaining arguments until closing parenthesis */
-    for (;;) {
-        switch (state) {
-        case 0:
-            if (lastch == EOF)
-                goto done;
-            else if (lastch == QUOT)
-                state = 1;
-            else if (lastch == SQUOT)
-                state = 2;
-            else if (lastch == LPAR)
-                ++paren;
-            else if (lastch == RPAR) {
-                if (paren <= 0)
-                    goto done;
-                --paren;
-            }
-            else if (lastch == BSLASH) {
-                *ptr++ = lastch;
-                getch();
-            }
-            break;
-        case 1:
-            if (lastch == EOF)
-                goto done;
-            else if (lastch == QUOT)
-                state = 0;
-            else if (lastch == BSLASH) {
-                *ptr++ = lastch;
-                getch();
-            }
-            break;
-        case 2:
-            if (lastch == EOF)
-                goto done;
-            else if (lastch == SQUOT)
-                state = 0;
-            else if (lastch == BSLASH) {
-                *ptr++ = lastch;
-                getch();
-            }
-            break;
-        }
-        if (lastch != EOF) {
-            *ptr++ = lastch;
-            getch();
-        }
     }
-done:
-    *ptr = '\0';
-    return(litlate(buffer));
+
+    while (len > 0 && pp_is_white((unsigned char) buf[len - 1]))
+        len--;
+    buf[len] = '\0';
+    --global_flag;
+    return litlate(buf);
 }
 
-char           *
+char *
+getparm(buffer)
+    char           *buffer;
+{
+    char           *r;
+
+    (void) buffer;
+    r = pp_collect_arg(1);
+    return r;
+}
+
+char *
+getvarargs(buffer)
+    char           *buffer;
+{
+    char           *r;
+
+    (void) buffer;
+    r = pp_collect_arg(0);
+    return r;
+}
+
+char *
 stringify_param(param)
     char           *param;
 {
-    char           *result, *ptr;
-    int             len;
-    
-    /* Calculate length needed for stringified parameter */
-    len = strlen(param) + 2; /* +2 for quotes */
-    result = (char *)xalloc(len + 1);
-    ptr = result;
-    *ptr++ = '"';
-    
-    while (*param) {
-        if (*param == '"' || *param == '\\') {
-            *ptr++ = '\\';
-        }
-        *ptr++ = *param++;
-    }
-    *ptr++ = '"';
-    *ptr = '\0';
-    
-    return result;
+    PPTOKEN        *toks;
+    char           *r;
+
+    if (param == NULL)
+        param = "";
+    ++global_flag;
+    toks = pp_tokenize(param);
+    r = pp_stringize(toks);
+    --global_flag;
+    return r;
 }
 
-char           *
+char *
 paste_tokens(token1, token2)
     char           *token1, *token2;
 {
-    char           *result;
-    int             len;
-    
-    len = strlen(token1) + strlen(token2) + 1;
-    result = (char *)xalloc(len);
-    strcpy(result, token1);
-    strcat(result, token2);
-    
-    return result;
+    return pp_paste_text(token1, token2);
 }
 
 static void
-reverse_string(char *str)
+reverse_string(str)
+    char           *str;
 {
-    char *start, *end, temp;
-    
+    char           *start;
+    char           *end;
+    char            temp;
+
     if (str == NULL || *str == '\0')
         return;
-        
     start = str;
     end = str + strlen(str) - 1;
-    
     while (start < end) {
         temp = *start;
         *start = *end;
@@ -930,7 +1442,7 @@ reverse_string(char *str)
     }
 }
 
-char           *
+char *
 reverse_args(args)
     char           *args;
 {
@@ -943,18 +1455,15 @@ reverse_args(args)
      * SAS/C mask form: <arg-regs in reverse order><return-reg><arg-count>.
      * gen_libcall2 wants arg regs in stack/parameter order.  Only reverse
      * the register digits; leave return + count nibbles alone.
-     * Example: Write "32103" -> "12303".
      */
     if (args == NULL)
         return NULL;
-
-    len = strlen(args);
+    len = (int) strlen(args);
     reversed = (char *) xalloc(len + 1);
     if (len < 2) {
         strcpy(reversed, args);
         return reversed;
     }
-
     nregs = len - 2;
     for (i = 0; i < nregs; i++)
         reversed[i] = args[nregs - 1 - i];
@@ -964,219 +1473,213 @@ reverse_args(args)
     return reversed;
 }
 
-char           *
+/*
+ * Find formal by name in the function-macro parameter list.
+ */
+static SYM *
+pp_find_formal(formals, name)
+    SYM            *formals;
+    char           *name;
+{
+    SYM            *sp1;
+
+    if (name == NULL)
+        return NULL;
+    for (sp1 = formals; sp1 != NULL; sp1 = sp1->next) {
+        if (sp1->name != NULL && strcmp(sp1->name, name) == 0)
+            return sp1;
+    }
+    return NULL;
+}
+
+static PPTOKEN *
+pp_arg_tokens(formal)
+    SYM            *formal;
+{
+    if (formal == NULL || formal->value.s == NULL)
+        return pp_tok_new(PPT_PLACEMARKER, 0, NULL);
+    return pp_tokenize(formal->value.s);
+}
+
+/*
+ * Expand function-macro replacement list with # / ## / arg substitution.
+ */
+static PPTOKEN *
+pp_expand_replacement(repl, formals)
+    PPTOKEN        *repl;
+    SYM            *formals;
+{
+    PPTOKEN        *out;
+    PPTOKEN        *tail;
+    PPTOKEN        *t;
+    PPTOKEN        *argtoks;
+    PPTOKEN        *p;
+    SYM            *formal;
+    char           *left;
+    char           *right;
+    char           *pasted;
+    PPTOKEN        *next;
+
+    out = NULL;
+    tail = NULL;
+    t = repl;
+    while (t != NULL) {
+        /* # formal  -> stringize */
+        if (t->kind == PPT_PUNCT && t->punct == '#') {
+            next = t->next;
+            if (next != NULL && next->kind == PPT_IDENT) {
+                formal = pp_find_formal(formals, next->text);
+                if (formal != NULL) {
+                    argtoks = pp_arg_tokens(formal);
+                    pp_list_append(&out, &tail,
+                        pp_tok_new(PPT_STRING, 0, pp_stringize(argtoks)));
+                    t = next->next;
+                    continue;
+                }
+            }
+            /* Not a formal: emit # as punct and continue. */
+            pp_list_append(&out, &tail, pp_tok_dup(t));
+            t = t->next;
+            continue;
+        }
+
+        /* left ## right [## right ...] left-associative */
+        if (t->next != NULL && t->next->kind == PPT_PUNCT
+            && t->next->punct == PP_HASHHASH) {
+            left = "";
+            if (t->kind == PPT_IDENT) {
+                formal = pp_find_formal(formals, t->text);
+                if (formal != NULL) {
+                    if (formal->value.s != NULL)
+                        left = formal->value.s;
+                    else
+                        left = "";
+                }
+                else if (t->text != NULL)
+                    left = t->text;
+            }
+            else if (t->kind == PPT_PLACEMARKER)
+                left = "";
+            else if (t->text != NULL)
+                left = t->text;
+
+            t = t->next;        /* now at ## */
+            pasted = left;
+            while (t != NULL && t->kind == PPT_PUNCT
+                   && t->punct == PP_HASHHASH) {
+                t = t->next;    /* operand after ## */
+                right = "";
+                if (t == NULL)
+                    break;
+                if (t->kind == PPT_IDENT) {
+                    formal = pp_find_formal(formals, t->text);
+                    if (formal != NULL) {
+                        if (formal->value.s != NULL)
+                            right = formal->value.s;
+                    }
+                    else if (t->text != NULL)
+                        right = t->text;
+                }
+                else if (t->kind != PPT_PLACEMARKER && t->text != NULL)
+                    right = t->text;
+                pasted = pp_paste_text(pasted, right);
+                t = t->next;
+            }
+
+            if (pasted == NULL || pasted[0] == '\0')
+                pp_list_append(&out, &tail,
+                    pp_tok_new(PPT_PLACEMARKER, 0, NULL));
+            else if (pp_is_digit((int) pasted[0]))
+                pp_list_append(&out, &tail,
+                    pp_tok_new(PPT_NUMBER, 0, pasted));
+            else
+                pp_list_append(&out, &tail,
+                    pp_tok_new(PPT_IDENT, 0, pasted));
+            continue;
+        }
+
+        /* Formal parameter substitution (prescan: use arg tokens as-is). */
+        if (t->kind == PPT_IDENT) {
+            formal = pp_find_formal(formals, t->text);
+            if (formal != NULL) {
+                argtoks = pp_arg_tokens(formal);
+                for (p = argtoks; p != NULL; p = p->next)
+                    pp_list_append(&out, &tail, pp_tok_dup(p));
+                t = t->next;
+                continue;
+            }
+        }
+
+        pp_list_append(&out, &tail, pp_tok_dup(t));
+        t = t->next;
+    }
+    return out;
+}
+
+char *
 prepdefine(sp)
     SYM            *sp;
 {
     SYM            *sp1;
-    char           *buffer, *pattern, *ptr, *loc;
+    PPTOKEN        *repl;
+    PPTOKEN        *expanded;
+    int             n;
 
     if (sp == NULL)
-        return (NULL);
+        return NULL;
 
     if (sp->tp == NULL)
-        return (sp->value.s);
-
-    buffer = prepbuffer;
+        return sp->value.s;
 
     sp1 = sp->tp->lst.head;
 
-    /*
-     * sp->value.s:                 The macro text 
-     * sp->tp->lst.head:            The list of parameters 
-     * sp->tp->lst.head->value.s:   The bound parameters
-     */
-
-    while (isspace(lastch)) /* Skip the white space */
+    while (pp_is_white(lastch))
         getch();
 
-    if (lastch != LPAR) /* Return the parameter name if not a func */
-        return (sp->name);
+    if (lastch != LPAR) {
+        /*
+         * Function-like macro name not followed by '(': leave as an
+         * ordinary identifier.  Returning sp->name made getsym push the
+         * name back and expand forever until LINDEPTH.
+         */
+        if (sp->tp != NULL)
+            return NULL;
+        return sp->value.s;
+    }
 
     getch();
 
     while (sp1 != NULL) {
-        if (sp1->value.i == 1) {
-            /* Handle __VA_ARGS__ - collect all remaining arguments */
-            sp1->value.s = getvarargs(buffer);
-        } else {
-            sp1->value.s = getparm(buffer);
-        }
+        if (sp1->value.i == 1)
+            sp1->value.s = getvarargs(prepbuffer);
+        else
+            sp1->value.s = getparm(prepbuffer);
         sp1 = sp1->next;
     }
 
-    while (isspace(lastch)) /* Skip the white space */
+    while (pp_is_white(lastch))
         getch();
 
-    if (lastch != RPAR) {   /* Return NULL  */
+    if (lastch != RPAR) {
         error(ERR_DEFINE, "missing right parenthesis");
-        return (NULL);
+        return NULL;
     }
+    getch();
 
-    getch();        /* Skip the closepa */
+    ++global_flag;
+    repl = pp_tokenize(sp->value.s != NULL ? sp->value.s : "");
+    expanded = pp_expand_replacement(repl, sp->tp->lst.head);
 
-    /* Now that we know what the parameters are just subst them */
-
-    pattern = sp->value.s;
-    ptr = buffer;
-    *ptr++ = '$';
-
-    while (*pattern) {
-        if (isspace(*pattern)) {
-            *ptr++ = ' ';
-            while (isspace(*pattern))
-                ++pattern;
-        }
-        if (isdigit(*pattern)) {
-            for (;;) {
-                if (!*pattern)
-                    break;
-                if (isdigit(*pattern))
-                    *ptr++ = *pattern++;
-                else if (*pattern == 'E' || *pattern == 'e')
-                    *ptr++ = *pattern++;
-                else if (*pattern == '-' || *pattern == '+')
-                    *ptr++ = *pattern++;
-                else
-                    break;
-            }
-        }
-        else if (*pattern == '#' && *(pattern + 1) == '#') {
-            /*
-             * Token pasting: left##right.  Must run before single-# stringize.
-             * Whitespace around ## is ignored.  Left token was already written
-             * into buffer; rewind it, expand the right token, and emit the
-             * concatenation.  Do not treat the leading '$' sentinel as part of
-             * the left token ($ is isidch for Amiga asm identifiers).
-             */
-            char            token1[256];
-            char            token2[256];
-            char           *start;
-            char           *t;
-            int             ti;
-            int             found;
-
-            pattern += 2;
-            while (isspace(*pattern))
-                ++pattern;
-
-            while (ptr > buffer + 1 && isspace((unsigned char) ptr[-1]))
-                --ptr;
-
-            start = ptr;
-            if (start > buffer + 1) {
-                --start;
-                while (start > buffer + 1 &&
-                       (isidch(*start) || isdigit((unsigned char) *start)))
-                    --start;
-                if (!(isidch(*start) || isdigit((unsigned char) *start)))
-                    ++start;
-            }
-            ti = 0;
-            for (t = start; t < ptr && ti < 255; ++t)
-                token1[ti++] = *t;
-            token1[ti] = '\0';
-            ptr = start;
-
-            ti = 0;
-            token2[0] = '\0';
-            if (isidch(*pattern)) {
-                while (isidch(*pattern) && ti < 255)
-                    token2[ti++] = *pattern++;
-                token2[ti] = '\0';
-                found = 0;
-                for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
-                    if (strcmp(token2, sp1->name) == 0) {
-                        if (sp1->value.s != NULL) {
-                            t = sp1->value.s;
-                            ti = 0;
-                            while (*t != '\0' && ti < 255) {
-                                token2[ti] = *t;
-                                ti++;
-                                t++;
-                            }
-                            token2[ti] = '\0';
-                        }
-                        found = 1;
-                        break;
-                    }
-                }
-                (void) found;
-            } else if (isdigit((unsigned char) *pattern)) {
-                while (*pattern &&
-                       (isdigit((unsigned char) *pattern) ||
-                        *pattern == 'E' || *pattern == 'e' ||
-                        *pattern == '+' || *pattern == '-') &&
-                       ti < 255)
-                    token2[ti++] = *pattern++;
-                token2[ti] = '\0';
-            }
-
-            loc = paste_tokens(token1, token2);
-            while (*loc)
-                *ptr++ = *loc++;
-        }
-        else if (*pattern == '#') {
-            /* Stringification operator (#param) — not ## */
-            pattern++; /* Skip the # */
-            if (isidch(*pattern)) {
-                loc = laststr;
-                while (isidch(*pattern))
-                    *loc++ = *pattern++;
-                *loc = '\0';
-                loc = laststr;
-                for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
-                    if (strcmp(loc, sp1->name) == 0) {
-                        loc = stringify_param(sp1->value.s);
-                        break;
-                    }
-                }
-                while (*loc)
-                    *ptr++ = *loc++;
-            }
-        }
-        else if (isidch(*pattern)) {
-            loc = laststr;
-            while (isidch(*pattern))
-                *loc++ = *pattern++;
-            *loc = '\0';
-            loc = laststr;
-            for (sp1 = sp->tp->lst.head; sp1 != NULL; sp1 = sp1->next) {
-                if (strcmp(loc, sp1->name) == 0) {
-                    loc = sp1->value.s;
-                    break;
-                }
-            }
-            while (*loc)
-                *ptr++ = *loc++;
-        }
-        else if (*pattern == '"') {
-            *ptr++ = *pattern++;
-            while (*pattern && *pattern != '"') {
-                if (*pattern == '\\')
-                    *ptr++ = *pattern++;
-                if (*pattern)
-                    *ptr++ = *pattern++;
-            }
-            if (*pattern)
-                *ptr++ = *pattern++;
-        }
-        else if (*pattern == '\'') {
-            *ptr++ = *pattern++;
-            while (*pattern && *pattern != '\'') {
-                if (*pattern == '\\')
-                    *ptr++ = *pattern++;
-                if (*pattern)
-                    *ptr++ = *pattern++;
-            }
-            if (*pattern)
-                *ptr++ = *pattern++;
-        }
-        else
-            *ptr++ = *pattern++;
+    prepbuffer[0] = '$';
+    n = pp_list_to_text(expanded, prepbuffer + 1, 1023);
+    if (n < 0) {
+        prepbuffer[1] = '\0';
+        error(ERR_DEFINE, "macro expansion too long");
     }
-    *ptr = '\0';
-    return (litlate(buffer + 1));
+    --global_flag;
+    pp_list_free(repl);
+    pp_list_free(expanded);
+    return litlate(prepbuffer + 1);
 }
 
 void
@@ -1272,17 +1775,17 @@ doelif()
      * depth until "preprocessor nesting too deep" on cclib headers).
      *
      * Skip/rest state uses pr_all at this depth (so later #elifs stay
-     * skipped).  Evaluating a candidate branch must set ps_do first —
+     * skipped).  Evaluating a candidate branch must set ps_do first --
      * otherwise the lexer ignores the expression and we hang.
      */
     if (prestat == ps_ignore) {
         switch (premode) {
         case pr_all:
-            /* Nested inside a skipped region — skip this line. */
+            /* Nested inside a skipped region -- skip this line. */
             ac_getline(incldepth == 0);
             return;
         case pr_if:
-            /* Prior branch false — will evaluate below. */
+            /* Prior branch false -- will evaluate below. */
             premode = pr_else;
             prestat = ps_do;
             break;
@@ -1299,7 +1802,7 @@ doelif()
             ac_getline(incldepth == 0);
             return;
         case pr_if:
-            /* Prior #if/#elif true — skip remainder of the chain. */
+            /* Prior #if/#elif true -- skip remainder of the chain. */
             premode = pr_all;
             prestat = ps_ignore;
             ac_getline(incldepth == 0);
@@ -1312,8 +1815,7 @@ doelif()
     }
 
     oneline = TRUE;
-    getsym();       /* get past #elif */
-    value = intexpr();
+    value = pp_eval_line();
     oneline = FALSE;
 
     premode = pr_if;
@@ -1472,10 +1974,10 @@ gettoken()
     ptr = laststr;
     end = laststr + (MAX_IDP1 - 1);
 
-    while (lastch != EOF && isspace(lastch))
+    while (lastch != EOF && pp_is_white(lastch))
         getch();
 
-    while (lastch != EOF && !isspace(lastch)) {
+    while (lastch != EOF && !pp_is_white(lastch)) {
         if (ptr >= end)
             break;
         *ptr++ = lastch;
@@ -1657,37 +2159,53 @@ int
 dodefined()
 {
     int             seen;
+    char           *name;
+    int             i;
+    int             isdef;
 
     /*
-     * Check to see if the next token has been defined, return TRUE, or
-     * FALSE, the form may be defined(X) or defined X
+     * defined(X) / defined X.  Heap name buffer; ASCII classes only.
      */
-
-    while (isspace(lastch)) /* Skip the white space         */
+    while (pp_is_white(lastch))
         getch();
 
-    if (seen = (lastch == LPAR)) {  /* SKip the leading paren       */
+    seen = 0;
+    if (lastch == LPAR) {
+        seen = 1;
         getch();
-        while (isspace(lastch)) /* Skip the white space         */
+        while (pp_is_white(lastch))
             getch();
     }
 
-    while (isspace(lastch)) /* Skip the white space         */
+    while (pp_is_white(lastch))
         getch();
 
-    getid();        /* Get the identifier           */
+    if (!pp_is_idstart(lastch)) {
+        error(ERR_IDEXPECT, NULL);
+        return 0;
+    }
+    ++global_flag;
+    name = (char *) xalloc(MAX_IDP1);
+    --global_flag;
+    i = 0;
+    while (pp_is_idchar(lastch) && i < MAX_ID) {
+        name[i++] = (char) lastch;
+        getch();
+    }
+    name[i] = '\0';
 
-    while (isspace(lastch)) /* Skip the white space         */
+    while (pp_is_white(lastch))
         getch();
 
-    if (seen) {     /* Skip the trailing paren      */
+    if (seen) {
         if (lastch == RPAR)
             getch();
         else
-            error(ERR_SYNTAX, NULL);
+            error(ERR_PUNCT, NULL);
     }
 
-    return (search(lastid, defsyms.head) != NULL);
+    isdef = (search(name, defsyms.head) != NULL);
+    return isdef;
 }
 
 /*
@@ -1710,6 +2228,8 @@ setdefine(name, value)
         sp = (SYM *) xalloc(SZ_SYM);
         sp->name = name;
         sp->value.s = value;
+        sp->tp = NULL;
+        sp->storage_class = sc_define;
         --global_flag;
         insert(sp, &defsyms);
     }
@@ -1727,9 +2247,18 @@ preprocess()
     getsym();       /* get first word on line   */
     oneline = FALSE;
 
-    if (lastst == kw_if)      /* #if (expr)               */
+    /*
+     * #if / #else must not depend only on searchkw: if keyword lookup
+     * fails, "if" stays an id and the directive was dropped (unknown
+     * command), desynchronizing NDK #if / #endif nesting.  Match by
+     * spelling like the other directives below.
+     */
+    if (lastst == kw_if
+        || (lastst == id && lastid[0] == 'i' && lastid[1] == 'f'
+            && lastid[2] == '\0'))
         doif();
-    else if (lastst == kw_else)  /* #else                    */
+    else if (lastst == kw_else
+             || (lastst == id && strcmp(lastid, "else") == 0))
         doelse();
     else if (lastst != id && lastst != iconst) {
         error(ERR_PREPROC, "unknown type of command");

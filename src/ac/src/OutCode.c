@@ -989,7 +989,7 @@ floatlit(d)
 }
 
 /*
- * ieee_d2f_bits — same chopping as math.lib .Fd2s, integer-only.
+ * ieee_d2f_bits - same chopping as math.lib .Fd2s, integer-only.
  * Used so f/F literals never call soft-float during the compile.
  */
 static unsigned long
@@ -1010,22 +1010,22 @@ ieee_d2f_bits(hi, lo)
     mant = ((hi & 0xFFFFFUL) << 3) | (lo >> 29);
 
     if (exp > 1151UL) {
-        /* Overflow → infinity (exponent 255, zero fraction). */
+        /* Overflow -> infinity (exponent 255, zero fraction). */
         return sign | 0x7F800000UL;
     }
     if (exp < 896UL) {
-        /* Underflow → signed zero. */
+        /* Underflow -> signed zero. */
         return sign;
     }
-    exp = exp - 896UL;  /* excess-1023 → excess-127 */
+    exp = exp - 896UL;  /* excess-1023 -> excess-127 */
     return sign | (exp << 23) | (mant & 0x7FFFFFUL);
 }
 
 /*
- * floatlits — pool an IEEE single for C99 1.0f / 1.0F.
+ * floatlits - pool an IEEE single for C99 1.0f / 1.0F.
  * Avoids runtime en_cdf/.Fd2s on every float suffix (that path still
  * faults under soft-float codegen).  Conversion is integer bit surgery
- * after a normal double store — do not assign through a float lvalue
+ * after a normal double store - do not assign through a float lvalue
  * here (that invoked soft-float mid-compile and corrupted strtab).
  */
 

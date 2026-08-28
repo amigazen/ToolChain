@@ -528,8 +528,8 @@ temp_data()
     ap = (struct amode *) xalloc(sizeof(struct amode));
     ap->mode = am_dreg;
 /*
- * Temporary DATA registers are D0–D1 only (Amiga/SAS callee-saved starts
- * at D2).  Older PDC used D0–D2 via imod3; that left D2 live across jsr
+ * Temporary DATA registers are D0-D1 only (Amiga/SAS callee-saved starts
+ * at D2).  Older PDC used D0-D2 via imod3; that left D2 live across jsr
  * without a movem save and broke callers that follow the Amiga ABI.
  */
     ap->preg = (enum e_am) (imod2(next_data));
@@ -702,8 +702,8 @@ flush_regs()
 
     /*
      * Push live temps by allocating over them, then free the new slots.
-     * Only two data temps (D0–D1).  A third temp_data() reuses D0 and
-     * gen_push-es the first allocation with no matching pop — seen as
+     * Only two data temps (D0-D1).  A third temp_data() reuses D0 and
+     * gen_push-es the first allocation with no matching pop - seen as
      * move.l D0,-(A7) before every strcmp/strchr in getopt (ac-self
      * then exited 1 right after main).
      */

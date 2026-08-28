@@ -143,7 +143,7 @@ funcbody(sp)
     /*
      * ANSI parameter list may already have been parsed in decl2() when the
      * declarator saw `(type ...)`.  In that case lst is filled and lastst is
-     * `{` or `;` — do not call declproto again.
+     * `{` or `;` - do not call declproto again.
      */
     if (sp->tp->lst.head != NULL
         && (lastst == begin || lastst == semicolon)) {

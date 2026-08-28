@@ -11,14 +11,13 @@
 #ifndef AC_HOST_POSIX_H
 #define AC_HOST_POSIX_H
 
-#if !defined(AC_HOST_POSIX)
-#if defined(__unix__) || defined(__unix) || defined(_POSIX_VERSION) || \
-    defined(_XOPEN_VERSION) || defined(__APPLE__) || defined(__MACH__)
+#ifndef AC_HOST_POSIX
+#if defined(__unix__) || defined(__unix) || defined(_POSIX_VERSION) || defined(_XOPEN_VERSION) || defined(__APPLE__) || defined(__MACH__)
 #define AC_HOST_POSIX 1
 #endif
 #endif
 
-#if defined(AC_HOST_POSIX)
+#ifdef AC_HOST_POSIX
 void open_stdio(void);
 void close_stdio(void);
 #endif

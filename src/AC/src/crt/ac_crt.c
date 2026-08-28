@@ -59,7 +59,7 @@ struct ac_UserData {
 	char **_argv;
 };
 
-/* Exec / DOS (amiga.lib stubs; GetArgStr is crt/ac_lvos.s � not in 1.x amiga.lib) */
+/* Exec / DOS (amiga.lib stubs; GetArgStr is crt/ac_lvos.s -- not in 1.x amiga.lib) */
 struct Library *OpenLibrary(char *name, unsigned long version);
 void CloseLibrary(struct Library *lib);
 struct Process *FindTask(char *name);
@@ -88,7 +88,7 @@ void abort();
 int atexit();
 void ac_crt_entry();
 
-/* Call void(void) via pointer � AC cannot parse void (*f)(void). */
+/* Call void(void) via pointer -- AC cannot parse void (*f)(void). */
 void ac_call0();
 
 /* ---- CRT-owned globals (cclib SetupSTDIO wires these) ---- */
@@ -335,7 +335,7 @@ ac_crt_entry()
 
 	if (_math) {
 		/*
-		 * Soft-float stubs (.FDadd, .Fd2s, …) need doubbas;
+		 * Soft-float stubs (.FDadd, .Fd2s, ...) need doubbas;
 		 * .FSadd / .FSmul / .Fs2l need singbas.  Open both when
 		 * the program opts into IEEE math (_math != 0).
 		 */

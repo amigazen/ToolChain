@@ -255,7 +255,7 @@ ll_to_mem(ap)
         dst = make_delta(dst, 4);
         gen_code(op_move, 4, make_immed(llcon_lo(ap->offset)), dst);
     } else if (ap->mode == am_dreg) {
-        /* Single D-reg held only a 32-bit view — zero-extend into the pair. */
+        /* Single D-reg held only a 32-bit view - zero-extend into the pair. */
         gen_code(op_move, 4, make_immed(0L), dst);
         dst = make_delta(dst, 4);
         gen_code(op_move, 4, ap, dst);
@@ -380,7 +380,7 @@ make_legal(ap, flags, size)
              * Integer in a double expression: convert with .Fl2d and park
              * in a fresh frame slot (not the shared float_auto).  Reusing
              * one slot for every make_legal F_FREG clobbered the previous
-             * operand and left gen_fbinary with a dead EA — ac-self then
+             * operand and left gen_fbinary with a dead EA - ac-self then
              * emitted empty "jsr" / "move.l" in getfrac (2nd Fl2d).
              */
             if (ap->mode == am_immed) {
@@ -486,7 +486,7 @@ do_extend(ap, isize, osize, flags, is_signed)
      * do_extend used to strip F_MEM then make_legal(..., isize) with only
      * F_AREG|F_DREG.  For a double EA requested as size 4 (soft-float wants
      * the address, not a load), that became flags==0 / size 8 and fell into
-     * the A-reg path → illegal "move.f 8(A0),A0".  64-bit objects stay in
+     * the A-reg path -> illegal "move.f 8(A0),A0".  64-bit objects stay in
      * memory; there is no 68000 sign-extend between 4 and 8 via An/Dn.
      */
     if (isize == 8 || osize == 8)
@@ -532,7 +532,7 @@ static void
 fixicon(node)
     struct enode   *node;
 {
-    /* Recover SAS/C sizeof poison; keep genuine values past ±32K. */
+    /* Recover SAS/C sizeof poison; keep genuine values past +/-32K. */
     if (node != NULL && node->nodetype == en_icon)
         node->v.i = icon_unpoison(node->v.i);
 }
@@ -729,7 +729,7 @@ gen_index(node)
         /*
          * Do not request_reg(ap2): it re-allocates the same A0/A1 and
          * gen_push-spills the live pointer onto the stack with no matching
-         * pop — stack leak that trashes argv during getopt (ac-self
+         * pop - stack leak that trashes argv during getopt (ac-self
          * "can't open input ahafadaba...").
          */
         return ap2;
@@ -763,7 +763,7 @@ icon_unpoison(v)
         return v;
     u = (unsigned long) v;
     hi = u >> 16;
-    /* Poison tags are small positive enums; 0xFFFF… is sign extension. */
+    /* Poison tags are small positive enums; 0xFFFF... is sign extension. */
     if (hi > 0UL && hi < 256UL)
         return lo;
     return v;
@@ -778,7 +778,7 @@ d16_ok(v)
 
 /*
  * Frame local/param addressing.  68000 (d16,An) and link #d only span
- * ±32K; beyond that materialize Fp+off into an A-temp and return (At).
+ * +/-32K; beyond that materialize Fp+off into an A-temp and return (At).
  */
 struct amode   *
 make_frame_ref(off)
@@ -816,7 +816,7 @@ make_autocon(lab)
      *       fprintf(...);
      * #endif
      *   ap1 = xalloc(...);
-     * made xalloc the if-body when AC_DEBUG was off — framed functions
+     * made xalloc the if-body when AC_DEBUG was off - framed functions
      * then skipped allocation and wrote through a stale A2 (often
      * &call_library after gen_fsconvert's lea).  That smashed the first
      * soft-float helper; getfrac's 2nd .Fl2d became an empty "jsr".
@@ -917,8 +917,8 @@ gen_deref(node, flags, size)
     /*
      * Double frame locals must use the autocon path below (n(A5)).
      * The old catch-all for every en_d_ref ran first, turned #autocon
-     * into a temp An via peep (lea → am_direct), then returned 0(An).
-     * A later lea of that amode could emit "lea ,A0" (A68k error) —
+     * into a temp An via peep (lea -> am_direct), then returned 0(An).
+     * A later lea of that amode could emit "lea ,A0" (A68k error) -
      * seen compiling getfrac's ((double)digs)/scale in selfhost-ac.
      */
     if (node->nodetype == en_d_ref
@@ -1459,6 +1459,30 @@ gen_xbin(node, flags, size, op)
     return ap3;
 }
 
+/*
+ * Truncate 64-bit value to low 32 bits (m68k big-endian: word at +4).
+ * Used for (long)ll / (unsigned)ll and long-long args to 32-bit params.
+ */
+struct amode   *
+gen_ll_to_l(node, flags, size)
+    struct enode   *node;
+    int             flags, size;
+{
+    struct amode   *ap;
+    struct amode   *lo;
+
+    (void) size;
+    if (node == NULL)
+        return NULL;
+
+    ap = gen_expr(node->v.p[0], F_ALL | F_MEM | F_IMMED, 8);
+    ap = ll_to_mem(ap);
+    lo = make_delta(copy_addr(ap), 4);
+    freeop(ap);
+    make_legal(lo, flags, 4);
+    return lo;
+}
+
 struct amode   *
 gen_shift(node, flags, size, op)
 
@@ -1472,6 +1496,7 @@ gen_shift(node, flags, size, op)
 {
     struct amode   *ap1, *ap2, *ap3;
     struct enode   *ep1;
+    long            count;
 
     if (node == NULL) {
 #if AC_DEBUG
@@ -1480,43 +1505,103 @@ gen_shift(node, flags, size, op)
         return NULL;
     }
 
+    /*
+     * C integer promotions: shifts are at least int-sized.  natural_size
+     * of a small en_icon is 1, which made "1U<<31" into asl.b (byte shift
+     * by 31 => 0) while "1U<<30" as a (long) cast used asl.l and passed.
+     */
+    if (size < 4)
+        size = 4;
+
     ap1 = gen_expr(node->v.p[0], F_DREG, size);
     make_legal(ap1, F_DREG, size);
 
     ep1 = node->v.p[1];
-    if (ep1->nodetype == en_icon && ep1->v.i > 8) {
-        ap2 = gen_expr(ep1, F_DREG, 4);
-        make_legal(ap2, F_DREG, 4);
-    }
-    else {
-        ap2 = gen_expr(ep1, F_DREG | F_IMMED, 4);
-        make_legal(ap2, F_DREG | F_IMMED, 4);
-    }
-
-    if (istemp(ap1)) {
-        validate(ap1);  /* in case push occurred */
+    /*
+     * 68000 ASL/ASR/LS #imm only allows 1..8.  Larger (or 0) constant
+     * counts need a Dn count.  Only D0-D1 are temps: loading the count
+     * via gen_expr(icon) can reuse the value's Dn (asl D0,D0 => 0 for
+     * 1U<<31).  Allocate the count with temp_data() so the allocator
+     * picks the other temp and pushes the value if needed.
+     *
+     * Do not freeop(makedreg()): orphans have deep==0 and wipe datatbl[0],
+     * which hung ac-self compiling Expr.c.
+     */
+    if (ep1 != NULL && ep1->nodetype == en_icon) {
+        count = ep1->v.i;
+        if (count < 0)
+            count = 0;
+        if (count > 31)
+            count = 31;
+        if (count >= 1 && count <= 8) {
+            ap2 = make_immed(count);
+            if (istemp(ap1)) {
+                validate(ap1);
+                gen_code(op, size, ap2, ap1);
+                freeop(ap2);
+                make_legal(ap1, flags, size);
+                return ap1;
+            }
+            validate(ap1);
+            ap3 = temp_data();
+            gen_code(op_move, size, ap1, ap3);
+            gen_code(op, size, ap2, ap3);
+            freeop(ap2);
+            freeop(ap1);
+            make_legal(ap3, flags, size);
+            return ap3;
+        }
+        /* count 0 or >8: Dn count in a distinct temp from the value */
+        validate(ap1);
+        if (!istemp(ap1)) {
+            ap3 = temp_data();
+            gen_code(op_move, size, ap1, ap3);
+            freeop(ap1);
+            ap1 = ap3;
+        }
+        ap2 = temp_data();
+        gen_code(op_move, 4, make_immed(count), ap2);
+        validate(ap1);
         gen_code(op, size, ap2, ap1);
         freeop(ap2);
         make_legal(ap1, flags, size);
         return ap1;
     }
 
+    ap2 = gen_expr(ep1, F_DREG, 4);
+    make_legal(ap2, F_DREG, 4);
+
+    validate(ap1);
     validate(ap2);
-    validate(ap1);      /* in case push occurred */
-
+    /*
+     * If value and count landed in the same temp Dn, move the value to
+     * a fresh temp first (temp_data pushes the live count).
+     */
+    if (ap1->mode == am_dreg && ap2->mode == am_dreg
+        && (int) ap1->preg == (int) ap2->preg) {
+        ap3 = temp_data();
+        gen_code(op_move, size, ap1, ap3);
+        freeop(ap1);
+        ap1 = ap3;
+        validate(ap2);
+    }
+    if (istemp(ap1)) {
+        validate(ap1);
+        gen_code(op, size, ap2, ap1);
+        freeop(ap2);
+        make_legal(ap1, flags, size);
+        return ap1;
+    }
+    validate(ap2);
+    validate(ap1);
     ap3 = temp_data();
-
     gen_code(op_move, size, ap1, ap3);
     gen_code(op, size, ap2, ap3);
-
     make_legal(ap3, flags, size);
-
     freeop(ap3);
     freeop(ap2);
     freeop(ap1);
-
     ap3 = request_reg(ap3);
-
     return ap3;
 }
 
@@ -1917,6 +2002,9 @@ gen_asshift(node, flags, size, op)
         return NULL;
     }
 
+    if (size < 4)
+        size = 4;
+
     ap1 = gen_expr(node->v.p[0], F_ALL, size);
     if (ap1->mode != am_dreg) {
         ap3 = temp_data();
@@ -1926,9 +2014,38 @@ gen_asshift(node, flags, size, op)
         ap3 = ap1;
 
     ep1 = node->v.p[1];
-    if (ep1->nodetype == en_icon && ep1->v.i > 8) {
-        ap2 = gen_expr(ep1, F_DREG, size);
-        make_legal(ap2, F_DREG, size);
+    if (ep1 != NULL && ep1->nodetype == en_icon && ep1->v.i > 8) {
+        long            count;
+
+        count = ep1->v.i;
+        if (count > 31)
+            count = 31;
+        validate(ap3);
+        /*
+         * Count in a distinct temp (see gen_shift).  freeop(makedreg)
+         * orphans corrupt datatbl and hung self-host on Expr.c.
+         */
+        if (!istemp(ap3)) {
+            ap2 = temp_data();
+            gen_code(op_move, size, ap3, ap2);
+            if (ap3 != ap1)
+                freeop(ap3);
+            ap3 = ap2;
+        }
+        ap2 = temp_data();
+        gen_code(op_move, 4, make_immed(count), ap2);
+        validate(ap3);
+        gen_code(op, size, ap2, ap3);
+        freeop(ap2);
+        if (ap3 != ap1) {
+            gen_code(op_move, size, ap3, ap1);
+            freeop(ap3);
+        }
+        make_legal(ap1, flags, size);
+        return ap1;
+    }
+    if (ep1 != NULL && ep1->nodetype == en_icon) {
+        ap2 = make_immed(ep1->v.i);
     }
     else {
         ap2 = gen_expr(ep1, F_DREG | F_IMMED, size);
@@ -2463,6 +2580,8 @@ getsize(node)
     case en_cfl:
     case en_cdl:
     case en_cdf:
+    case en_llcl:
+    case en_llcul:
     case en_f_ref:
     case en_fadds:
     case en_fsubs:
@@ -2746,7 +2865,7 @@ gen_expr(node, flags, size)
         ap1->offset = node;
         /*
          * Only true long-long constants (node->size == 8).  The size
-         * argument is the caller's preferred width — double contexts
+         * argument is the caller's preferred width - double contexts
          * pass 8 for F_FREG, which must NOT treat an int icon as a
          * 64-bit bit-pattern (that skipped .Fl2d and broke soft-float).
          */
@@ -2800,6 +2919,9 @@ gen_expr(node, flags, size)
     case en_clll:
     case en_cull:
         return gen_llextend(node, flags, size);
+    case en_llcl:
+    case en_llcul:
+        return gen_ll_to_l(node, flags, size);
     case en_tempref:
         ap1 = (struct amode *) xalloc(sizeof(struct amode));
         ap1->signedflag = node->signedflag;
@@ -2892,6 +3014,9 @@ gen_expr(node, flags, size)
     case en_lsh:
         return gen_shift(node, flags, size, op_asl);
     case en_rsh:
+        /* signedflag 0 => logical (unsigned); else arithmetic (SAS F.3.5). */
+        if (node->signedflag == 0)
+            return gen_shift(node, flags, size, op_lsr);
         return gen_shift(node, flags, size, op_asr);
     case en_asadd:
         return gen_asadd(node, flags, size, op_add);
@@ -2910,6 +3035,8 @@ gen_expr(node, flags, size)
     case en_aslsh:
         return gen_asshift(node, flags, size, op_asl);
     case en_asrsh:
+        if (node->signedflag == 0)
+            return gen_asshift(node, flags, size, op_lsr);
         return gen_asshift(node, flags, size, op_asr);
     case en_asmul:
         return gen_asmul(node, flags, size);
@@ -3035,6 +3162,8 @@ natural_size(node)
     case en_cwl:
     case en_cdl:
     case en_cfl:
+    case en_llcl:
+    case en_llcul:
         return 4;
     case en_ll_ref:
     case en_ull_ref:
@@ -3048,6 +3177,10 @@ natural_size(node)
     case en_ulldiv:
     case en_llmod:
     case en_ullmod:
+    case en_cbll:
+    case en_cwll:
+    case en_clll:
+    case en_cull:
         return 8;
     case en_b_ref:
     case en_ub_ref:
@@ -3106,9 +3239,17 @@ natural_size(node)
         siz0 = natural_size(node->v.p[0]);
         siz1 = natural_size(node->v.p[1]);
         if (siz1 > siz0)
-            return siz1;
-        else
-            return siz0;
+            siz0 = siz1;
+        /*
+         * Shifts/logics are after integer promotion: never .b/.w from a
+         * small en_icon natural_size (see gen_shift asl.b on 1U<<31).
+         */
+        if (node->nodetype == en_lsh || node->nodetype == en_rsh
+            || node->nodetype == en_aslsh || node->nodetype == en_asrsh) {
+            if (siz0 < 4)
+                siz0 = 4;
+        }
+        return siz0;
     case en_void:
     case en_cond:
         return natural_size(node->v.p[1]);

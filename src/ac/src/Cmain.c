@@ -45,8 +45,8 @@
 
 /*
  * Crash / CLI breadcrumbs for Amiga self-host (ac-self / ac-self2).
- * Uses dos.library Output()+Write only — no printf/stdio.
- * Default OFF — the strings and Write() calls cost several KB in Cmain.
+ * Uses dos.library Output()+Write only - no printf/stdio.
+ * Default OFF - the strings and Write() calls cost several KB in Cmain.
  * Enable with -DAC_DEBUG=1 when chasing self-host hangs.
  */
 #if !defined(AC_DEBUG)
@@ -244,7 +244,7 @@ add_option(TABLE *tbl, char *cmd)
 void
 default_options(void)
 {
-    /* OPT_REF only — named Options.field collapses to offset 0 under ac-self. */
+    /* OPT_REF only - named Options.field collapses to offset 0 under ac-self. */
     OPT_REF(OPT_OFF_Optimize) = 1;
     OPT_REF(OPT_OFF_Frame) = 5;
     OPT_REF(OPT_OFF_ShowColumn) = 1;
@@ -265,7 +265,7 @@ main(int argc, char **argv)
     ac_dbg("acdbg: main enter\n");
     ac_dbg_long("acdbg: argc=", (long)argc);
     if (argv == 0) {
-        ac_dbg("acdbg: argv is NULL — abort\n");
+        ac_dbg("acdbg: argv is NULL - abort\n");
         exit(1);
     }
     for (i = 0; i < argc; i++) {
@@ -401,7 +401,7 @@ main(int argc, char **argv)
             } else if (strcmp(optarg, "column") == 0) {
                 OPT_REF(OPT_OFF_ShowColumn) = 1;
             } else if (strcmp(optarg, "commentnest") == 0) {
-                /* SAS/C COMMENTNEST — nested block comments. */
+                /* SAS/C COMMENTNEST - nested block comments. */
                 comment_nesting = 1;
             }
             break;
@@ -518,7 +518,7 @@ usage(void)
         return;
     }
 
-    /* Index walk — not cp++ — so a zero pointer stride cannot hang. */
+    /* Index walk - not cp++ - so a zero pointer stride cannot hang. */
     for (i = 0; HelpMsg[i] != NULL; i++)
         fputs(HelpMsg[i], AC_DIAG_STREAM);
     exit(1);
@@ -587,7 +587,7 @@ openfiles(char *s)
         }
 
         /*
-         * Test the fopen return in a local — do not round-trip through the
+         * Test the fopen return in a local - do not round-trip through the
          * global (linker name clashes on _output have caused false NULLs
          * after MODE_NEWFILE already created an empty .s on disk).
          */

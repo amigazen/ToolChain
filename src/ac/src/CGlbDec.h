@@ -84,7 +84,7 @@ extern int  lastch;
 extern char lastid[MAX_IDP1];
 extern char laststr[MAX_STLP1];
 extern char    *curfile;
-extern int lastst;   /* token type; int not enum — SAS/C emits 16-bit enum (DC.w) */
+extern int lastst;   /* token type; int not enum - SAS/C emits 16-bit enum (DC.w) */
 extern struct slit *strtab;
 
 extern TABLE    gsyms, lsyms;

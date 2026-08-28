@@ -310,7 +310,6 @@ asforcefit(node1, tp1, node2, tp2)
         }
         break;
     case bt_short:
-    case bt_enum:
         switch (tp2->type) {
         case bt_char:
         case bt_bool:
@@ -335,13 +334,22 @@ asforcefit(node1, tp1, node2, tp2)
             return( tp1 );
         }
         break;
+    case bt_enum:
     case bt_long:
         switch (tp2->type) {
         case bt_pointer:
         case bt_unsigned:
         case bt_long:
+        case bt_enum:
+            return( tp1 );
         case bt_longlong:
         case bt_ulonglong:
+            /*
+             * Truncate to low 32 bits.  Without this, (long)ll kept the
+             * 64-bit node and the callee read the BE high word (0).
+             */
+            if (node2 != NULL && *node2 != NULL)
+                *node2 = makenode(en_llcl, *node2, NULL);
             return( tp1 );
         case bt_char:
         case bt_bool:
@@ -351,7 +359,6 @@ asforcefit(node1, tp1, node2, tp2)
             conv_unsigned( node2, en_cbl );
             return( tp1 );
         case bt_short:
-        case bt_enum:
             conv_signed( node2, en_cwl );
             return( tp1 );
         case bt_ushort:
@@ -372,8 +379,12 @@ asforcefit(node1, tp1, node2, tp2)
             return tp1;
         break;
     case bt_unsigned:
-        if (isscalar(tp2) || tp2->type == bt_pointer ||
-            tp2->type == bt_longlong || tp2->type == bt_ulonglong)
+        if (tp2->type == bt_longlong || tp2->type == bt_ulonglong) {
+            if (node2 != NULL && *node2 != NULL)
+                *node2 = makenode(en_llcul, *node2, NULL);
+            return tp1;
+        }
+        if (isscalar(tp2) || tp2->type == bt_pointer)
             return tp1;
         break;
     case bt_longlong:

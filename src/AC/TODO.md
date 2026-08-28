@@ -1,30 +1,97 @@
-# PDC Compiler TODO - ANSI C Compliance Roadmap
+# AC 4.0 TODO — Roadmap
 
-This document outlines the comprehensive roadmap for bringing the PDC (Publicly Distributable C) compiler to full ANSI C compliance, targeting C89/C90 first, then C99.
+## MVP (active focus): SAS/C ANSI C language parity
 
-## Current Status
+**Goal:** Match SAS/C 6.x **ANSI C** (ISO C89/C90) language behavior as documented in
+[SASC6V1.txt](../../../../SASC6V1.txt) Appendix 3 (F.3) and the compiler’s
+`ansi` / `nooldpp` defaults — **not** K&R or pre-ANSI compatibility modes, and
+**not** Chapter 11 Amiga extensions.
 
-The PDC compiler (version 3.33) has basic ANSI C features but lacks full compliance with modern C standards. This TODO prioritizes C89/C90 compliance first, then C99 features.
+**Dialect target (SAS/C equivalent):** `nooldpp` + `nocommentnest` + `notrigraph`
+(trigraphs optional later). Prefer prototypes; accept C89 old-style definitions
+only as required by the standard, not as a product focus.
+
+**Sources:** SASC6V1 Appendix 3 (~p.267 / ~line 13676); Ch.11 lists *non*-ANSI
+extensions (~p.153 / ~line 8117) — those are **post-MVP**.
+
+### MVP in scope
+
+| Area | SAS/C reference | AC status / work |
+|------|-----------------|------------------|
+| C89 types, decls, stmts, exprs | ANSI + F.3.3–F.3.12 | Largely done; see checklist |
+| `const` / `volatile` | F.3.10 | Done |
+| Prototypes + prototype checking | V6 expects prototypes | Present (`ERR_PROTO`); deepen diagnostics later |
+| ANSI preprocessor `#` / `##` / `defined` / `#if` | `nooldpp` | Done — heap token PP (`PpToken.c`); GetSym text pushback |
+| `#include ""` vs `<>` search | F.3.13 | Done (SAS order) |
+| Bitfields (MSB-first, no cross-unit) | F.3.9 | Done |
+| Struct alignment (non-`char` even) | F.3.9 | Done (`AL_*` = 2; pad test) |
+| Plain `char` signed; sizes; IEEE float | F.3.4–F.3.6 | Done / documented |
+| Signed `>>` / unsigned `>>` / rem sign | F.3.5 | Done |
+| Enums as `int` (4 bytes) | F.3.9 | Done |
+| `stdarg.h` / varargs ABI | C89 | Done (BE slots) |
+| Implementation-defined doc | Appendix 3 | Done — [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md) |
+
+### MVP checklist (ordered)
+
+1. [x] **Audit C89 completeness** against unittest + Appendix 3
+2. [ ] **Preprocessor correctness** — `#` / `##` / argument prescan; token-based PP (§1.1.2a) still open (defer; not blocking doc/gate)
+3. [x] **`#include` search order** — SAS F.3.13
+4. [x] **Bitfields vs F.3.9** — MSB-first + layout test
+5. [x] **Integer shifts / rem** — ASR / LSR + tests
+6. [x] **`stdarg.h`** — BE slot-aware
+7. [x] **Document** AC F.3.1–F.3.13 — [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md)
+8. [x] **Enum size** — `sizeof(enum)` = 4 (was 2)
+9. [ ] **Gate:** Amiga `make demo-self2` + run `unittest-out/ac-self2/ac_tests` (confirm new tests; self-host)
+
+**Still open after C89 language pass:** richer prototype diagnostics; Amiga gate run. Then **C99 round-out**.
+
+### MVP out of scope (parked)
+
+- **Pre-ANSI / K&R:** `oldpp` (comment paste, string formal substitution), multi-character constants as a feature, “Aztec-era” option mapping
+- **Non-ANSI comments:** nested `/* */` (`commentnest`), `//` under `ansi` (SAS warns; we already have `//` as C99 — keep but not MVP gate)
+- **Trigraphs:** off by default; optional `-f trigraph` later
+- **Chapter 11 Amiga extensions:** `__chip`/`__far`/`__asm`/`__saveds`/…, `#pragma libcall`, unnamed unions, implicit member refs, structure equivalence, zero-length arrays, sized enums, `sizeof`/`,` in `#if`, national chars in identifiers, common-model linkage — **post-MVP** (many already partially parsed)
+- **C99 / C23:** `long long` runtime polish, designated init, VLAs, `_Generic`, etc. — **post-MVP** (keep what already works; do not block MVP)
+- **Console diagnostic redesign** (`[AC E n] …`) — **parked** (see §1.5.0 / §1.5.1a); fix only blockers like `(null)` if they impede MVP testing
+- **Full libc / F.3.14–F.3.15** — library & locale, not language MVP
+
+#### Audit findings (2026-08-28, from `out.txt` + sources)
+
+**Already green (C89 runtime in `ac_tests`):** enums, structs/unions, bitfield RMW, switch/goto/loops, compound assigns, pointers/func ptrs, casts, string concat/escapes/sizeof, initializers, file/func `static`, K&R call + old-style def, `stdarg` int sum, `#`/`##` value checks, sizes (`char`1/`short`2/`int`4/ptr4), param array→pointer `sizeof`, unary `+`, fp call sugar.
+
+**Only FAILs in last suite:** `c99/ll/*` arithmetic (post-MVP; leave on hold).
+
+**Remediated:** include order, bitfield MSB packing, `stdarg.h` BE ABI, signed/unsigned `>>` codegen + tests, F.3 doc, enum `sizeof` = 4, struct even-pad test.
+
+**Still open for MVP:** richer prototype diagnostics (later); Amiga gate run (`demo-self2` + new tests).
 
 ### Recent Improvements (Latest Update)
+- ✅ **`#if` / NDK `types.h`** - rewrite `defined(X)` to 0/1 before `intexpr`; `intexpr` always `opt0`; no `L` on `__STDC_VERSION__`
+- ✅ **Enum size = 4** - F.3.9 `int`-sized enumerations (`Decl.c`); `c89/enum/sizeof_int` + struct pad offset test
+- ✅ **Enum deref = long** - `deref()` used `en_w_ref` for `bt_enum` while params/slots are 4 bytes; big-endian `needpunc` read 0 → NDK typedef Punctuation under ac-self (`Expr.c` / `Init.c` / `Force.c`)
+- ✅ **F.3 language doc** - [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md)
+- ✅ **Quoted `#include "..."`** - SAS F.3.13 order: cwd, then directory of `curfile`, then `-I`, then `INCLUDE:`
+- ✅ **Bitfields MSB-first** - F.3.9 left-to-right packing; `c89/bitfield/msb_word` layout check
+- ✅ **Signed/unsigned `>>`** - ASR vs LSR via `signedflag`; rem sign-of-dividend tests
+- ✅ **`stdarg.h` BE slots** - align `va_start`/`va_arg` to 4-byte stack slots
 - ✅ **Array parameters → pointers** - K&R and prototype array params clear `val_flag` and set `size = 4` so `sizeof(a)` is pointer width (`c89/edge/sizeof_param_arr`)
 - ✅ **`sizeof` string literals** - String literal types are `char[N]` with `N = len+1` (`Expr.c`)
 - ✅ **Post-`*` qualifiers** - `int *const` / `restrict` after `*` parsed in declarators (`Decl.c`)
 - ✅ **Unary `+`** - Accepted in expressions (`Expr.c`)
 - ✅ **Function-pointer call sugar** - `fp(args)` when the callee is a pointer-to-function (`Expr.c`)
-- ✅ **Quoted `#include "..."`** - Search beside directory of `curfile`, then cwd, then `-I` (no need to put `demo-out` on `-I`)
 - ✅ **Variadic `#define` ellipsis** - `get_macro_param()` recognizes `...` (bare `(...)` and `(a, ...)` → `__VA_ARGS__`); `##` before `#`; trim spaces in `getparm`
 - ✅ **SAS/C `__asm` / `__REG__` parse** - `__asm`, `__d0`…`__a6`, `register __dN`; `__aligned` as alignas(4)-style; call/define codegen still stack/`#pragma libcall` (see §1.5.1.2)
 - ✅ **CRT `acdbg` off by default** - `AC_CRT_DEBUG 0` in `crt/ac_crt.c`; real errors still print
 - ✅ **`selfhost-self` incremental** - Gen-2 `.s` no longer depends on `$(BIN_AC)` (avoids refreshing gen-1 then rebuilding all gen-2); `force-bootstrap-self` added
 - ✅ **C89/C99 demo coverage** - Expanded `ac_tests` + compile-only `test_c89_*` / `test_c99_*` / `test_sasc_compiler_specific.c`; long long runtime arith still **on hold** (see §2.1.1)
+- ✅ **Unit test layout** - Merged former `demo/` into `src/unittest/`; Amiga output under `unittest-out/`; `make demo-self2` still works
 - ✅ **Amiga soft-float self-host (gen-0 → ac-self → ac-self2)** - Soft-float codegen and frame spills work through gen-2; `getfrac`/`getexp` emit `.Fl2d` / `.FD*` correctly
 - ✅ **`make_autocon` always allocates** - Fixed `#if AC_DEBUG` dangling-`if` that skipped `xalloc` in framed functions and smashed `&call_library` via a stale A2 (empty `jsr` after first `.Fl2d`)
-- ✅ **`#if AC_DEBUG` dangling-if audit** - Remaining sources use braced ifs or `#if` around diag only; rule documented in `C.h`; `demo/test_ac_debug_brace.c` smoke
-- ✅ **Global array BSS sizing** - `type_size()` recomputes count×elemsize when `tp->size` is a bare count; `typesize_mul` no longer returns count-only on poisoned elemsize; PreProc restored to real `FILE *inclfile[10]` etc.; `GetSym.c`/`Cmain.c` externs updated (no more `incl*_buf`); `demo/test_bss_arrays.c` + `bss/sizeof_*` in `ac_tests`
-- ✅ **char/short parameter addressing** - Keep declared type; BE 4-byte slot at +3/+2 in `Func.c`; `demo/test_param_addr.c` + `param/&*` in `ac_tests`
-- ✅ **Floating-point arithmetic assignment** - `gen_fsaincdec` stores updated float and returns old value for postfix `++`/`--`; `+=`/`-=`/`*=`/`/=` and prefix via assign+soft-float; `demo/test_fp_assign.c` + `fp/*` in `ac_tests`
-- ✅ **Stack frames larger than 32K** - Full 32-bit auto offsets (`icon_unpoison` instead of truncating `ICON16L`); `link #0` + `suba.l #N,A7` when `lc_auto > 32760`; deep locals via `make_frame_ref` (A-temp + adda); `demo/test_large_frame.c` + `frame/large_touch_ends`
+- ✅ **`#if AC_DEBUG` dangling-if audit** - Remaining sources use braced ifs or `#if` around diag only; rule documented in `C.h`; `unittest/test_ac_debug_brace.c` smoke
+- ✅ **Global array BSS sizing** - `type_size()` recomputes count×elemsize when `tp->size` is a bare count; `typesize_mul` no longer returns count-only on poisoned elemsize; PreProc restored to real `FILE *inclfile[10]` etc.; `GetSym.c`/`Cmain.c` externs updated (no more `incl*_buf`); `unittest/test_bss_arrays.c` + `bss/sizeof_*` in `ac_tests`
+- ✅ **char/short parameter addressing** - Keep declared type; BE 4-byte slot at +3/+2 in `Func.c`; `unittest/test_param_addr.c` + `param/&*` in `ac_tests`
+- ✅ **Floating-point arithmetic assignment** - `gen_fsaincdec` stores updated float and returns old value for postfix `++`/`--`; `+=`/`-=`/`*=`/`/=` and prefix via assign+soft-float; `unittest/test_fp_assign.c` + `fp/*` in `ac_tests`
+- ✅ **Stack frames larger than 32K** - Full 32-bit auto offsets (`icon_unpoison` instead of truncating `ICON16L`); `link #0` + `suba.l #N,A7` when `lc_auto > 32760`; deep locals via `make_frame_ref` (A-temp + adda); `unittest/test_large_frame.c` + `frame/large_touch_ends`
 - ✅ **Soft-float results in fresh frame slots** - `float_result_mem()` parks D0:D1; `make_legal(F_FREG)` no longer reuses one `float_auto` cell
 - ✅ **`link A5,#-N` frame size** - Placeholder immediates patched from final `lc_auto` (no empty `link A5,#` on float-return functions)
 - ✅ **Double returns reload D0:D1** - `genreturn` reloads from memory when the result is not already in registers
@@ -78,7 +145,10 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - ✅ **Calling convention keywords** - Added __regargs and __stdargs keyword support with attribute storage
 - ✅ **Pragma integration** - All pragma types integrated into function call flow with proper precedence
 
-## Phase 1.5: SAS/C Amiga-Specific Features
+## Phase 1.5: SAS/C Amiga-Specific Features (POST-MVP)
+
+> **Parked for MVP.** Chapter 11 of SASC6V1 — extensions *not* defined by ANSI.
+> Resume after C89 language gate. Items already implemented stay checked.
 
 ### 1.5.0 Pragma Code Generation - COMPLETED
 
@@ -144,7 +214,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - **Remaining**: call/define codegen still uses stack (or `#pragma libcall`);
     register placement at call sites not yet driven from `__REG__` formals
   - **Files**: `Decl.c`, `SearchKW.c`, `C.h`, `Expr.c` (castbegin), demo test
-  - **Demo**: `demo/test_sasc_compiler_specific.c`
+  - **Demo**: `unittest/test_sasc_compiler_specific.c`
 
 - [x] **`__regargs`** - Force register parameter passing (SAS/C specific)
   - **Implementation**: First 2 pointers in A0/A1, first 2 integers in D0/D1
@@ -366,16 +436,12 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
   - [x] `__LINE__` - Current line number
 
 #### 1.1.2a Preprocessor architecture refactor
-- [ ] **Token-based preprocessor** - Refactor `PreProc.c` from character/string substitution to ISO C preprocessing tokens
-  - **Today**: `getparm` / `prepdefine` splice raw text; argument-separator whitespace can break `##` (e.g. `CAT(var_, x)` → `var_ x`); `#` / `##` are handled with string heuristics
-  - **Goal**: Phase-3 style preprocessing tokens; whitespace only separates tokens; `#` stringizes a token sequence; `##` concatenates two tokens into one
-  - **Also**: Correct argument prescan / disable-expand next to `#`/`##`; nested expansion; placemarker tokens for empty `##` operands
-  - **Files**: `PreProc.c`, `GetSym.c` (interaction with macro pushback), demo `test_c89_token_paste.c` / `test_c89_stringize.c` / `ac_tests` `c89/pp_*`
-  - **Priority**: Medium–high once string-level `#`/`##` workarounds are stable enough for self-host; large change, do as its own effort
+- [x] **Token-based preprocessor** - Heap PPT tokens in `PpToken.c`; `#if`/`#elif`/`defined` on tokens; `#` / `##` / placemarkers in `prepdefine`; stringify only at GetSym pushback (`$` sentinel). Nested disable-set / full rescan edge cases can still be hardened later.
+  - **Files**: `PpToken.c` / `PpToken.h`, `PreProc.c`, Makefile / smakefile
 
 #### 1.1.3 Include System
-- [x] **Quoted includes** - `#include "file"` searches directory of `curfile`, then cwd, then `-I`
-- [ ] **System includes** - Finish distinguishing `#include <file>` vs `"file"` (angle-bracket path policy / NDK)
+- [x] **Quoted includes** - `#include "file"`: cwd, then dir of `curfile`, then `-I`, then `INCLUDE:` (SAS F.3.13)
+- [x] **System includes** - `#include <file>` skips cwd / beside-caller (`-I` then `INCLUDE:`)
 - [ ] **NDK `pragmas/`** - ToolKit `os-include` has no `pragmas/`; `<proto/*.h>` under `__SASC` needs pragmas on the include path or `-D_NO_INLINE`
 - [ ] **Include path management** - Improve `-I` option handling
 - [ ] **Include guards** - Better support for include guard patterns
@@ -393,26 +459,26 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - [x] **`sizeof` string literals** - Typed as `char[N]` including NUL
 
 #### 1.2.2 Declarations and Definitions
-- [ ] **Function prototypes** - Ensure complete prototype support
-- [ ] **Variable argument lists** - Implement `stdarg.h` support
+- [x] **Function prototypes** - Parsing + basic `ERR_PROTO` arg checking (`Expr.c`); richer diagnostics later
+- [x] **Variable argument lists** - `stdarg.h` BE 4-byte slots (`va_start` / `va_arg`)
 - [ ] **External linkage** - Fix external symbol handling
-- [ ] **Static linkage** - Ensure proper static variable handling
-- [ ] **Register storage class** - Implement register keyword (hint only)
+- [x] **Static linkage** - File- and function-scope `static` covered in `ac_tests`
+- [x] **Register storage class** - Accepted as a hint (F.3.8)
 
 #### 1.2.3 Expressions and Operators
 - [x] **Unary `+`** - Accepted in expressions
-- [ ] **Comma operator** - Ensure proper precedence and evaluation
-- [ ] **Conditional operator** - Fix `?:` operator implementation
-- [ ] **Assignment operators** - Ensure all compound assignments work correctly
-- [ ] **Increment/decrement** - Fix `++` and `--` operator issues
-- [ ] **Bitwise operators** - Ensure proper bitwise operation handling
+- [x] **Comma operator** - Present; covered by existing expression tests
+- [x] **Conditional operator** - Present; covered by existing expression tests
+- [x] **Assignment operators** - Compound assigns covered in `ac_tests`
+- [x] **Increment/decrement** - Covered (incl. FP postfix assign fix)
+- [x] **Bitwise operators** - Covered; signed/unsigned `>>` match F.3.5
 
 #### 1.2.4 Statements
-- [ ] **Switch statements** - Improve switch case handling
-- [ ] **Do-while loops** - Ensure proper do-while implementation
-- [ ] **For loops** - Fix for loop scoping and initialization
-- [ ] **Goto statements** - Ensure proper label and goto handling
-- [ ] **Compound statements** - Fix block scoping issues
+- [x] **Switch statements** - Covered in `ac_tests`
+- [x] **Do-while loops** - Covered in `ac_tests`
+- [x] **For loops** - Covered in `ac_tests`
+- [x] **Goto statements** - Covered in `ac_tests`
+- [x] **Compound statements** - Block scoping in use for self-host / tests
 
 ### 1.3 Standard Library Headers
 
@@ -426,8 +492,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 - [ ] **math.h** - Mathematical functions
 - [ ] **setjmp.h** - Non-local jumps
 - [ ] **signal.h** - Signal handling
-- [ ] **stdarg.h** - Variable argument lists
-- [ ] **stddef.h** - Common definitions
+- [x] **stdarg.h** - Variable argument lists (BE slot ABI)- [ ] **stddef.h** - Common definitions
 - [ ] **stdio.h** - Input/output functions
 - [ ] **stdlib.h** - General utilities
 - [ ] **string.h** - String handling functions
@@ -452,7 +517,7 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 #### 1.4.2 Known Bug Fixes
 - [x] **Function parameter addressing** - char/short params keep declared type; `Func.c` places them at +3/+2 in a 4-byte big-endian slot so `&param` works; float still widens to double for the 8-byte push
 - [x] **Soft-float library codegen (self-host)** - Repeated `.Fl2d` / `.FD*` in one function (e.g. `GetSym` `getfrac`) emit correctly; root cause was `make_autocon` skipping `xalloc` when `AC_DEBUG` was off
-- [x] **Floating-point arithmetic assignment** - float postfix `++`/`--` (`gen_fsaincdec`) now stores the updated value and returns the old one (soft-float `.FSadd`/`.FSsub`); compound assign and prefix already used `assign` + `fadd`/`fmul`/…; covered by `demo/test_fp_assign.c` and `ac_tests` `fp/*`
+- [x] **Floating-point arithmetic assignment** - float postfix `++`/`--` (`gen_fsaincdec`) now stores the updated value and returns the old one (soft-float `.FSadd`/`.FSsub`); compound assign and prefix already used `assign` + `fadd`/`fmul`/…; covered by `unittest/test_fp_assign.c` and `ac_tests` `fp/*`
 - [x] **Stack frame limits** - Frames >32K use `link #0` + `suba.l #N,A7`; auto offsets keep full 32-bit values; `make_frame_ref` materializes deep locals outside `(d16,An)`
 - [ ] **Buffer flushing** - Fix interactive file buffering
 - [x] **Parsing `unsigned long int`** - C89 allows optional `int` after `unsigned`/`signed`/`short`/`long` (and combinations like `unsigned long int`). Decl accepts any-order type-specifier lists via `decl_int_specs()`.
@@ -461,11 +526,49 @@ The PDC compiler (version 3.33) has basic ANSI C features but lacks full complia
 
 ### 1.5 Error Handling and Diagnostics
 
+> **Parked for MVP** (format redesign). Only fix MVP blockers (e.g. `(null)` text) if needed.
+
+#### 1.5.0 Console output review (from Amiga `file.txt` / selfhost + unittest) — PARKED
+
+Current AC-mode output mixes three styles and is hard to skim on a real console:
+
+1. **Immediate “GCC-ish” line** — `file:line:col: error: (null) (Punctuation)`
+2. **Legacy line block** — `Errors in line N of file:` + source line + `*** error 6 Punctuation`
+3. **End summary** — `Compilation successful.` / `N errors, M warnings generated.` (skipped under `-q`)
+
+Observations from a real gen-2 + unittest run:
+
+- **`(null)` in messages** — `error(n, NULL)` prints `(null)` via `%s`; looks broken. Prefer errmsg-only or a short canned phrase.
+- **Duplicate diagnostics** — every fault is printed twice (immediate + line block). Pick one primary form for AC mode.
+- **Warning flood under `-q`** — each bootstrap `.c` still dumps many `macro redefinition with different type (Syntax)` lines from cclib `stdio.h` / `stdlib.h` / `ctype.h`. Quiet should mean quiet, or system-header noise should be once / suppressible.
+- **Cascade spam** — one bad `__REG__(…)` produces many identical `Punctuation` / `Expression expected` lines; recover and stop stacking duplicates on the same column.
+- **Category-only text** — `Punctuation`, `Undefined Symbol` without “expected …” / “near …” is thin for interactive Amiga use.
+- **Banner vs make** — full version banner on every non-`-q` compile is fine interactively; Makefile should keep `-q` (or a single banner) so logs stay readable.
+- **Paths** — `///SDK/...` and long absolute-ish include paths dominate the line; shorten for display when possible.
+- **Column without caret** — column is reported but the line block has no `^` under the token (SAS/C-friendly and easy to read on 80-col consoles).
+
+Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly Amiga console diagnostics — not GCC parity. Keep `-f gcc` / `cc` front-end for tools that want the colon form.
+
 #### 1.5.1 Error Reporting
 - [ ] **Error message improvements** - Better error descriptions
 - [ ] **Warning system** - Implement warning levels
 - [ ] **Source location** - Improve error location reporting
 - [ ] **Error recovery** - Better error recovery in parser
+
+#### 1.5.1a AC-mode console formatting (friendly / Amiga-native)
+- [ ] **Single diagnostic stream in AC mode** - Do not emit both `file:line:col:` and the `Errors in line N` block for the same fault; choose one shape (prefer the line+caret block for AC, keep GCC shape for `-f gcc` / `cc`)
+- [ ] **Never print `(null)`** - If `msg` is NULL, print only `errmsg[n]` (or a fixed “see message above”); never `%s` on a null pointer
+- [ ] **Readable one-liner** - Prefer e.g. `Decl.c 120: error 6: Punctuation near '__'` or SAS-like `Decl.c(120) : Error 6: …` over `error: (null) (Punctuation)`
+- [ ] **Source snippet + caret** - After the message, show the source line and a `^` (or `---^`) under the column; wrap long lines for 80-column Amiga consoles
+- [ ] **Deduplicate cascades** - Cap identical error-code+column repeats on one line; after recovery, skip further reports until the next semicolon / declaration
+- [ ] **Human errmsg text** - Expand terse codes (“Punctuation” → “unexpected token” / “expected ‘)’ or ‘,’”) where cheap; keep numeric code for manuals (`*** error 6`)
+- [ ] **`-q` really quiet** - Under `-q`, suppress version banner and per-file success line; still print errors/warnings (or add `-qq` for errors-only)
+- [ ] **System-header warning policy** - Downgrade or once-only macro-redefinition warnings from `-I` system paths (cclib / NDK); optional `-Wsystem` to re-enable; do not reprint the same warning on every TU in a make log
+- [ ] **Path display** - Strip redundant `///` / show basename+assign when the full path wraps past ~60 chars (full path still OK in listing file)
+- [ ] **End-of-file summary always useful** - Even with `-q`, if there were errors, print one line: `Analyze.c: 4 errors, 12 warnings` (omit “Compilation successful.” under `-q`)
+- [ ] **Default AC format** - Make native AC default `-f pdc` or a new `-f ac` (line block + caret), not GCC columns, unless `cc` / `-f gcc`
+- [ ] **Align warning/error vocabulary** - Same layout for warnings as errors (`Warning` vs `Error`, same caret rules)
+- [ ] **Optional color** - Off by default on Amiga; if ever added, gate behind `-f color` and detect non-console
 
 #### 1.5.2 Debugging Support
 - [ ] **Debug information** - Improve DBX debug info generation
@@ -624,7 +727,8 @@ Dropbear can build closer to C89 if post-quantum options are off.
 - [x] **Binary integer literals** - `0b` / `0B` prefixes in `getnumber()`
 - [x] **Digit separators** - skip `'` inside numeric tokens (`1'000'000`)
 - [ ] **`wb` / `uwb` suffixes** - `_BitInt` constant suffixes (needs `_BitInt` first)
-- [ ] **UTF-8 / `u8` string prefixes** - treat as ordinary strings initially; full Unicode later
+- [ ] **UTF-8 / `u8` string prefixes** - treat `u8"..."` as ordinary strings initially; full Unicode later
+- [x] **UTF-8 source tolerance** - warn once per line if UTF-8 (or BOM) is detected; skip multi-byte sequences in the lexer so Amiga Latin-1 builds are not aborted. Keep identifiers ASCII; Latin-1 OK in comments/strings. No UTF-8 identifiers / console Unicode (OS limitation)
 
 #### Keywords / other
 - [x] **`static_assert` / `_Static_assert`** - compile-time assert (const-expr [, message]); file and block scope
@@ -646,30 +750,29 @@ Dropbear can build closer to C89 if post-quantum options are off.
 
 ## Implementation Priority
 
-### High Priority (Must Fix)
-1. ✅ **Function parameter addressing bug** - char/short `&param` / sizeof fixed (BE slot layout) - **COMPLETED**
-2. ✅ **Soft-float self-host codegen** - Amiga gen-2 soft-float path works (`make_autocon` / `float_result_mem` / link sizing) - **COMPLETED**
-3. ✅ **Floating-point arithmetic assignment** - float postfix store-back fixed; compound/prefix via assign+soft-float - **COMPLETED**
-4. ✅ **Stack frame limitations** - >32K frames via link#0+suba and make_frame_ref - **COMPLETED**
-5. **Buffer flushing** - Affects I/O reliability
-6. **Complete preprocessor** - Required for most C programs
-7. ✅ **SAS/C parameter passing** - `__regargs` and `__stdargs` for library compatibility - **COMPLETED**
-8. **SAS/C memory management** - `__chip`, `__far`, `__near` for Amiga development
+### MVP (now) — ANSI C89 / SAS/C `ansi`+`nooldpp` language
+1. ✅ C89 language vs F.3 (layout, shifts, stdarg, include order, enums) — **gate run remains**
+2. Preprocessor token refactor (§1.1.2a) — deferred; string `#`/`##` accepted for gate
+3. ✅ Integer/FP implementation-defined behavior (F.3.5–F.3.6) — documented + tested
+4. ✅ Document AC F.3.1–F.3.13 — [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md)
+5. ✅ Soft-float self-host / frames / param addressing / FP assign — **COMPLETED**
 
-### Medium Priority (Should Fix)
-1. **Standard library completeness** - Needed for portability
-2. **Type system improvements** - Better type safety
-3. **Error handling** - Better user experience
-4. **Code generation** - Better performance
-5. **SAS/C function control** - `__saveds`, `__interrupt` for system programming
-6. **SAS/C advanced features** - Unnamed unions, structure equivalence
+### Post-MVP — Chapter 11 Amiga / C99 / product polish
+1. SAS/C keywords codegen (`__asm` registers, `__saveds`, memory sections)
+2. `#pragma` libcall path for NDK `proto/`
+3. Console diagnostic format (`[AC E n]…` plan)
+4. **C99 round-out** (after C89 Amiga gate): `long long` runtime, designated init, VLAs, …
+5. Buffer flushing / libc completeness
 
-### Low Priority (Nice to Have)
-1. **C99 features** - Modern language features
-2. **Advanced optimizations** - Performance improvements
-3. **Debugging enhancements** - Developer experience
-4. **SAS/C convenience features** - `__inline`, zero-length arrays, preprocessor extensions
-5. **SAS/C internationalization** - National characters in identifiers
+### Historical High Priority (superseded by MVP list above)
+1. ✅ **Function parameter addressing bug** - **COMPLETED**
+2. ✅ **Soft-float self-host codegen** - **COMPLETED**
+3. ✅ **Floating-point arithmetic assignment** - **COMPLETED**
+4. ✅ **Stack frame limitations** - **COMPLETED**
+5. **Buffer flushing** - post-MVP / CRT
+6. **Complete preprocessor** - **MVP** (see above)
+7. ✅ **SAS/C `__regargs`/`__stdargs` parse** - parse done; full codegen post-MVP
+8. **SAS/C memory / `__saveds`** - **post-MVP**
 
 ## Testing Strategy
 
@@ -694,6 +797,7 @@ Dropbear can build closer to C89 if post-quantum options are off.
 ## Documentation Updates
 
 ### 1. User Documentation
+- [x] **Implementation-defined (F.3)** - [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md)
 - [ ] **Updated README** - Reflect new features and capabilities
 - [ ] **User manual** - Comprehensive usage guide
 - [ ] **Migration guide** - Help users upgrade from older versions

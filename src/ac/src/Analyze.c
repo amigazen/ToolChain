@@ -224,7 +224,7 @@ scanexpr(struct enode *node, int duse)
         break;
 
     /*
-     * long long is an 8-byte value (hi/lo words), like double/struct —
+     * long long is an 8-byte value (hi/lo words), like double/struct -
      * never CSE into a single D-register.
      */
     case en_ll_ref:
@@ -481,9 +481,9 @@ allocate(void)
         csp->reg = -1;
         if (desire(csp) >= 3) {
             /*
-             * Pointers (duses > 0) → A2/A3.
-             * Lvalue contents → D-regs.
-             * Symbol addresses → A-regs only (never D-regs: an address in
+             * Pointers (duses > 0) -> A2/A3.
+             * Lvalue contents -> D-regs.
+             * Symbol addresses -> A-regs only (never D-regs: an address in
              * Dn led to move.l Dn,A0 with Dn never preloaded, which smashed
              * prepdepth and yielded "preprocessor nesting too deep").
              * Integer constants are never put in A-regs.

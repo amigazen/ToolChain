@@ -96,6 +96,12 @@ int             current_column = 1;  /* Current column position */
 unsigned char  *linstack[LINDEPTH]; /* stack for substitutions      */
 unsigned char   chstack[LINDEPTH];  /* place to save lastch     */
 
+/*
+ * Amiga source is Latin-1.  UTF-8 from modern editors is common in comments;
+ * warn once per line and skip sequences so they do not become ERR_ILLCHAR.
+ */
+static int      utf8_warned_line = -1;
+
 #define MAXERR  30
 
 static char    *errmsg[] =
@@ -168,7 +174,8 @@ install_defines()
     setdefine("__TIME__", __timebuf);
     setdefine("__FUNC__", __funcbuf);
     setdefine("__STDC__", " 1 ");
-    setdefine("__STDC_VERSION__", " 199409L ");
+    /* No L suffix: some #if paths historically left L as a stray id token. */
+    setdefine("__STDC_VERSION__", " 199409 ");
     /* Freestanding / unsupported C11+ features on Amiga AC */
     setdefine("__STDC_NO_ATOMICS__", " 1 ");
     setdefine("__STDC_NO_THREADS__", " 1 ");
@@ -204,6 +211,75 @@ install_defines()
         remove_symbol( sp->name, &defsyms );
 }
 
+/*
+ * utf8_lead_len - return 2..4 if c starts a UTF-8 sequence, else 0.
+ * Lone 0x80-0xFF Latin-1 bytes return 0 (Amiga-native text).
+ */
+static int
+utf8_lead_len(c)
+    int             c;
+{
+    if (c >= 0xc2 && c <= 0xdf)
+        return 2;
+    if (c >= 0xe0 && c <= 0xef)
+        return 3;
+    if (c >= 0xf0 && c <= 0xf4)
+        return 4;
+    return 0;
+}
+
+/*
+ * line_has_utf8 - true if the buffer contains a multi-byte UTF-8 sequence
+ * or a UTF-8 BOM.  Latin-1 high bytes that are not UTF-8 leads do not count.
+ */
+static int
+line_has_utf8(s)
+    unsigned char  *s;
+{
+    int             n;
+    int             i;
+    int             ok;
+
+    if (s[0] == 0xef && s[1] == 0xbb && s[2] == 0xbf)
+        return 1;
+    while (*s) {
+        n = utf8_lead_len(*s);
+        if (n > 0) {
+            ok = 1;
+            for (i = 1; i < n; ++i) {
+                if ((s[i] & 0xc0) != 0x80) {
+                    ok = 0;
+                    break;
+                }
+            }
+            if (ok)
+                return 1;
+        }
+        ++s;
+    }
+    return 0;
+}
+
+static void
+warn_utf8_if_needed()
+{
+    if (utf8_warned_line == lineno)
+        return;
+    utf8_warned_line = lineno;
+    warning(99,
+        "UTF-8 encoding in source (Amiga expects Latin-1); skipping multi-byte sequence");
+}
+
+static void
+warn_nonascii_token()
+{
+    if (utf8_warned_line == lineno)
+        return;
+    utf8_warned_line = lineno;
+    warning(99,
+        "non-ASCII byte in source token skipped (Latin-1 OK in strings/comments)");
+}
+
 void
 initsym()
 {
@@ -220,6 +296,7 @@ initsym()
     total_errors = 0;
     lineno = 0;
     dbxlnum = 0;
+    utf8_warned_line = -1;
     fatal = FALSE;
     libpragma = NULL;
 }
@@ -303,7 +380,14 @@ ac_getline(listflag)
         strcpy(__linebuf, itoa(dbxlnum));
 
         lptr = (unsigned char *) in_line;
-        if (in_line[0] == '#' && !in_comment)
+        /* Strip UTF-8 BOM at start of a file (line 1). */
+        if (lineno == 1 && lptr[0] == 0xef && lptr[1] == 0xbb && lptr[2] == 0xbf) {
+            warn_utf8_if_needed();
+            lptr += 3;
+        }
+        if (line_has_utf8(lptr))
+            warn_utf8_if_needed();
+        if (lptr[0] == '#' && !in_comment)
             return preprocess();
     } while (prestat == ps_ignore);
     return 0;
@@ -523,9 +607,29 @@ int
 isidch( x )
     int x;
 {
-    return(x == '$' || x == '_' || isalpha(x) || isdigit(x));
+    /*
+     * ASCII-only: do not use isalpha/isdigit via cclib `_type`.  A bad
+     * `_type` pointer makes identifiers fail to tokenize and every decl
+     * looks like Punctuation (NDK types.h / self-host fallout).
+     */
+    return (x == '$' || x == '_'
+        || (x >= 'A' && x <= 'Z')
+        || (x >= 'a' && x <= 'z')
+        || (x >= '0' && x <= '9'));
 }
 #endif
+
+/*
+ * pp_isspace - whitespace for the lexer without ctype `_type`.
+ * Includes newline so tokens may span lines outside #if (oneline).
+ */
+static int
+pp_isspace(c)
+    int             c;
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+        || c == '\f' || c == '\v';
+}
 
 /*
  * getid - get an identifier.
@@ -606,7 +710,7 @@ getsch()
 
     getch();        /* get an escaped character */
 
-    if (lastch == 'x' || isdigit(lastch)) 
+    if (lastch == 'x' || (lastch >= '0' && lastch <= '9')) 
         return( getoct_ch() );
 
     i = lastch;
@@ -638,7 +742,7 @@ int
 radix36(c)
     char            c;
 {
-    if (isdigit(c))
+    if (c >= '0' && c <= '9')
         return c - '0';
     if (c >= 'a' && c <= 'z')
         return c - 'a' + 10;
@@ -666,11 +770,11 @@ getbase(b)
     base = (unsigned long) b;
     lo = 0;
     hi = 0;
-    while (isalnum(lastch) || lastch == '\'') {
+    while (isidch(lastch) || lastch == '\'') {
         /* C23 digit separators: skip ' between digits (1'000, 0xFF'FF). */
         if (lastch == '\'') {
             getch();
-            if (!isalnum(lastch))
+            if (!isidch(lastch))
                 break;
             continue;
         }
@@ -783,7 +887,7 @@ getexp()
 }
 
 /*
- * Floating-constant suffixes (C99/C23): f/F → float, l/L → long double.
+ * Floating-constant suffixes (C99/C23): f/F -> float, l/L -> long double.
  * Amiga maps long double to double; value stays in rval as double.
  */
 static void
@@ -883,7 +987,7 @@ getnumber()
 void
 getdotnumber()
 {
-    /* No "0.0" literal — see getfrac comment (ac-self compiling GetSym). */
+    /* No "0.0" literal - see getfrac comment (ac-self compiling GetSym). */
     rval = (double) 0;
     getfrac();      /* add the fractional part */
     lastst = rconst;
@@ -947,7 +1051,7 @@ getsym()
 
 restart:            /* we come back here after comments */
 
-    while (premode != pr_asm && isspace(lastch))
+    while (premode != pr_asm && pp_isspace(lastch))
         getch();
 
     if (premode == pr_asm && !oneline) {
@@ -969,15 +1073,27 @@ restart:            /* we come back here after comments */
         return;
     }
 
-    while (isspace(lastch))
+    while (pp_isspace(lastch))
         getch();
 
     if (lastch == -1)
         lastst = eof;
-    else if (isdigit(lastch))
+    else if (lastch >= '0' && lastch <= '9')
         getnumber();
     else if (isidch(lastch)) {
         getid();
+        /*
+         * In #if/#elif, `defined` is an operator, never a macro name.
+         * Force the keyword before macro expand / searchkw.
+         */
+        if (oneline && lastid[0] == 'd'
+            && lastid[1] == 'e' && lastid[2] == 'f'
+            && lastid[3] == 'i' && lastid[4] == 'n'
+            && lastid[5] == 'e' && lastid[6] == 'd'
+            && lastid[7] == '\0') {
+            lastst = kw_defined;
+            return;
+        }
         if (!inpreproc && (sp = search(lastid, defsyms.head)) != NULL) {
             loc = (unsigned char *) prepdefine(sp);
             if (loc != NULL) {
@@ -1046,7 +1162,7 @@ restart:            /* we come back here after comments */
             }
             else if (lastch == '*') {
                 /*
-                 * Block comment.  Default: C89/GCC — first star-slash ends
+                 * Block comment.  Default: C89/GCC - first star-slash ends
                  * it (so globs like *.s in comments stay safe).  With
                  * -Wcommentnest (SAS/C COMMENTNEST): slash-star raises
                  * depth, star-slash lowers it.
@@ -1213,7 +1329,7 @@ restart:            /* we come back here after comments */
             break;
         case '.':
             getch();
-            if (isdigit(lastch)) {
+            if (lastch >= '0' && lastch <= '9') {
                 getdotnumber();
             }
             else if (lastch != '.')
@@ -1289,12 +1405,51 @@ restart:            /* we come back here after comments */
             lastst = hook;
             break;
         case '\\':
+            /*
+             * Line splice.  Under oneline (#if), getch returns -1 at the
+             * buffer end instead of reading the next physical line, so
+             * treat -1 like newline and use joinch (ignores oneline).
+             * Also accept CRLF after the backslash.
+             */
             getch();
-            if (lastch == '\n') {
+            if (lastch == '\r')
+                getch();
+            if (lastch == '\n' || lastch == -1) {
                 joinch();
                 goto restart;
             }
+            error(ERR_ILLCHAR, charmsg( '\\' ) );
+            goto restart;
         default:
+            /*
+             * UTF-8 multi-byte from modern editors: warn and skip so
+             * comments/punctuation do not hard-fail on Amiga Latin-1.
+             */
+            {
+                int             n;
+                int             lead;
+
+                lead = lastch;
+                n = utf8_lead_len(lead);
+                if (n > 0) {
+                    warn_utf8_if_needed();
+                    getch();
+                    while (--n > 0 && lastch != '\0' && lastch != -1
+                           && (lastch & 0xc0) == 0x80)
+                        getch();
+                    goto restart;
+                }
+                /*
+                 * Non-UTF-8 high byte (Latin-1 or garbage).  Skip with a
+                 * warning rather than ERR_ILLCHAR so a stray 0xFF does not
+                 * abort the compile; identifiers stay ASCII.
+                 */
+                if (lead >= 0x80 && lead <= 0xff) {
+                    warn_nonascii_token();
+                    getch();
+                    goto restart;
+                }
+            }
             error(ERR_ILLCHAR, charmsg( lastch ) );
             getch();
             goto restart;   /* get a real token */
@@ -1306,7 +1461,7 @@ restart:            /* we come back here after comments */
 
 void
 needpunc(p)
-    enum e_sym      p;
+    int             p;  /* enum e_sym -- int, not enum (ac-self ABI) */
 {
     if (lastst == p)
         getsym();

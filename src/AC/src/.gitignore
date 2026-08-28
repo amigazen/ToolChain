@@ -1,2 +1,4 @@
-# Demo suite output (Amiga: make demo / demo-ac / demo-self / demo-self2)
+# Unit test suite output (Amiga: make demo / demo-ac / demo-self / demo-self2)
+unittest-out/
+# Legacy name kept during transition
 demo-out/

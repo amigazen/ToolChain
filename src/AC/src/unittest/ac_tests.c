@@ -5,12 +5,12 @@
  *   PASS: name
  *   FAIL: name
  *   UNTESTED: name
- *   === ac demo Summary ===
+ *   === ac unittest Summary ===
  *   # of expected passes ...
  *
  * Build/run on Amiga (from src/):
  *   make demo-self2
- *   demo-out/ac-self2/ac_tests
+ *   unittest-out/ac-self2/ac_tests
  *
  * Exit status: 0 if all PASS, 1 if any FAIL.
  *
@@ -299,7 +299,7 @@ test_fp_assign()
      * Float postfix ++/-- used to skip the store-back (gen_fsaincdec).
      * Compound assign and prefix go through assign + soft-float binary.
      */
-    /* f/F suffix (C99) — getfloatsuffix + en_cdf / gen_fconvert. */
+    /* f/F suffix (C99) - getfloatsuffix + en_cdf / gen_fconvert. */
     f = 10.0f;
     f += 3.0f;
     expect_long("fp/float_add_assign", fp_float_to_long(f), 13L);
@@ -426,6 +426,14 @@ struct c89_bits {
     unsigned c : 8;
 };
 
+/* SAS F.3.9 left-to-right: a,b,c pack into high bits of a 32-bit word. */
+struct c89_bits_msb {
+    unsigned a : 4;
+    unsigned b : 4;
+    unsigned c : 8;
+    unsigned pad : 16;
+};
+
 static int c89_file_static;
 static int c89_static_counter;
 
@@ -477,6 +485,7 @@ test_c89_enum()
     expect_long("c89/enum/green", (long) C89_GREEN, 2L);
     expect_long("c89/enum/blue", (long) C89_BLUE, 10L);
     expect_true("c89/enum/sizeof_gt_0", sizeof(enum c89_color) > 0);
+    expect_long("c89/enum/sizeof_int", (long) sizeof(enum c89_color), 4L);
     c = C89_GREEN;
     n = 0;
     switch (c) {
@@ -506,6 +515,21 @@ test_c89_struct()
     expect_long("c89/struct/member_x", (long) p.x, 3L);
     expect_long("c89/struct/member_y", (long) p.y, 4L);
     expect_true("c89/struct/sizeof_ge_8", sizeof(struct c89_point) >= 8);
+    /* F.3.9: char then short - short on even offset, sizeof padded. */
+    {
+        struct c89_pad {
+            char c;
+            short s;
+        } pad;
+        char *base;
+
+        pad.c = 1;
+        pad.s = 2;
+        base = (char *) &pad;
+        expect_long("c89/struct/short_even_off",
+                    (long) ((char *) &pad.s - base), 2L);
+        expect_true("c89/struct/pad_sizeof_ge_4", sizeof(pad) >= 4);
+    }
     r.tl.x = 1;
     r.tl.y = 2;
     r.br.x = 5;
@@ -536,6 +560,8 @@ static void
 test_c89_bitfield()
 {
     struct c89_bits s;
+    struct c89_bits_msb m;
+    unsigned long *wp;
 
     s.a = 5;
     s.b = 17;
@@ -543,6 +569,14 @@ test_c89_bitfield()
     expect_long("c89/bitfield/a", (long) s.a, 5L);
     expect_long("c89/bitfield/b", (long) s.b, 17L);
     expect_long("c89/bitfield/c", (long) s.c, 200L);
+
+    m.a = 0xA;
+    m.b = 0xB;
+    m.c = 0xCD;
+    m.pad = 0;
+    wp = (unsigned long *) &m;
+    /* MSB-first BE: 0xABCD then 16 zero pad bits. */
+    expect_long("c89/bitfield/msb_word", (long) (*wp), (long) 0xABCD0000UL);
 }
 
 static void
@@ -889,6 +923,14 @@ test_c89_edge()
     /* Integer division truncates toward zero (C89 for positive). */
     expect_long("c89/edge/div_trunc", (long) (7 / 2), 3L);
     expect_long("c89/edge/mod", (long) (7 % 2), 1L);
+    /* SAS F.3.5: signed >> arithmetic; rem sign follows dividend. */
+    expect_long("c89/edge/asr_neg", (long) ((-8) >> 2), -2L);
+    expect_long("c89/edge/mod_neg", (long) ((-7) % 3), -1L);
+    u = 1U << 31;
+    expect_long("c89/edge/lsr_high", (long) (u >> 1), (long) (1U << 30));
+    u = 0x80000000UL;
+    u >>= 1;
+    expect_long("c89/edge/lsr_assign", (long) u, (long) 0x40000000UL);
     expect_long("c89/edge/unary_plus", (long) (+3), 3L);
     expect_long("c89/edge/unary_not", (long) (!0), 1L);
     expect_long("c89/edge/bit_not", (long) (~0 & 0xFF), 255L);
@@ -1104,7 +1146,7 @@ test_c99_features()
     dejagnu_fail("c99/macro/STDC_VERSION");
 #endif
 
-    /* restrict / inline are accepted no-ops — exercise in expressions */
+    /* restrict / inline are accepted no-ops - exercise in expressions */
     {
         int * restrict rp;
         int v;
@@ -1160,7 +1202,7 @@ static void
 test_compile_only_notes()
 {
     /*
-     * Individual /demo/test_*.c files are compile-checked by make.
+     * Individual unittest/test_*.c files are compile-checked by make.
      * Marked UNTESTED here so the .sum reflects the split harness.
      */
     dejagnu_untested("compile/test_static_assert.c");
@@ -1180,6 +1222,7 @@ test_compile_only_notes()
     dejagnu_untested("compile/test_c89_decl_edge.c");
     dejagnu_untested("compile/test_c89_pp_expr.c");
     dejagnu_untested("compile/test_c89_sizeof.c");
+    dejagnu_untested("compile/test_c89_include_order.c");
     dejagnu_untested("compile/test_c99_varargs_macro.c");
     dejagnu_untested("compile/test_c99_longlong.c");
     dejagnu_untested("compile/test_c99_bool.c");
@@ -1192,7 +1235,7 @@ static void
 print_summary()
 {
     printf("\n");
-    printf("\t\t=== ac demo Summary ===\n");
+    printf("\t\t=== ac unittest Summary ===\n");
     printf("\n");
     printf("# of expected passes\t\t%d\n", n_pass);
     printf("# of unexpected failures\t%d\n", n_fail);
@@ -1220,7 +1263,7 @@ main(void)
     printf("    native\n");
     printf("\n");
     printf("Running target native\n");
-    printf("Using /demo/ac_tests.c as main test driver\n");
+    printf("Using unittest/ac_tests.c as main test driver\n");
     printf("\n");
 
     test_smoke();

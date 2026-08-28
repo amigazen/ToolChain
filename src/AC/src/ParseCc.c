@@ -97,7 +97,7 @@ char          **argv;
             continue;
         }
         if (strcmp(a, "-S") == 0) {
-            /* gcc -S is assemble-only; AC -S is stack check — ignore. */
+            /* gcc -S is assemble-only; AC -S is stack check - ignore. */
             fprintf(AC_DIAG_STREAM,
                     "%s: warning: '-S' ignored in cc mode\n",
                     progname != 0 ? progname : "cc");

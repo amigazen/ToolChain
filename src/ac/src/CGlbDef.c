@@ -40,7 +40,7 @@ FILE *ac_output = NULL;
 
 /*
  * Struct and Options in one declaration (no separate "struct OptTab Options;").
- * No member assignments here — ac-self fails on Options.field in this file.
+ * No member assignments here - ac-self fails on Options.field in this file.
  * Defaults applied in default_options() in Cmain.c (has Cglbdec.h).
  */
 struct OptTab {

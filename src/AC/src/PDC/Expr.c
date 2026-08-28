@@ -56,6 +56,9 @@
 TYP             stdint = {bt_long, 0, 4, {0, 0}, 0, "int"};
 TYP             stdunsigned = {bt_unsigned, 0, 4, {0, 0}, 0, "unsigned"};
 TYP             stdchar = {bt_char, 0, 1, {0, 0}, 0, "char"};
+TYP             stdlonglong = {bt_longlong, 0, 8, {0, 0}, 0, "long long"};
+TYP             stdulonglong = {bt_ulonglong, 0, 8, {0, 0}, 0, "unsigned long long"};
+TYP             stdbool = {bt_bool, 0, 1, {0, 0}, 0, "_Bool"};
 TYP             stdshort = {bt_short, 0, 2, {0, 0}, 0, "short"};
 TYP             stdstring = {bt_pointer, 1, 4, {0, 0}, &stdchar, "string"};
 TYP             stdfunc = {bt_func, 1, 0, {0, 0}, &stdint, "func"};
@@ -139,6 +142,10 @@ deref(node, tp)
         *node = makenode(en_b_ref, *node, NULL);
         tp = &stdchar;
         break;
+    case bt_bool:
+        *node = makenode(en_b_ref, *node, NULL);
+        tp = &stdbool;
+        break;
     case bt_uchar:
         (*node)->signedflag = 0;
         *node = makenode(en_ub_ref, *node, NULL);
@@ -158,11 +165,20 @@ deref(node, tp)
     case bt_pointer:
         *node = makenode(en_l_ref, *node, NULL);
         break;
+    case bt_longlong:
+        *node = makenode(en_ll_ref, *node, NULL);
+        break;
     case bt_unsigned:
         (*node)->signedflag = 0;
         *node = makenode(en_ul_ref, *node, NULL);
         (*node)->signedflag = 0;
         tp = &stdunsigned;
+        break;
+    case bt_ulonglong:
+        (*node)->signedflag = 0;
+        *node = makenode(en_ull_ref, *node, NULL);
+        (*node)->signedflag = 0;
+        tp = &stdulonglong;
         break;
     case bt_struct:
     case bt_union:
@@ -418,6 +434,18 @@ primary(node)
         break;
     case iconst:
         tptr = &stdint;
+        pnode = makenode(en_icon, (long) ival, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case lconst:
+        tptr = &stdint;
+        pnode = makenode(en_icon, (long) ival, NULL);
+        pnode->constflag = 1;
+        getsym();
+        break;
+    case llconst:
+        tptr = &stdlonglong;
         pnode = makenode(en_icon, (long) ival, NULL);
         pnode->constflag = 1;
         getsym();
@@ -848,8 +876,9 @@ isscalar(tp)
     return
         (tp->type == bt_char || tp->type == bt_uchar ||
          tp->type == bt_short || tp->type == bt_ushort ||
-         tp->type == bt_long ||
-         tp->type == bt_unsigned);
+         tp->type == bt_long || tp->type == bt_longlong ||
+         tp->type == bt_unsigned || tp->type == bt_ulonglong ||
+         tp->type == bt_bool);
 }
 
 TYP            *

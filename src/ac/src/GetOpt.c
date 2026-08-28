@@ -48,7 +48,7 @@ getopt(argc, argv, opts)
         }
     }
 
-    /* Option letter lives in optopt (global) — not a local that strchr can clobber. */
+    /* Option letter lives in optopt (global) - not a local that strchr can clobber. */
     optopt = (unsigned char) argv[optind][sp];
 
     cp = strchr(opts, optopt);

@@ -18,9 +18,13 @@
 
 #ifdef __SASC
 #define __ASM__ __asm
-/* Same paste as compiler-specific.h (`__ ## r`); two-arg form matches CAT(). */
-#define __AC_GLUE(a, b) a##b
-#define __REG__(r, p) register __AC_GLUE(__, r) p
+/*
+ * Match Hyperion compiler-specific.h exactly: paste `__` with the register
+ * name in one replacement list.  A nested `__AC_GLUE(__, r)` helper is not
+ * re-expanded after __REG__ pushback (prepdefine does not rescan), so the
+ * parser would see `__AC_GLUE(...)` and fail with Punctuation.
+ */
+#define __REG__(r, p) register __ ## r p
 #define __STDARGS__ __stdargs
 #define __SAVE_DS__ __saveds
 #define __FAR__ __far

@@ -174,6 +174,7 @@ bf_rvalue(ep)
         icon = makenode(en_icon, (long) pos, NULL);
         icon->constflag = 1;
         e = makenode(en_rsh, e, icon);
+        e->signedflag = 0;  /* logical shift before mask */
     }
     icon = makenode(en_icon, mask, NULL);
     icon->constflag = 1;
@@ -331,7 +332,6 @@ deref(node, tp)
         (*node)->signedflag = 0;
         break;
     case bt_short:
-    case bt_enum:
         *node = makenode(en_w_ref, *node, NULL);
         tp = &stdshort;
         break;
@@ -340,6 +340,14 @@ deref(node, tp)
         *node = makenode(en_uw_ref, *node, NULL);
         (*node)->signedflag = 0;
         break;
+    /*
+     * Enumerations are int-sized (SAS F.3.9 / Decl type_size).  Loading
+     * them with en_w_ref used the high 16 bits of a big-endian 4-byte
+     * stack slot (always 0 for small values) -- needpunc(semicolon) then
+     * always failed and every NDK typedef looked like Punctuation under
+     * ac-self.
+     */
+    case bt_enum:
     case bt_long:
     case bt_pointer:
         *node = makenode(en_l_ref, *node, NULL);
@@ -522,8 +530,8 @@ it to sp1->tp.
 */
             /*
              * Float args must be widened to double (K&R / cclib).  Only
-             * en_f_ref used to get en_cfd; float ops (f++, f+g, …) kept
-             * size 4 while the callee reads 8 — IEEE float bits in the
+             * en_f_ref used to get en_cfd; float ops (f++, f+g, ...) kept
+             * size 4 while the callee reads 8 - IEEE float bits in the
              * high word of a double decode as 2^15 / 2^17 (32768 / 131072).
              */
             if (tp1->type == bt_float) {
@@ -587,7 +595,7 @@ castbegin(st)
  * return 1 if st in set of [ kw_char, kw_short, kw_long, kw_int, kw_float,
  * kw_double, kw_struct, kw_union, kw_enum ]
  */
-    enum e_sym      st;
+    int             st; /* enum e_sym -- int width for ac-self params */
 {
     TYP            *tp;
 
@@ -714,10 +722,10 @@ primary(node)
         break;
     case rconst:
         /*
-         * f/F → IEEE single in the literal pool (floatlits, integer d→s).
+         * f/F -> IEEE single in the literal pool (floatlits, integer d->s).
          * Runtime en_cdf/.Fd2s on every float suffix still crashes under
-         * soft-float; keep en_cdf only for real double→float casts.
-         * Plain / l/L → double pool (long double ≡ double on Amiga).
+         * soft-float; keep en_cdf only for real double->float casts.
+         * Plain / l/L -> double pool (long double == double on Amiga).
          */
         if (rval_float_suffix == 1) {
             tptr = &stdfloat;
@@ -733,7 +741,14 @@ primary(node)
     case openpa:
         getsym();
         if (!castbegin(lastst)) {
-            tptr = expression(&pnode);
+            /*
+             * In #if/#elif (oneline), use exprnc so a ')' stops the
+             * subexpression before || / && outside the parens.
+             */
+            if (oneline)
+                tptr = exprnc(&pnode);
+            else
+                tptr = expression(&pnode);
             needpunc(closepa);
         }
         else {      /* cast operator */
@@ -1076,6 +1091,10 @@ unary(node)
         tp = tp1;
         break;
     case kw_defined:
+        /*
+         * dodefined() consumes the operand via getch/getid.  One getsym()
+         * leaves lastst on the following token for the caller.
+         */
         ep1 = makenode(en_icon, (long) dodefined(), NULL);
         ep1->constflag = 1;
         tp = &stdint;
@@ -1445,6 +1464,18 @@ shiftop(node)
         else {
             tp1 = forcefit(&ep1, tp1, &ep2, tp2);
             ep1 = makenode(oper ? en_lsh : en_rsh, ep1, ep2);
+            /*
+             * SAS/C F.3.5: signed >> is arithmetic.  Unsigned >> must be
+             * logical (LS); signedflag selects ASR vs LSR in GenCode.
+             */
+            if (!oper) {
+                if (tp1->type == bt_unsigned || tp1->type == bt_uchar
+                    || tp1->type == bt_ushort || tp1->type == bt_ulong
+                    || tp1->type == bt_ulonglong)
+                    ep1->signedflag = 0;
+                else
+                    ep1->signedflag = 1;
+            }
             ep1->constflag = ep1->v.p[0]->constflag &&
                 ep1->v.p[1]->constflag;
         }
@@ -1777,7 +1808,7 @@ asnop(node)
             else if (is_bf_lvalue(ep1) && op == en_assign && op2 == en_void) {
                 if (is_bf_lvalue(ep2))
                     ep2 = bf_rvalue(ep2);
-                /* Convert RHS only — LHS carries bitfield pos/width markers. */
+                /* Convert RHS only - LHS carries bitfield pos/width markers. */
                 forcefit(NULL, &stdint, &ep2, tp2);
                 ep1 = bf_assign(ep1, ep2);
             }
@@ -1790,6 +1821,16 @@ asnop(node)
                 if (op2 == en_void) {
                     tp1 = asforcefit(&ep1, tp1, &ep2, tp2);
                     ep1 = makenode(op, ep1, ep2);
+                    if (op == en_asrsh) {
+                        if (tp1->type == bt_unsigned
+                            || tp1->type == bt_uchar
+                            || tp1->type == bt_ushort
+                            || tp1->type == bt_ulong
+                            || tp1->type == bt_ulonglong)
+                            ep1->signedflag = 0;
+                        else
+                            ep1->signedflag = 1;
+                    }
                 }
                 else {
                     tp1 = asforcefit(&ep1, tp1, &ep2, tp2);

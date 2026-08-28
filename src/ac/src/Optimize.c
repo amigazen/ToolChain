@@ -110,7 +110,11 @@ icons_fold_dooper(node)
         r = ep->v.p[0]->v.i << ep->v.p[1]->v.i;
         break;
     case en_rsh:
-        r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
+        if (ep->signedflag == 0)
+            r = (long) ((unsigned long) ep->v.p[0]->v.i
+                >> (int) ep->v.p[1]->v.i);
+        else
+            r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
         break;
     case en_and:
         r = ep->v.p[0]->v.i & ep->v.p[1]->v.i;
@@ -183,7 +187,7 @@ fetchdouble(node, result)
     if (result == NULL)
         return (0);
 
-    /* No "0.0" literal — two long stores (IEEE +0.0). */
+    /* No "0.0" literal - two long stores (IEEE +0.0). */
     rp = (long *) (void *) result;
     rp[0] = 0;
     rp[1] = 0;
@@ -202,7 +206,7 @@ fetchdouble(node, result)
 }
 
 /*
- * IEEE bit tests for 0 / 1 identities in opt0 — avoids emitting soft-float
+ * IEEE bit tests for 0 / 1 identities in opt0 - avoids emitting soft-float
  * compares for `d == 0.0` / `d == 1.0` when folding trees.
  */
 static int
@@ -324,7 +328,11 @@ dooper(node)
         {
             long r;
 
-            r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
+            if (ep->signedflag == 0)
+                r = (long) ((unsigned long) ep->v.p[0]->v.i
+                    >> (int) ep->v.p[1]->v.i);
+            else
+                r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
             if (!icon_fold_result(r))
                 break;
             ep->nodetype = en_icon;
@@ -495,7 +503,7 @@ ref_double(node)
     ep = node->v.p[0];
     if (ep->nodetype != en_fcon) {
         dptr = (double *) remlit(ep->v.p[0]->v.i);
-        /* Copy IEEE bits — no soft-float load/store. */
+        /* Copy IEEE bits - no soft-float load/store. */
         ((long *) (void *) &ep->v.f)[0] = ((long *) (void *) dptr)[0];
         ((long *) (void *) &ep->v.f)[1] = ((long *) (void *) dptr)[1];
         ep->nodetype = en_fcon;
@@ -577,6 +585,12 @@ opt0(node)
     case en_cwl:
     case en_cfd:
     case en_cdf:
+    case en_cbll:
+    case en_cwll:
+    case en_clll:
+    case en_cull:
+    case en_llcl:
+    case en_llcul:
 
     case en_info:
         opt0(&((*node)->v.p[0]));
@@ -858,7 +872,7 @@ opt0(node)
         opt0(&(ep->v.p[0]));
         opt0(&(ep->v.p[1]));
         if (fetchdouble(ep->v.p[0], &dval)) {
-            if (dbl_is_pm0(&dval)) {    /* 0 - X → -X */
+            if (dbl_is_pm0(&dval)) {    /* 0 - X -> -X */
                 (void) remlit(ep->v.p[0]->v.p[0]->v.i);
                 (*node)->v.p[0] = (*node)->v.p[1];
                 (*node)->v.p[1] = NULL;
@@ -1064,13 +1078,13 @@ opt4(node)
 /*
  * apply all constant optimizations.
  *
- * Skip when Options.Optimize is off (ac-self -n self-host).  opt0() still ran
- * unconditionally here and folded address arithmetic into out-of-range en_icon
- * values (393216, -65540, etc.) even though opt1/CSE was already disabled.
+ * Skip when Optimize is off (-n).  Use OPT_REF: named Options.Optimize can
+ * collapse to (Options+0) under ac-self, but keep the same field.  #if
+ * evaluation does not use opt4 - see intexpr() which always calls opt0.
  */
     struct enode  **node;
 {
-    if (!Options.Optimize)
+    if (!OPT_REF(OPT_OFF_Optimize))
         return;
     opt0(node);
     fold_const(node);

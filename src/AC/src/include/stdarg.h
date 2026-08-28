@@ -1,20 +1,10 @@
 /*
- * Libraries and headers for PDC release 3.3 (C) 1989 Lionel Hummel.
- * PDC Software Distribution (C) 1989 Lionel Hummel and Paul Petersen.
- * PDC I/O Library (C) 1987 by J.A. Lydiatt.
+ * stdarg.h - ANSI C variable argument macros (Amiga big-endian m68k)
  *
- * This code is freely redistributable upon the conditions that this 
- * notice remains intact and that modified versions of this file not
- * be included as part of the PDC Software Distribution without the
- * express consent of the copyright holders.  No warrantee of any
- * kind is provided with this code.  For further information, contact:
- *
- *  PDC Software Distribution    Internet:                     BIX:
- *  P.O. Box 4006             or hummel@cs.uiuc.edu            lhummel
- *  Urbana, IL  61801-8801       petersen@uicsrd.csrd.uiuc.edu
+ * Arguments occupy 4-byte (or 8-byte for double/long double) stack slots.
+ * Narrow types sit at the high-address end of the slot (SAS/C / AC ABI).
+ * va_arg promotes: use int for char/short, double for float.
  */
-
-/* stdarg.h - ANSI C variable argument macros */
 
 #ifndef STDARG_H
 #define STDARG_H
@@ -23,9 +13,26 @@
 
 typedef char *va_list;
 
-#define va_start(ap, parmN) ((ap) = (char *)&(parmN) + sizeof(parmN))
-#define va_arg(ap, type)    (*(type *)((ap) += sizeof(type), (ap) - sizeof(type)))
+/* Round size up to a 4-byte stack slot. */
+#define __VA_SIZE(type) \
+    ((sizeof(type) + 3U) & ~3U)
+
+/*
+ * Point ap at the first anonymous argument: align past the end of last.
+ * Works when last is a char/short sitting at +2/+3 in a 4-byte slot.
+ */
+#define va_start(ap, last) \
+    ((void)((ap) = (char *)((((unsigned long)(char *)&(last)) \
+        + sizeof(last) + 3UL) & ~(unsigned long)3)))
+
+/*
+ * Fetch type from the current slot, then advance.  Read at the high end
+ * of the aligned slot so big-endian layout matches named parameters.
+ */
+#define va_arg(ap, type) \
+    (*(type *)(((ap) += (int)__VA_SIZE(type)), \
+        (ap) - (int)sizeof(type)))
+
 #define va_end(ap)          ((void)0)
 
 #endif /* STDARG_H */
-

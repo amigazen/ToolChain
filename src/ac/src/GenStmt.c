@@ -726,7 +726,7 @@ genreturn(stmt)
             make_legal(ap, F_FREG, 8);
             /*
              * Amiga soft-float return: hi/lo in D0:D1.  make_legal may
-             * leave a memory EA after parking Fl2d/.FD* results — reload.
+             * leave a memory EA after parking Fl2d/.FD* results - reload.
              */
             if (ap != NULL && ap->mode != am_freg) {
                 gen_code(op_move, 4, ap, makedreg((enum e_am) 0));
@@ -891,7 +891,7 @@ genfunc(stmt)
     }
 
     /*
-     * Placeholder displacement — patched below once lc_auto is final.
+     * Placeholder displacement - patched below once lc_auto is final.
      * A forward en_labcon/#EQU was fragile: soft-float codegen for
      * double-returning functions could leave putconst with a dead
      * offset and emit the illegal "link A5,#" (seen on floatexpr).

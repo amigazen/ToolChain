@@ -57,12 +57,12 @@ extern struct amode push[], pop[];
  * Soft-float routines leave the double result in D0:D1.  Parking that
  * pair in a fresh frame slot (and returning a memory amode) avoids
  * temp_float(): allocating an freg after FD* often gen_push-es a stale
- * D0 as sr_data — seen as move.l D0,-(A7) in getfrac, which locked the
+ * D0 as sr_data - seen as move.l D0,-(A7) in getfrac, which locked the
  * Amiga when ac-self compiled a file containing 1.0.
  */
 /*
- * Soft-float D0:D1 → fresh frame slot.  Also used by make_legal(F_FREG)
- * so integer→double conversions do not share one float_auto cell.
+ * Soft-float D0:D1 -> fresh frame slot.  Also used by make_legal(F_FREG)
+ * so integer->double conversions do not share one float_auto cell.
  */
 struct amode   *
 float_result_mem()
@@ -174,7 +174,7 @@ gen_fsconvert(node, flags, size)
         return (ap2);
     case en_cfl:
         /*
-         * float→long.  Prefer .Fs2d then .Fd2l: shipped math.lib
+         * float->long.  Prefer .Fs2d then .Fd2l: shipped math.lib
          * mis-XDEFs the .Fs2l stub as .Fd2l, so .Fs2l never links.
          */
         PdcFlags |= PDC_IEEESINGLE | PDC_IEEEDOUBLE;
@@ -187,7 +187,7 @@ gen_fsconvert(node, flags, size)
 
     }
 
-    /* Fl2d / Fs2d → D0:D1; park in memory (see float_result_mem). */
+    /* Fl2d / Fs2d -> D0:D1; park in memory (see float_result_mem). */
     return float_result_mem();
 }
 
@@ -484,8 +484,8 @@ gen_fbinary(node, flags, size, op)
  *
  * Amiga soft-float ABI: left in D0:D1, right addressed by A0, result in D0:D1.
  * Always park the right-hand double in a frame temp and load the left into
- * D0:D1 — the old freg/push shuffle left unbalanced -(A7) in getfrac
- * (gen-1 partially recovered; gen-2 leaked 8–12 bytes per digit).
+ * D0:D1 - the old freg/push shuffle left unbalanced -(A7) in getfrac
+ * (gen-1 partially recovered; gen-2 leaked 8-12 bytes per digit).
  */
     struct enode   *node;
     int             flags, size;
@@ -504,8 +504,8 @@ gen_fbinary(node, flags, size, op)
     size = 8;
 
     /*
-     * Right operand → memory EA.  Use size 8 with F_MEM so gen_deref does
-     * not call do_extend(8→4), which used to emit move.f into An.
+     * Right operand -> memory EA.  Use size 8 with F_MEM so gen_deref does
+     * not call do_extend(8->4), which used to emit move.f into An.
      */
     if (node->v.p[1]->nodetype == en_d_ref) {
         ap2 = gen_expr(node->v.p[1], F_MEM | F_IMMED, 8);
@@ -518,7 +518,7 @@ gen_fbinary(node, flags, size, op)
     if (ap2 != NULL && ap2->mode == am_freg)
         ap2 = check_float(ap2);
 
-    /* Left operand → memory EA, then load into D0:D1 below. */
+    /* Left operand -> memory EA, then load into D0:D1 below. */
     if (node->v.p[0]->nodetype == en_d_ref) {
         ap1 = gen_expr(node->v.p[0], F_MEM | F_IMMED, 8);
         make_legal(ap1, F_MEM | F_IMMED, 8);
@@ -546,7 +546,7 @@ gen_fbinary(node, flags, size, op)
 
     /*
      * Soft-float ABI: A0 must address the 8-byte right operand.
-     * Loading the left from 8(A0) leaves A0 as the struct base — lea
+     * Loading the left from 8(A0) leaves A0 as the struct base - lea
      * before .FD* so A0 becomes &double (was the Optimize.c crash).
      * am_areg / am_ind / 0(A0) already hold &double.
      *
@@ -625,10 +625,10 @@ gen_fsaincdec(node, flags, size, op)
 
 /*
  * float postfix ++/-- (en_faincs).  Soft-float single: left in D0, right in
- * D1, .FSadd/.FSsub → D0.  Must store the new value back through the lvalue
+ * D1, .FSadd/.FSsub -> D0.  Must store the new value back through the lvalue
  * and return the old float (same contract as gen_faincdec for doubles).
  * The old gen_fsaincdec only computed FSadd into a temp and never wrote
- * memory — so f++ left f unchanged.
+ * memory - so f++ left f unchanged.
  */
     struct enode   *node;
     int             flags, size;
@@ -650,7 +650,7 @@ gen_fsaincdec(node, flags, size, op)
     ap2 = gen_expr(node->v.p[1], F_DREG | F_IMMED, size);
     make_legal(ap2, F_DREG | F_IMMED, size);
 
-    /* Lvalue as memory — need an address we can store through. */
+    /* Lvalue as memory - need an address we can store through. */
     ap1 = gen_expr(node->v.p[0], flags, size);
     make_legal(ap1, flags, size);
 
@@ -734,7 +734,7 @@ gen_faincdec(node, flags, size, op)
     flags = F_MEM | F_IMMED;
     size = 8;
 
-    /* size 8: avoid do_extend(8→4) → move.f into An (see gen_fbinary). */
+    /* size 8: avoid do_extend(8->4) -> move.f into An (see gen_fbinary). */
     ap2 = gen_expr(node->v.p[1], flags, 8);
     make_legal(ap2, flags, 8);
 
@@ -755,7 +755,7 @@ gen_faincdec(node, flags, size, op)
     /*
      * Postfix ++/-- returns the old value: save D0:D1 on the stack
      * before .FD*, then pop after storing the new value into *ap3.
-     * Do not call temp_float() between push and pop — it can push D0
+     * Do not call temp_float() between push and pop - it can push D0
      * and steal the saved pair (stack desync / hang).
      */
     gen_code(op_move, 4, makedreg((enum e_am) 0), push);

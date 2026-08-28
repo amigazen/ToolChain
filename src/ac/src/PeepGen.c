@@ -104,14 +104,14 @@ gen_code(op, len, ap1, ap2)
 
     /*
      * A68k has no .f size (PDC-ism).  Any 64-bit move must be two .l
-     * transfers — same model SAS/C uses.  An/Dn cannot hold 8 bytes;
+     * transfers - same model SAS/C uses.  An/Dn cannot hold 8 bytes;
      * make_legal must not request that, but split here as a backstop.
      */
     if (op == op_move && len == 8 && ap1 != NULL && ap2 != NULL) {
         if (ap2->mode == am_areg
             && ap1->mode != am_areg && ap1->mode != am_dreg
             && ap1->mode != am_immed && ap1->mode != am_freg) {
-            /* Memory EA → An: address of the 64-bit object. */
+            /* Memory EA -> An: address of the 64-bit object. */
             gen_code(op_lea, 0, ap1, ap2);
             return;
         }
@@ -177,7 +177,7 @@ flush_peep()
     /*
      * Push-safe frameless leaves: drop link/unlk and retarget params
      * to A7 only when the body never changes SP (no jsr/bsr/pea/-(A7)
-     * except prologue/epilogue movem). Must run after opt3 — peep_move
+     * except prologue/epilogue movem). Must run after opt3 - peep_move
      * can turn stack moves into pea.
      */
     if (Options.Optimize)
@@ -200,7 +200,7 @@ flush_peep()
 
 /*
  * Push-safe frameless leaf: omit link/unlk when params can live at A7.
- * Unsafe if the body pushes (calls, pea, -(A7)) — A5 stays fixed across
+ * Unsafe if the body pushes (calls, pea, -(A7)) - A5 stays fixed across
  * those, A7 does not.  Earlier unrestricted omit broke ac-self2.
  */
 static int
@@ -329,7 +329,7 @@ opt_omit_frame()
         if (p->opcode == op_label || p->opcode == op_comment)
             continue;
         /*
-         * jsr/bsr push a return address — SP-relative params would move.
+         * jsr/bsr push a return address - SP-relative params would move.
          * Even a zero-arg call is unsafe without a frame pointer.
          */
         if (p->opcode == op_jsr || p->opcode == op_bsr)
@@ -404,12 +404,12 @@ peep_move(ip)
     struct enode   *ep;
 
     /*
-     * move.l <ea>,Dn ; move.l Dn,An  →  move.l <ea>,An
-     * move.l <ea>,Dn ; move.l Dn,Dm  →  move.l <ea>,Dm  (Dn scratch)
-     * Common make_legal / temp_data shuffle; saves 2–4 bytes each.
+     * move.l <ea>,Dn ; move.l Dn,An  ->  move.l <ea>,An
+     * move.l <ea>,Dn ; move.l Dn,Dm  ->  move.l <ea>,Dm  (Dn scratch)
+     * Common make_legal / temp_data shuffle; saves 2-4 bytes each.
      */
     /*
-     * Only fold when Dn is scratch (D0–D1).  Folding a live D2–D7 into
+     * Only fold when Dn is scratch (D0-D1).  Folding a live D2-D7 into
      * move <ea>,An drops the Dn value and corrupts later uses.
      */
     if (ip->length == 4
@@ -425,7 +425,7 @@ peep_move(ip)
             || ip->fwd->oper2->mode == am_dreg)) {
         ip->oper2 = ip->fwd->oper2;
         peep_delete(ip->fwd);
-        /* Fall through — may become moveq / lea on the folded insn. */
+        /* Fall through - may become moveq / lea on the folded insn. */
     }
 
     if (ip->oper1 == NULL || ip->oper2 == NULL)
@@ -504,7 +504,7 @@ peep_move(ip)
             ip->opcode = op_lea;
             ip->length = 0;
             /*
-             * move.l #autocon,An → lea n(Fp),An.  Using am_direct left
+             * move.l #autocon,An -> lea n(Fp),An.  Using am_direct left
              * putconst to print n(A5); am_indx is the real form and avoids
              * a later lea of a stripped amode becoming "lea ,A0".
              */
@@ -553,7 +553,7 @@ peep_move(ip)
     }
     if (ip->oper2->mode == am_areg) {
         /*
-         * move #0,An → sub.l An,An (2 bytes) instead of move.l #0,An.
+         * move #0,An -> sub.l An,An (2 bytes) instead of move.l #0,An.
          */
         if (ep->v.i == 0) {
             ip->opcode = op_sub;
@@ -576,7 +576,7 @@ peep_move(ip)
                 }
             }
             /*
-             * moveq #n,Dn ; move.l Dn,<ea> → fold when Dn is scratch.
+             * moveq #n,Dn ; move.l Dn,<ea> -> fold when Dn is scratch.
              * Covers the common moveq #0,D0 / move.l D0,An pattern.
              */
             if (ip->fwd != NULL && ip->fwd->opcode == op_move

@@ -38,12 +38,12 @@
 #   make report-ac             list bootstrap/ac/*.s
 #   make report-self           list bootstrap/self/*.s
 #
-# Demo regression suite (/demo):
+# Unit test suite (src/unittest/):
 #
 #   make demo-self2 / demo-run-self2   DejaGnu ac_tests + compile smokes
-#   Run:  demo-out/ac-self2/ac_tests
-#   make demo-ac / demo-self / demo
-#   make clean-demo
+#   Run:  unittest-out/ac-self2/ac_tests
+#   make demo-ac / demo-self / demo   (aliases: unittest-*)
+#   make clean-demo / clean-unittest
 #
 # Toolchain (github/TCC/SDK):
 #
@@ -130,6 +130,7 @@ CSOURCES = \
 	PeepGen.c \
 	PreComp.c \
 	PreProc.c \
+	PpToken.c \
 	Register.c \
 	SearchKW.c \
 	Stmt.c \
@@ -160,6 +161,7 @@ LINKMODULES = \
 	MemMgt \
 	PreComp \
 	PreProc \
+	PpToken \
 	Decl \
 	GetSym \
 	Symbol \
@@ -182,7 +184,7 @@ LINKLOG_SELF   = $(OUTDIR_SELF)/link.log
 	bootstrap bootstrap-ac bootstrap-self \
 	assemble assemble-ac assemble-self \
 	force-assemble-ac force-assemble-self \
-	force-bootstrap-self \
+	force-bootstrap-self force-selfhost-ac \
 	link link-ac link-self \
 	selfhost selfhost-ac selfhost-self \
 	cclib-crt \
@@ -213,10 +215,12 @@ help:
 	@echo "    make report-ac       list $(OUTDIR_AC)/*.s"
 	@echo ""
 	@echo "  ac-self (gen-2) -> $(BIN_SELF):"
+	@echo "    make force-selfhost-ac    wipe gen-1 .s/.o and rebuild $(BIN_AC)"
 	@echo "    make selfhost-ac         after smake if ./ac changed"
 	@echo "    make selfhost-self       gen-2 only (needs $(BIN_AC); no gen-1)"
 	@echo "    make force-bootstrap-self  rebuild all gen-2 .s after codegen fix"
 	@echo "    make bootstrap-self      $(ACSELF_CC) -> $(OUTDIR_SELF)/*.s"
+	@echo "    NDK types.h #if defined() fails => stale ac-self; force-selfhost-ac first"
 	@echo "    make assemble-self       A68k -> $(OUTDIR_SELF)/*.o"
 	@echo "    make link-self           $(LINKER) -> $(BIN_SELF)"
 	@echo "    make report-self         list $(OUTDIR_SELF)/*.s"
@@ -229,12 +233,12 @@ help:
 	@echo "    make install-cc          copy $(BIN_SELF) -> cc (gcc-style CLI)"
 	@echo "    Verbose: -a annotate asm, -l listing; -q quiet (no -v flag)"
 	@echo ""
-	@echo "  Demo regression (DejaGnu/GCC .sum output via ac_tests):"
+	@echo "  Unit tests (DejaGnu/GCC .sum via ac_tests; sources in unittest/):"
 	@echo "    make demo-self2          compile smokes + link ac_tests"
 	@echo "    make demo-run-self2       build and run the suite"
 	@echo "    make demo-cli-self2       exercise AC command-line options"
-	@echo "    Run:  demo-out/ac-self2/ac_tests"
-	@echo "    make demo-ac / demo-self / demo"
+	@echo "    Run:  unittest-out/ac-self2/ac_tests"
+	@echo "    make demo-ac / demo-self / demo  (or unittest-*)"
 	@echo "    make demo-fail-self2      expect static_assert reject"
 	@echo "    make clean-demo"
 	@echo ""
@@ -256,8 +260,18 @@ bootstrap-ac: $(ASSEMBLY_AC)
 
 # Gen-2 compile only.  Does NOT run selfhost-ac (that was forcing a full
 # gen-1 rebuild on every selfhost-self).  Requires $(BIN_AC) already built.
+# If NDK include:exec/types.h dies on defined()/__STDC_VERSION__, ac-self is
+# stale -- run: make force-selfhost-ac && make force-bootstrap-self
 bootstrap-self: $(ASSEMBLY_SELF)
 	@echo "--- $(ACSELF_CC) bootstrap assembly complete -> $(OUTDIR_SELF) ---"
+
+# Wipe gen-1 assembly/objects and relink ac-self from current ./ac + sources.
+# Use after PreProc/IntExpr/GetSym fixes (NDK #if defined() / UTF-8).
+force-selfhost-ac:
+	-delete $(OUTDIR_AC)/#?.s ALL QUIET
+	-delete $(OUTDIR_AC)/#?.o ALL QUIET
+	-delete $(BIN_AC) QUIET
+	$(MAKE) selfhost-ac
 
 # Gen-1: recompile if .c or ./ac is newer (SAS/C bootstrap binary changed).
 $(OUTDIR_AC)/%.s: %.c ./ac
@@ -375,7 +389,9 @@ $(BIN_SELF): $(LINKWITH_SELF)
 selfhost-ac: cclib-crt bootstrap-ac assemble-ac link-ac
 	@echo "--- $(BIN_AC) linked with cclib CRT ---"
 
-# Gen-2 only.  Run make selfhost-ac first when ./ac (smake) changed.
+# Gen-2 only.  Run make selfhost-ac (or force-selfhost-ac) first when ./ac
+# or PreProc.c / IntExpr.c / GetSym.c changed.  Stale ac-self fails on
+# include:exec/types.h (#if ... defined(AMIGA_STDC_C99)).
 # Does not depend on $(BIN_AC) as a make target (that pulled gen-1 back in).
 # CRT objs are still prerequisites of the link via $(LINKWITH_SELF).
 selfhost-self: bootstrap-self assemble-self link-self
@@ -383,7 +399,11 @@ selfhost-self: bootstrap-self assemble-self link-self
 	@echo "Verify offsets first: bootstrap/self/Cmain.s must use 12(A0) not (A0)"
 
 # --- ac-self2 smoke test (minimal first; does not rebuild ac-self2) ---
-# After compiler fixes: smake && make selfhost-ac && make selfhost-self
+# After compiler fixes:
+#   smake -f smakefile all
+#   make force-selfhost-ac
+#   make force-bootstrap-self
+#   make selfhost-self
 # then: make hello-dos / make demo-self2
 #
 # Phony target name differs from $(HELLO_BIN) so make does not see two recipes
@@ -424,17 +444,18 @@ $(HELLO_BIN): $(HELLO_WITH)
 	@echo "--- link log ($(HELLO_BIN)) ---"
 	- type $(HELLO_LOG)
 
-# --- demo regression suite ---
-# Sources: /demo (Amiga parent).  Output: demo-out/<compiler>/
+# --- unit test / regression suite ---
+# Sources: unittest/ (under src/).  Output: unittest-out/<compiler>/
 #
 #   make demo-self2     compile-check each test_*.c + link ac_tests (DejaGnu)
-#   demo-out/ac-self2/ac_tests
+#   unittest-out/ac-self2/ac_tests
 #
 # ac_tests prints GCC/DejaGnu-style PASS/FAIL + Summary (compiler .sum format).
-DEMO_DIR       = /demo
-DEMO_OUT_AC    = demo-out/ac
-DEMO_OUT_SELF  = demo-out/ac-self
-DEMO_OUT_SELF2 = demo-out/ac-self2
+# demo-* target names kept as aliases for unittest-*.
+DEMO_DIR       = unittest
+DEMO_OUT_AC    = unittest-out/ac
+DEMO_OUT_SELF  = unittest-out/ac-self
+DEMO_OUT_SELF2 = unittest-out/ac-self2
 
 # Compile-only language smokes (must produce .s; not linked).
 DEMO_COMPILE = \
@@ -458,12 +479,19 @@ DEMO_COMPILE = \
 	test_c89_decl_edge \
 	test_c89_pp_expr \
 	test_c89_sizeof \
+	test_c89_include_order \
 	test_c99_varargs_macro \
 	test_c99_longlong \
 	test_c99_bool \
 	test_c99_inline_restrict \
 	test_c99_pp \
-	test_sasc_compiler_specific
+	test_sasc_compiler_specific \
+	test_calling_conventions \
+	test_sasc_pragmas \
+	test_memory_sections \
+	test_interrupt \
+	test_c23_types \
+	test_saveds
 
 # Runnable DejaGnu suite.
 DEMO_SUITE = ac_tests
@@ -473,38 +501,38 @@ DEMO_ASM_SELF  = $(DEMO_COMPILE:%=$(DEMO_OUT_SELF)/%.s)
 DEMO_ASM_SELF2 = $(DEMO_COMPILE:%=$(DEMO_OUT_SELF2)/%.s)
 
 $(DEMO_OUT_AC)/%.s: $(DEMO_DIR)/%.c
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_AC)
 	@echo "  $(ACC) $<"
 	$(ACC) $(ACFLAGS) -q -c -o $@ $<
 
 # SAS/C COMMENTNEST requires -Wcommentnest (default comments stay C89).
 $(DEMO_OUT_AC)/test_comment_nest.s: $(DEMO_DIR)/test_comment_nest.c
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_AC)
 	@echo "  $(ACC) -Wcommentnest $<"
 	$(ACC) $(ACFLAGS) -Wcommentnest -q -c -o $@ $<
 
 $(DEMO_OUT_SELF)/%.s: $(DEMO_DIR)/%.c
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_SELF)
 	@echo "  $(ACSELF_CC) $<"
 	$(ACSELF_CC) $(ACFLAGS) -q -c -o $@ $<
 
 $(DEMO_OUT_SELF)/test_comment_nest.s: $(DEMO_DIR)/test_comment_nest.c
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_SELF)
 	@echo "  $(ACSELF_CC) -Wcommentnest $<"
 	$(ACSELF_CC) $(ACFLAGS) -Wcommentnest -q -c -o $@ $<
 
 $(DEMO_OUT_SELF2)/%.s: $(DEMO_DIR)/%.c
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_SELF2)
 	@echo "  $(BIN_SELF) $<"
 	$(BIN_SELF) $(ACFLAGS) -q -c -o $@ $<
 
 $(DEMO_OUT_SELF2)/test_comment_nest.s: $(DEMO_DIR)/test_comment_nest.c
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_SELF2)
 	@echo "  $(BIN_SELF) -Wcommentnest $<"
 	$(BIN_SELF) $(ACFLAGS) -Wcommentnest -q -c -o $@ $<
@@ -555,16 +583,21 @@ $(DEMO_OUT_SELF2)/$(DEMO_SUITE): $(DEMO_OUT_SELF2)/$(DEMO_SUITE).o $(CRT_OBJS_BA
 	- type $@.blink.log
 
 demo-ac: cclib-crt $(DEMO_ASM_AC) $(DEMO_OUT_AC)/$(DEMO_SUITE) demo-cli-ac
-	@echo "--- demo-ac OK; run $(DEMO_OUT_AC)/$(DEMO_SUITE) ---"
+	@echo "--- unittest-ac OK; run $(DEMO_OUT_AC)/$(DEMO_SUITE) ---"
 
 demo-self: cclib-crt $(DEMO_ASM_SELF) $(DEMO_OUT_SELF)/$(DEMO_SUITE) demo-cli-self
-	@echo "--- demo-self OK; run $(DEMO_OUT_SELF)/$(DEMO_SUITE) ---"
+	@echo "--- unittest-self OK; run $(DEMO_OUT_SELF)/$(DEMO_SUITE) ---"
 
 demo-self2: cclib-crt $(DEMO_ASM_SELF2) $(DEMO_OUT_SELF2)/$(DEMO_SUITE) demo-cli-self2
-	@echo "--- demo-self2 OK; run $(DEMO_OUT_SELF2)/$(DEMO_SUITE) ---"
+	@echo "--- unittest-self2 OK; run $(DEMO_OUT_SELF2)/$(DEMO_SUITE) ---"
 
 demo: demo-ac demo-self demo-self2
-	@echo "--- demo suite built for $(ACC), $(ACSELF_CC), $(BIN_SELF) ---"
+	@echo "--- unittest suite built for $(ACC), $(ACSELF_CC), $(BIN_SELF) ---"
+
+unittest-ac: demo-ac
+unittest-self: demo-self
+unittest-self2: demo-self2
+unittest: demo
 
 demo-run-ac: demo-ac
 	$(DEMO_OUT_AC)/$(DEMO_SUITE)
@@ -575,7 +608,7 @@ demo-run-self: demo-self
 demo-run-self2: demo-self2
 	$(DEMO_OUT_SELF2)/$(DEMO_SUITE)
 
-# --- AC command-line option smoke (see /demo/cli_opts.txt) ---
+# --- AC command-line option smoke (see unittest/cli_opts.txt) ---
 CLI_PROBE   = $(DEMO_DIR)/cli_probe.c
 CLI_MIN     = $(DEMO_DIR)/cli_min.c
 CLI_INCDIR  = $(DEMO_DIR)/cli_inc
@@ -593,11 +626,16 @@ demo-cli-self2: CLI_DIR=$(DEMO_OUT_SELF2)/cli
 demo-cli-self2: demo-cli-body
 
 demo-cli: demo-cli-ac demo-cli-self demo-cli-self2
-	@echo "--- demo-cli OK for $(ACC), $(ACSELF_CC), $(BIN_SELF) ---"
+	@echo "--- unittest-cli OK for $(ACC), $(ACSELF_CC), $(BIN_SELF) ---"
+
+unittest-cli-ac: demo-cli-ac
+unittest-cli-self: demo-cli-self
+unittest-cli-self2: demo-cli-self2
+unittest-cli: demo-cli
 
 demo-cli-body:
 	@echo "--- CLI option smoke with $(CLI_CC) -> $(CLI_DIR) ---"
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(CLI_DIR)
 	@echo "  -c -o -q -D -I"
 	$(CLI_CC) -q -c -o $(CLI_DIR)/probe.s -DCLI_MUST_BE_SET=42 -I$(CLI_INCDIR) $(CLI_PROBE)
@@ -637,27 +675,32 @@ demo-compile-self2: $(DEMO_ASM_SELF2)
 	@echo "--- demo-compile-self2 OK ---"
 
 demo-fail-ac:
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_AC)
 	-delete $(DEMO_OUT_AC)/test_static_assert_fail.s QUIET
 	-$(ACC) $(ACFLAGS) -q -c -o $(DEMO_OUT_AC)/test_static_assert_fail.s $(DEMO_DIR)/test_static_assert_fail.c
 	@echo "--- expect-fail $(ACC): confirm static_assert error above ---"
 
 demo-fail-self:
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_SELF)
 	-delete $(DEMO_OUT_SELF)/test_static_assert_fail.s QUIET
 	-$(ACSELF_CC) $(ACFLAGS) -q -c -o $(DEMO_OUT_SELF)/test_static_assert_fail.s $(DEMO_DIR)/test_static_assert_fail.c
 	@echo "--- expect-fail $(ACSELF_CC): confirm static_assert error above ---"
 
 demo-fail-self2:
-	-makedir demo-out
+	-makedir unittest-out
 	-makedir $(DEMO_OUT_SELF2)
 	-delete $(DEMO_OUT_SELF2)/test_static_assert_fail.s QUIET
 	-$(BIN_SELF) $(ACFLAGS) -q -c -o $(DEMO_OUT_SELF2)/test_static_assert_fail.s $(DEMO_DIR)/test_static_assert_fail.c
 	@echo "--- expect-fail $(BIN_SELF): confirm static_assert error above ---"
 
-clean-demo:
+unittest-fail-ac: demo-fail-ac
+unittest-fail-self: demo-fail-self
+unittest-fail-self2: demo-fail-self2
+
+clean-demo clean-unittest:
+	-delete unittest-out ALL QUIET
 	-delete demo-out ALL QUIET
 
 report-ac: bootstrap-ac

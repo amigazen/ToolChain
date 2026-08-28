@@ -136,7 +136,7 @@ typesize_mul(count, elemsize)
      * Incomplete types have tp->size == -1 while a tag is being defined.
      * Skip the scale when the element size is not yet known.
      *
-     * Product via u16_product() — never calls ac.lib .lmuls at runtime.
+     * Product via u16_product() - never calls ac.lib .lmuls at runtime.
      * Unpoison (e_sc<<16)|n via ICON16L.  Do NOT invent elemsize==4 when
      * the low half is 0: that turned unsigned char chstack[20] into
      * DS.b 80 under ac-self (self/GetSym.s).  Callers must pass
@@ -179,7 +179,7 @@ type_size(tp)
         return 0;
 
     t = (int) tp->type;
-    /* Real pointers only — sized arrays keep val_flag != 0 (see declare()). */
+    /* Real pointers only - sized arrays keep val_flag != 0 (see declare()). */
     if (t == bt_pointer && tp->val_flag == 0)
         return 4;
 
@@ -190,8 +190,9 @@ type_size(tp)
         return 1;
     case bt_short:
     case bt_ushort:
-    case bt_enum:
         return 2;
+    case bt_enum:
+        return 4;   /* SAS F.3.9: enumeration type is int */
     case bt_long:
     case bt_unsigned:
     case bt_ulong:
@@ -212,7 +213,7 @@ type_size(tp)
     /*
      * Sized array: tp->size should be count*elemsize.  When typesize_mul
      * (or an older compiler) left a bare count (e.g. 10 for int *[10]),
-     * recompute from the element type — modulo mismatch is the signal.
+     * recompute from the element type - modulo mismatch is the signal.
      */
     if (t == bt_pointer && tp->val_flag != 0 && tp->btp != NULL) {
         esz = type_size(tp->btp);
@@ -236,7 +237,7 @@ type_size(tp)
 
     sz = (long) tp->size;
     /*
-     * Unpoison (e_sc<<16)|n.  Do not use a 65535 literal — 16-bit hosts
+     * Unpoison (e_sc<<16)|n.  Do not use a 65535 literal - 16-bit hosts
      * fold it to -1 so (~65535L)==0 and the mask never strips the high word
      * (that returned 393216 as a pointer stride and broke argv[i]).
      */
@@ -413,7 +414,7 @@ decl_int_specs()
             getsym();
             break;
         case kw_double:
-            /* long double — map to double (8 bytes) on Amiga */
+            /* long double - map to double (8 bytes) on Amiga */
             if (nlong == 1 && !nshort && !saw_char && !saw_int && sign == 0) {
                 head = tail = maketype(bt_double, 8);
                 getsym();
@@ -828,7 +829,7 @@ decl1(void)
             else if (lastst == kw_volatile)
                 temp1->qualifiers |= QUAL_VOLATILE;
             else if (lastst == kw_asm) {
-                /* LONG (* __asm name)(args) — __asm binds to the function. */
+                /* LONG (* __asm name)(args) - __asm binds to the function. */
                 decl_asm_pending = 1;
                 temp1->qualifiers |= QUAL_ASM;
             } else if (lastst == kw_stdargs)
@@ -918,7 +919,7 @@ decl2(void)
             /*
              * ANSI prototype parameter list: void (*f)(long), atexit(void (*)(void)),
              * int foo(int);  Parse now so tokens are not left for needpunc(';').
-             * declproto() clobbers global head/tail/declid — restore the function
+             * declproto() clobbers global head/tail/declid - restore the function
              * type in temp1 afterward so the outer declarator stays consistent.
              */
             {
@@ -944,7 +945,7 @@ decl2(void)
             }
         }
         else
-            /* K&R identifier list — leave tokens for funcbody(). */
+            /* K&R identifier list - leave tokens for funcbody(). */
             temp1->type = bt_ifunc;
         break;
     }
@@ -981,7 +982,7 @@ alignment(TYP *tp)
         a = AL_LONG;  /* 8-byte objects still 2-byte-aligned on 68000 */
         break;
     case bt_enum:
-        a = AL_SHORT;
+        a = AL_LONG;  /* enum is int-sized; even alignment like long */
         break;
     case bt_pointer:
         if (tp->val_flag)
@@ -1013,7 +1014,7 @@ alignment(TYP *tp)
 int
 declare(table, al, ilc, ztype, ral)
     TABLE          *table;
-    int             al;     /* enum e_sc — must be int (see prototype) */
+    int             al;     /* enum e_sc - must be int (see prototype) */
     int             ilc;
     int             ztype;  /* enum e_bt */
     int             ral;    /* enum e_sc */
@@ -1132,6 +1133,8 @@ declare(table, al, ilc, ztype, ral)
                     /* Zero-width: align to next unit boundary. */
                     bf_bits_used = unit_bits;
                 } else {
+                    int             bitpos;
+
                     if (bf_bits_used < 0 || bf_unit_bytes != unit_bytes
                         || bf_bits_used + width > unit_bits) {
                         num = alignment(head);
@@ -1156,6 +1159,15 @@ declare(table, al, ilc, ztype, ral)
                             byte_off = ilc + nbytes - unit_bytes;
                     }
 
+                    /*
+                     * SAS/C F.3.9: allocate bitfields left-to-right in the
+                     * storage unit (MSB first on big-endian m68k).  bitpos
+                     * is the right-shift count to bring the field to bit 0.
+                     */
+                    bitpos = unit_bits - bf_bits_used - width;
+                    if (bitpos < 0)
+                        bitpos = 0;
+
                     if (declid != NULL) {
                         sp = (SYM *) xalloc(SZ_SYM);
                         sp->name = declid;
@@ -1163,8 +1175,7 @@ declare(table, al, ilc, ztype, ral)
                         sp->storage_type = ral;
                         sp->next = NULL;
                         sp->tp = head;
-                        sp->value.i = SYM_BF_ENC(byte_off, bf_bits_used,
-                            width);
+                        sp->value.i = SYM_BF_ENC(byte_off, bitpos, width);
                         insert(sp, table);
 #ifdef  GENERATE_DBX
                         dbx_ident(sp);
@@ -1226,7 +1237,7 @@ declare(table, al, ilc, ztype, ral)
             else if (al != sc_auto)
                 sp->value.i = (long) ilc + (long) nbytes;
             else
-                /* Full 32-bit frame offset; ICON16L truncated past ±32K. */
+                /* Full 32-bit frame offset; ICON16L truncated past +/-32K. */
                 sp->value.i = -(long) ilc - (long) nbytes
                     - (long) type_size(head);
 
@@ -1309,7 +1320,9 @@ declare(table, al, ilc, ztype, ral)
 }
 
 int
-declbegin(TABLE *table, enum e_sym st)
+declbegin(table, st)
+    TABLE          *table;
+    int             st; /* enum e_sym -- int width for ac-self params */
 {
     TYP            *tp;
 
@@ -1336,7 +1349,7 @@ declenum(TABLE *table)
             sp->name = litlate(lastid);
             sp->tp = (TYP *) xalloc(SZ_TYP);
             sp->tp->type = bt_enum;
-            sp->tp->size = 2;
+            sp->tp->size = 4;   /* SAS F.3.9: enumeration values are int */
             sp->tp->lst.head = NULL;
             sp->tp->lst.tail = NULL;
             sp->tp->btp = NULL;
@@ -1363,8 +1376,8 @@ declenum(TABLE *table)
         sp->storage_class = sc_type;
         sp->name = NULL;
         sp->tp = (TYP *) xalloc(SZ_TYP);
-        sp->tp->type = bt_short;
-        sp->tp->size = 2;
+        sp->tp->type = bt_enum;
+        sp->tp->size = 4;   /* anonymous enum also int-sized */
         sp->tp->lst.head = NULL;
         sp->tp->lst.tail = NULL;
         sp->tp->btp = NULL;
@@ -1505,7 +1518,7 @@ declstruct(enum e_bt ztype)
 void
 structbody(tp, ztype)
     TYP            *tp;
-    int             ztype;  /* enum e_bt — must be int (see prototype) */
+    int             ztype;  /* enum e_bt - must be int (see prototype) */
 {
     int             slc;
 
@@ -1584,7 +1597,7 @@ do_static_assert()
 
 void
 dodecl(defclass)
-    int             defclass;   /* enum e_sc — must be int (see prototype) */
+    int             defclass;   /* enum e_sc - must be int (see prototype) */
 {
     TYP            *tp;
 
@@ -1596,7 +1609,7 @@ dodecl(defclass)
             do_static_assert();
             break;
         case kw_alignas:
-            /* Prefix form: alignas(8) int x; — stay in loop for the type. */
+            /* Prefix form: alignas(8) int x; - stay in loop for the type. */
             parse_alignas();
             /*
              * parse_alignas always consumes the alignas token.  If the
@@ -1630,7 +1643,7 @@ dodecl(defclass)
         case kw_const:
         case kw_volatile:
             /*
-             * Type qualifiers, not storage classes — leave the token for
+             * Type qualifiers, not storage classes - leave the token for
              * decl() so QUAL_CONST / QUAL_VOLATILE are applied to the type.
              */
             goto do_decl;
@@ -1824,7 +1837,7 @@ declproto_one:
 
         /*
          * Advance with type_size(), not raw tp->size.  Poisoned size (high
-         * word set / zero) made every parameter share offset 8 — ac-self2
+         * word set / zero) made every parameter share offset 8 - ac-self2
          * then did getopt(argc,argc) and hung on argv[0].
          */
         {

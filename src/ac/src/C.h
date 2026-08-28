@@ -59,8 +59,8 @@ enum e_sym {
 };
 
 /*
- * C23 spellings (and, or, not, compl, …) are lexer keywords for user code.
- * Implementation sources use sym_* names above — do not #define and/or back:
+ * C23 spellings (and, or, not, compl, ...) are lexer keywords for user code.
+ * Implementation sources use sym_* names above - do not #define and/or back:
  * the self-hosted compiler rejects #define on keyword tokens.
  */
 
@@ -99,7 +99,7 @@ struct stab {
 };
 
 struct typ {
-    short       type;       /* enum e_bt — word at 0, int size at 4 (Decl.s) */
+    short       type;       /* enum e_bt - word at 0, int size at 4 (Decl.s) */
     char        val_flag;   /* is it a value type */
     char        _pad_typ;   /* forced alignas (0=none); also pads size to off 4 */
     int         size;
@@ -114,8 +114,8 @@ struct sym {
     struct sym     *next;
     char       *name;
     int         key;
-    short       storage_class;  /* enum e_sc — word in bootstrap/ac/Func.s */
-    short       storage_type;   /* enum e_sc — word in bootstrap/ac/Func.s */
+    short       storage_class;  /* enum e_sc - word in bootstrap/ac/Func.s */
+    short       storage_type;   /* enum e_sc - word in bootstrap/ac/Func.s */
     union {
     long        i;
     unsigned long   u;
@@ -150,7 +150,7 @@ struct sym {
 #define ICON16L(v)  ((long)((short)((unsigned long)(v) & (unsigned long)65535)))
 
 /*
- * ICON16L alone truncates genuine offsets past ±32K (stack frames).
+ * ICON16L alone truncates genuine offsets past +/-32K (stack frames).
  * icon_unpoison() recovers SAS/C (e_sc<<16)|n folds without that truncate.
  * d16_ok() is true when a displacement fits 68000 (d16,An) / link #d.
  */
@@ -172,7 +172,7 @@ extern int      d16_ok(long v);
 #define MEM_NEAR       3
 #define MEM_FAST       4
 
-/* SAS/C __d0..__a6 keyword → internal codes (Decl.c / future call gen). */
+/* SAS/C __d0..__a6 keyword -> internal codes (Decl.c / future call gen). */
 #define ASMREG_NONE    0
 #define ASMREG_D0      1
 #define ASMREG_A0      9
@@ -180,7 +180,7 @@ extern int      d16_ok(long v);
 /*
  * Struct/union bitfield members pack into SYM.value.i (byte offset + bit
  * position + width).  High bit marks a bitfield; non-bitfield members keep
- * a plain byte offset (auto locals may be negative — never set the high bit).
+ * a plain byte offset (auto locals may be negative - never set the high bit).
  */
 #define SYM_IS_BF(v)    (((unsigned long)(v) & 0x80000000UL) != 0UL)
 #define SYM_BF_BYTE(v)  ((int)((unsigned long)(v) & 0xFFFFUL))
@@ -263,7 +263,7 @@ extern TYP *usual_arithmetic_conversions(TYP *tp1, TYP *tp2, struct enode **node
 #endif
 
 /*
- * Internal consistency checks.  Off by default — each DIAG string and
+ * Internal consistency checks.  Off by default - each DIAG string and
  * fprintf call lands in the self-host binary (~3KB+ across GenCode alone).
  * Build with -DAC_DEBUG=1 to keep them.
  *

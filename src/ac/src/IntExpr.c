@@ -37,6 +37,7 @@
 #include        "Cglbdec.h"
 
 extern TYP     *exprnc();
+extern void     opt0();
 extern void    *remlit();
 
 long
@@ -48,8 +49,13 @@ intexpr()
     tp = exprnc(&node);
 
     if (tp != NULL) {
-
-        opt4(&node);
+        /*
+         * Always fold icon trees.  opt4() is skipped when Optimize is off
+         * (-n), but #if must still evaluate (NDK types.h uses
+         * __STDC_VERSION__ >= 199901).  Pure constant exprs have no
+         * address-fold risk that motivated gating opt4.
+         */
+        opt0(&node);
         if (node != NULL && node->nodetype == en_icon)
             return (node->v.i);
     }
