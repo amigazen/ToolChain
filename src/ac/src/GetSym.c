@@ -422,8 +422,21 @@ ac_getline(listflag)
         }
         if (line_has_utf8(lptr))
             warn_utf8_if_needed();
-        if (lptr[0] == '#' && !in_comment)
-            return preprocess();
+        /*
+         * C89/SAS/C: whitespace may precede `#` on a directive line
+         * (NDK devices/newstyle.h uses a leading space before #ifndef).
+         */
+        {
+            unsigned char  *p;
+
+            p = lptr;
+            while (*p == ' ' || *p == '\t')
+                p++;
+            if (*p == '#' && !in_comment) {
+                lptr = p;
+                return preprocess();
+            }
+        }
     } while (prestat == ps_ignore);
     return 0;
 }

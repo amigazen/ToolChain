@@ -98,13 +98,24 @@ struct tagcall {
 /*
  * Fixed 68000 layout for the five-pointer pragma records above.
  * Self-host may collapse C member offsets to 0; always access via these.
+ * On LP64 hosts use native pointer spacing so Mac/Linux AC can parse NDK
+ * `#pragma libcall` / `syscall` / `tagcall` without corrupting the record.
  */
+#if defined(AC_HOST_POSIX)
+#define SZ_LIBCALL       (5 * (int) sizeof(void *))
+#define LIBCALL_NEXT(p)  (*(void **) ((char *)(p) + 0 * sizeof(void *)))
+#define LIBCALL_BASE(p)  (*(char **) ((char *)(p) + 1 * sizeof(void *)))
+#define LIBCALL_FUNC(p)  (*(char **) ((char *)(p) + 2 * sizeof(void *)))
+#define LIBCALL_ARGS(p)  (*(char **) ((char *)(p) + 3 * sizeof(void *)))
+#define LIBCALL_OFF(p)   (*(char **) ((char *)(p) + 4 * sizeof(void *)))
+#else
 #define SZ_LIBCALL       20
 #define LIBCALL_NEXT(p)  (*(void **) ((char *)(p) + 0))
 #define LIBCALL_BASE(p)  (*(char **) ((char *)(p) + 4))
 #define LIBCALL_FUNC(p)  (*(char **) ((char *)(p) + 8))
 #define LIBCALL_ARGS(p)  (*(char **) ((char *)(p) + 12))
 #define LIBCALL_OFF(p)   (*(char **) ((char *)(p) + 16))
+#endif
 
 struct msgcall {
     struct msgcall  *next;

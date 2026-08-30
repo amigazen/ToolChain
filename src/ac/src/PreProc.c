@@ -502,6 +502,31 @@ dodefine()
     buffer = (unsigned char *) prepbuffer;
     valid = FALSE;
 
+    /*
+     * getsym() left the first post-name character in lastch.  For object
+     * macros that is often `\Newline` (NDK `#define ItemBar\`).  The body
+     * loop below reads from lptr only, so fold lastch into the scan first.
+     * Function-like macros leave ')' in lastch with '\' still at *lptr.
+     */
+    if (sp->tp == NULL) {
+        while (lastch == ' ' || lastch == '\t')
+            getch();
+        if (lastch == BSLASH) {
+            getch();
+            if (lastch == '\r')
+                getch();
+            if (lastch == '\n' || lastch == '\0') {
+                ac_getline(incldepth == 0);
+            } else {
+                error(ERR_DEFINE, "backslash in macro not at end of line");
+            }
+        } else if (lastch != '\0' && lastch != '\n' && lastch != '\r') {
+            *buffer++ = (unsigned char) lastch;
+            if (!pp_is_white((unsigned char) lastch))
+                valid = TRUE;
+        }
+    }
+
     in_quote = FALSE;
     in_comment = FALSE;
     {
@@ -2062,6 +2087,78 @@ dopragma_liblike(prefix, listhead)
     --global_flag;
 }
 
+/*
+ * Hex library offset: 1e, 48, 0x1e — not an identifier like FindTask.
+ * Distinguishes NDK `#pragma syscall Func off mask` (3 fields) from the
+ * 4-field form `#pragma syscall Base Func off mask` used in older tests.
+ */
+static int
+pragma_looks_offset(s)
+    char           *s;
+{
+    int             i;
+
+    if (s == NULL || s[0] == '\0')
+        return 0;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+        s += 2;
+    if (s[0] == '\0')
+        return 0;
+    for (i = 0; s[i] != '\0'; i++) {
+        if (!((s[i] >= '0' && s[i] <= '9')
+              || (s[i] >= 'a' && s[i] <= 'f')
+              || (s[i] >= 'A' && s[i] <= 'F')))
+            return 0;
+    }
+    return 1;
+}
+
+/*
+ * NDK/SAS: `#pragma syscall FuncName offset mask` (implicit SysBase).
+ * Also accept 4-field `Base Func offset mask` for unit tests.
+ */
+static void
+dopragma_syscall(listhead)
+    void          **listhead;
+{
+    char           *t1;
+    char           *t2;
+
+    ++global_flag;
+    pragma_entry = (char *) xalloc(SZ_LIBCALL);
+    libentry_set_field(0, (char *) (*listhead));
+
+    gettoken();
+    t1 = litlate(laststr);
+    gettoken();
+    t2 = litlate(laststr);
+
+    if (pragma_looks_offset(t2)) {
+        /* 3-field NDK form */
+        libentry_set_field(1, litlate("SysBase"));
+        libentry_set_field(2, t1);
+        libentry_set_field(4, t2);
+        gettoken();
+        libentry_set_field(3, reverse_args(litlate(laststr)));
+    } else {
+        /* 4-field Base Func offset mask */
+        libentry_set_field(1, t1);
+        libentry_set_field(2, t2);
+        gettoken();
+        libentry_set_field(4, litlate(laststr));
+        gettoken();
+        libentry_set_field(3, reverse_args(litlate(laststr)));
+    }
+
+    *listhead = (void *) pragma_entry;
+
+    strcpy(laststr, "__SYSCALL_");
+    strcat(laststr, LIBCALL_FUNC(pragma_entry));
+    setdefine(LIBCALL_FUNC(pragma_entry), litlate(laststr));
+    pragma_entry = NULL;
+    --global_flag;
+}
+
 void
 dopragma()
 {
@@ -2081,7 +2178,7 @@ dopragma()
     else if (strcmp(laststr, "flibcall") == 0)
         dopragma_liblike("__FLIBCALL_", (void **) &flibpragma);
     else if (strcmp(laststr, "syscall") == 0)
-        dopragma_liblike("__SYSCALL_", (void **) &syspragma);
+        dopragma_syscall((void **) &syspragma);
     else if (strcmp(laststr, "tagcall") == 0)
         dopragma_liblike("__TAGCALL_", (void **) &tagpragma);
     else if (strcmp(laststr, "msg") == 0) {

@@ -41,9 +41,9 @@ extensions (~p.153 / ~line 8117) — those are **post-MVP**.
 6. [x] **`stdarg.h`** — BE slot-aware
 7. [x] **Document** AC F.3.1–F.3.13 — [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md)
 8. [x] **Enum size** — `sizeof(enum)` = 4 (was 2)
-9. [ ] **Gate:** Amiga `make demo-self2` + run `unittest-out/ac-self2/ac_tests` (confirm new tests; self-host)
+9. [x] **Gate:** Amiga `make demo-self2` + run `ac_tests` — **260 PASS / 0 FAIL** (`src/out.txt`, 2026-08-30), including `bearssl/*` and `c99/*` smokes
 
-**Still open after C89 language pass:** richer prototype diagnostics; Amiga gate run. Then **C99 round-out**.
+**Still open after C89 language pass:** richer prototype diagnostics. **C99 round-out is underway** (see Phase 2 + Recent Improvements) — AmiTLS BearSSL core compiles on host AC.
 
 ### MVP out of scope (parked)
 
@@ -51,21 +51,29 @@ extensions (~p.153 / ~line 8117) — those are **post-MVP**.
 - **Non-ANSI comments:** nested `/* */` (`commentnest`), `//` under `ansi` (SAS warns; we already have `//` as C99 — keep but not MVP gate)
 - **Trigraphs:** off by default; optional `-f trigraph` later
 - **Chapter 11 Amiga extensions:** `__chip`/`__far`/`__asm`/`__saveds`/…, `#pragma libcall`, unnamed unions, implicit member refs, structure equivalence, zero-length arrays, sized enums, `sizeof`/`,` in `#if`, national chars in identifiers, common-model linkage — **post-MVP** (many already partially parsed)
-- **C99 / C23:** `long long` runtime polish, designated init, VLAs, `_Generic`, etc. — **post-MVP** (keep what already works; do not block MVP)
+- **Remaining C99 / C23:** designated init (`.field` / `[i]`), compound literals, VLAs, `_Generic`, long long mul/div polish — **post-MVP** (do not block C89 gate; BearSSL path did not need designators)
 - **Console diagnostic redesign** (`[AC E n] …`) — **parked** (see §1.5.0 / §1.5.1a); fix only blockers like `(null)` if they impede MVP testing
 - **Full libc / F.3.14–F.3.15** — library & locale, not language MVP
 
-#### Audit findings (2026-08-28, from `out.txt` + sources)
+#### Audit findings (2026-08-30, from `src/out.txt` + BearSSL smoke)
 
-**Already green (C89 runtime in `ac_tests`):** enums, structs/unions, bitfield RMW, switch/goto/loops, compound assigns, pointers/func ptrs, casts, string concat/escapes/sizeof, initializers, file/func `static`, K&R call + old-style def, `stdarg` int sum, `#`/`##` value checks, sizes (`char`1/`short`2/`int`4/ptr4), param array→pointer `sizeof`, unary `+`, fp call sugar.
+**Already green (C89 + C99 runtime in `ac_tests`):** prior C89 suite; `c99/*` (comments, mixed decls / `for (int)`, `_Bool`, `__VA_ARGS__`, `restrict`, LL sizeof + low-word add/sub); **`bearssl/*`** (32-bit fold, sizeof-cast macros, switch decls-before-case, fn designator, auto brace seed init, T0_INT1/2 encoding, `__AC__` / `__STDC_VERSION__` ≥ 199901).
 
-**Only FAILs in last suite:** `c99/ll/*` arithmetic (post-MVP; leave on hold).
+**Host smoke:** `make test-bearssl` — AmiTLS BearSSL BROBJS + `smoke_core` **60/60** compile with Mac `AC`.
 
-**Remediated:** include order, bitfield MSB packing, `stdarg.h` BE ABI, signed/unsigned `>>` codegen + tests, F.3 doc, enum `sizeof` = 4, struct even-pad test.
+**Only known hold:** long long mul/div/mod and some compare paths (`.FDcmp`); not exercised by BearSSL AmiTLS core.
 
-**Still open for MVP:** richer prototype diagnostics (later); Amiga gate run (`demo-self2` + new tests).
+**Remediated (earlier):** include order, bitfield MSB packing, `stdarg.h` BE ABI, signed/unsigned `>>` codegen + tests, F.3 doc, enum `sizeof` = 4, struct even-pad test.
+
+**Still open for MVP polish:** richer prototype diagnostics (later).
 
 ### Recent Improvements (Latest Update)
+- ✅ **AmiTLS BearSSL host compile** - Mac `AC` builds the `smakefile.bearssl` BROBJS set + smoke; `scripts/bearssl_amitls_smoke.py` / `make test-bearssl`
+- ✅ **NDK Include_H as SAS/C** - Host AC compiles NDK3.2R4 headers via `__SASC` → `pragmas/` (`make test-ndk`); fixed LP64 `LIBCALL_*`, 3-field `#pragma syscall`, whitespace-before-`#`, object-like `#define Name\`
+- ✅ **C99 leap for crypto/TLS trees** - auto nested brace aggregate init; decls before `case`; `sizeof CAST(p)->mem`; fn designator ↔ `void (*)(void *)`; 32-bit shift/OR const fold; large static inits (`MAX_INIT_ELEMS` 16384); `__STDC_VERSION__` = `199901L` + `__AC__`
+- ✅ **BearSSL unittest coverage** - `unittest/test_bearssl_patterns.c` (compile) + `bearssl/*` in `ac_tests` (Amiga runtime green)
+- ✅ **Amiga `ac_tests` gate** - 260 expected passes, 0 unexpected failures (`src/out.txt`)
+- ✅ **POSIX host path buffers** - `AC_PATHMAX` so long `-I`/`-o` Mac paths do not fortify-abort
 - ✅ **`#if` / NDK `types.h`** - rewrite `defined(X)` to 0/1 before `intexpr`; `intexpr` always `opt0`; no `L` on `__STDC_VERSION__`
 - ✅ **Enum size = 4** - F.3.9 `int`-sized enumerations (`Decl.c`); `c89/enum/sizeof_int` + struct pad offset test
 - ✅ **Enum deref = long** - `deref()` used `en_w_ref` for `bt_enum` while params/slots are 4 bytes; big-endian `needpunc` read 0 → NDK typedef Punctuation under ac-self (`Expr.c` / `Init.c` / `Force.c`)
@@ -442,7 +450,7 @@ extensions (~p.153 / ~line 8117) — those are **post-MVP**.
 #### 1.1.3 Include System
 - [x] **Quoted includes** - `#include "file"`: cwd, then dir of `curfile`, then `-I`, then `INCLUDE:` (SAS F.3.13)
 - [x] **System includes** - `#include <file>` skips cwd / beside-caller (`-I` then `INCLUDE:`)
-- [ ] **NDK `pragmas/`** - ToolKit `os-include` has no `pragmas/`; `<proto/*.h>` under `__SASC` needs pragmas on the include path or `-D_NO_INLINE`
+- [ ] **NDK `pragmas/`** - ✅ Host AC parses NDK `#pragma libcall`/`syscall`/`tagcall` (LP64 `LIBCALL_*` + 3-field syscall); `make test-ndk`. Remaining: Amiga self-host still uses 20-byte fixed layout; `pragmas/listview_pragmas.h` needs missing NDK `clib/listview_protos.h`
 - [ ] **Include path management** - Improve `-I` option handling
 - [ ] **Include guards** - Better support for include guard patterns
 
@@ -592,17 +600,24 @@ Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly
 
 ## Phase 2: C99 Compliance
 
+> **Milestone (2026-08-30):** Host AC compiles the AmiTLS BearSSL core (BROBJS) end-to-end.
+> That is a real C99-ish crypto tree (`uint64_t` / `long long`, `static inline`, mixed decls,
+> brace aggregate autos, large static tables) — **not** full C99, but a large leap past
+> “toy coverage.” Designated initializers / compound literals / VLAs remain open; BearSSL
+> did not need them. Amiga `ac_tests` includes runtime `bearssl/*` checks (all PASS).
+
 ### 2.1 New Language Features
 
 #### 2.1.1 Type System Extensions
 - [x] **long long** - 64-bit integer type on 32-bit m68k (hi/lo words, not a user-visible struct)
-  - **Status**: Parsing, typing, assign/init, sizeof, and constants work; Amiga `ac_tests` `c99/ll/*` **runtime arith/suffix FAILs on hold**
+  - **Status**: Parsing, typing, assign/init, sizeof, and constants work; Amiga `ac_tests` `c99/ll/*` sizeof + low-word add/sub **PASS**; mul/div/mod / some compares still on hold
   - **L-value fix**: `lvalue()` accepts `en_ll_ref` / `en_ull_ref` (auto-init and `=` work)
   - **Casts**: `asforcefit` allows long long → narrower integer types
   - **Storage / ABI**: 8-byte memory (big-endian hi then lo); args as two stack longs; return in D0:D1; CSE does not park values in a single D-reg
   - **Constants**: `ival` + `ival_hi` pair (C89-safe); `LL`/`ULL` nodes carry both halves; global init emits two `DC.l`
   - **Codegen**: `add.l`/`addx.l` (and sub/subx) on D0:D1; `putconst` emits full 32-bit immediates (no `ICON16L` truncate); `addx`/`subx` opcode names fixed
-  - **On hold / still open**: long long mul/div/mod and remaining runtime arith; some narrow casts may still emit `move.f`
+  - **32-bit const fold**: `opt0`/`dooper` allow shift/bitwise fold results beyond 16-bit (`1<<15`…, `BR_HASHDESC_*`); add/sub/mul stay 16-bit-guarded for `(d16,An)`
+  - **On hold / still open**: long long mul/div/mod and remaining compare paths; some narrow casts may still emit `move.f`
 - [ ] **Complex types** - `_Complex` and `_Imaginary` types (or define `__STDC_NO_COMPLEX__`)
 - [x] **Boolean type** - `_Bool` / `bool` keywords and type system
   - [x] **`stdbool.h` vs keywords** - header no longer `#define`s `true`/`false` (keywords provide them)
@@ -610,7 +625,7 @@ Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly
 - [ ] **Variable-length arrays** - Arrays with runtime-determined size
 
 #### 2.1.2 New Keywords
-- [x] **inline** - Accepted as no-op declaration qualifier
+- [x] **inline** - Accepted as no-op declaration qualifier (`static inline` OK for BearSSL)
 - [x] **restrict** - Accepted as no-op declaration qualifier
 - [x] **_Bool** - Boolean type keyword (also C23 `bool`)
 
@@ -621,6 +636,15 @@ Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly
 #### 2.1.4 Designated Initializers
 - [ ] **Array designators** - `int a[10] = {[5] = 1, [7] = 2}`
 - [ ] **Struct designators** - `struct s = {.x = 1, .y = 2}`
+- **Note:** AmiTLS BearSSL uses positional nested braces, not designators.
+
+#### 2.1.5 Initializers / sizeof / callbacks (BearSSL-driven)
+- [x] **Auto aggregate brace init** - nested `{ { ptr, len }, … }` for automatic arrays/structs (`Init.c` `doinitauto_brace`; PRF seed chunks)
+- [x] **Large static inits** - `MAX_INIT_ELEMS` / `MAX_INIT_PAD` raised for T0 bytecode tables (thousands of bytes)
+- [x] **`sizeof` + cast macros** - `sizeof ENG->pad` when `ENG` is `((type *)…)`; `ungetsym` after cast parse (`Expr.c` / `GetSym.c`)
+- [x] **Decls before first `case`** - switch body may declare locals before labels (`Stmt.c`; `ec_prime_i15` / hs tables)
+- [x] **Function designator compatibility** - bare function name assignable to `void (*)(void *)` (`types_compatible` in `Expr.c`)
+- [x] **`__STDC_VERSION__` = `199901L`** + **`__AC__`** predefined (`GetSym.c`); AmiTLS `bearssl_port` keys off `__AC__`
 
 ### 2.2 New Preprocessor Features
 
@@ -653,11 +677,16 @@ Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly
 #### 2.4.1 Mixed Declarations
 - [x] **C99-style declarations** - Declarations anywhere in block (`Stmt.c` compound + `blockdeclbegin`)
 - [x] **Loop variable scoping** - `for (int i = …)` via `fordeclbegin` + nested lsyms scope
+- [x] **Decls before `case` / `default`** - see §2.1.5
 
 #### 2.4.2 New Operators
 - [ ] **Compound literals** - Runtime object creation
 - [ ] **Designated initializers** - Named field initialization
 
+#### 2.4.3 Real-world compile targets
+- [x] **AmiTLS BearSSL core (host AC)** - `make test-bearssl` / `scripts/bearssl_amitls_smoke.py`
+- [ ] **AmiTLS full library on Amiga** - link + run (beyond compile-to-asm smoke)
+- [ ] **Dropbear / OpenSSH** - see §3.4
 ## Phase 3: Modern C Features (Future)
 
 ### 3.1 C11 Features (Optional)
@@ -685,19 +714,23 @@ Goal for **AC mode** (`frontend_mode != FE_CC`, default `-f` / native): friendly
 
 ### 3.4 C23 / modern C still to do
 
-Near-term product goal: compile a real SSH stack on Amiga (prefer **Dropbear**
-as the first target — largely C89/C99-portable; **OpenSSH** as the stretch
-target). `__STDC_NO_*` macros are temporary honesty, **not** feature completion.
-Full C23 remains the long-term goal; order work by what SSH code actually uses.
+Near-term product goal: compile a real SSH/TLS stack on Amiga (prefer **Dropbear**
+as the first SSH target — largely C89/C99-portable; **OpenSSH** as the stretch
+target). **AmiTLS / BearSSL** is the TLS milestone — host AC already compiles the
+BearSSL core used by AmiTLS. `__STDC_NO_*` macros are temporary honesty, **not**
+feature completion. Full C23 remains the long-term goal; order work by what TLS/SSH
+code actually uses.
 
-#### SSH-facing priority (do these before exotic C23)
+#### SSH/TLS-facing priority (do these before exotic C23)
+- [x] **BearSSL core compile (host)** - AmiTLS BROBJS + smoke (`make test-bearssl`)
 - [ ] **Solid `long long` compares/casts** - no more mistaken `.FDcmp` on `ull != 0`
 - [ ] **`__func__`** - logging / assert paths
 - [ ] **Flexible array members** - `T name[];` at end of struct (packet buffers)
-- [ ] **Designated initializers** - `.field =` / `[index] =`
+- [ ] **Designated initializers** - `.field =` / `[index] =` (not required by BearSSL)
 - [ ] **Compound literals** - `(type){...}` (OpenSSH ML-KEM / modern crypto)
 - [ ] **Anonymous structs/unions** - unnamed members (very common in C trees)
 - [x] **Declarations after statements** - C99 mixed decls (`compound` / `for (int i=…)`; see §2.4.1)
+- [x] **Auto nested brace aggregate init** - see §2.1.5
 - [ ] **VLAs** - needed for some OpenSSH crypto paths; Dropbear can disable those
 - [ ] **Preprocessor robustness** - complex `#if` / `defined()` (configure output)
 - [ ] **`u8` string prefixes** - treat as ordinary strings initially
@@ -740,8 +773,9 @@ Dropbear can build closer to C89 if post-quantum options are off.
 - [ ] **`__has_c_attribute` / `__has_embed`** - feature probes
 - [ ] **`__VA_OPT__(...)`** - optional variadic macro tokens
 - [ ] **`#embed`** - binary resource inclusion
-- [ ] **Bump `__STDC_VERSION__`** toward `202311L` once a documented subset is claimed
+- [ ] **Bump `__STDC_VERSION__`** toward `202311L` once a documented subset is claimed (currently **`199901L`** for the C99 subset AC implements)
 - [x] **Feature-absence macros (interim)** - `__STDC_NO_ATOMICS__`, `__STDC_NO_THREADS__`, `__STDC_NO_COMPLEX__`, `__STDC_NO_VLA__` as `1` until real support lands
+- [x] **`__AC__`** - predefined for AmiTLS / port headers
 
 #### Larger language features
 - [ ] **`_Generic`** - type-generic selection
@@ -751,7 +785,7 @@ Dropbear can build closer to C89 if post-quantum options are off.
 ## Implementation Priority
 
 ### MVP (now) — ANSI C89 / SAS/C `ansi`+`nooldpp` language
-1. ✅ C89 language vs F.3 (layout, shifts, stdarg, include order, enums) — **gate run remains**
+1. ✅ C89 language vs F.3 (layout, shifts, stdarg, include order, enums) — **Amiga `ac_tests` green**
 2. Preprocessor token refactor (§1.1.2a) — deferred; string `#`/`##` accepted for gate
 3. ✅ Integer/FP implementation-defined behavior (F.3.5–F.3.6) — documented + tested
 4. ✅ Document AC F.3.1–F.3.13 — [IMPLEMENTATION_DEFINED.md](IMPLEMENTATION_DEFINED.md)
@@ -761,7 +795,7 @@ Dropbear can build closer to C89 if post-quantum options are off.
 1. SAS/C keywords codegen (`__asm` registers, `__saveds`, memory sections)
 2. `#pragma` libcall path for NDK `proto/`
 3. Console diagnostic format (`[AC E n]…` plan)
-4. **C99 round-out** (after C89 Amiga gate): `long long` runtime, designated init, VLAs, …
+4. **C99 round-out** — ✅ BearSSL/AmiTLS host compile done; next: LL compares, designators/compound literals if SSH needs them, VLAs, AmiTLS Amiga link
 5. Buffer flushing / libc completeness
 
 ### Historical High Priority (superseded by MVP list above)
@@ -788,10 +822,11 @@ Dropbear can build closer to C89 if post-quantum options are off.
 
 ### 3. Compatibility Testing
 - [ ] **Real-world programs** - Test with existing C codebases
+- [x] **AmiTLS BearSSL core** - host AC compile smoke (`make test-bearssl`)
 - [ ] **Cross-platform** - Ensure Amiga and Unix compatibility
 - [ ] **Library integration** - Test with Amiga system libraries
 - [x] **SAS/C compatibility** - Test with existing SAS/C pragma files and headers
-- [ ] **Amiga system headers** - Compile official Amiga system include files
+- [x] **Amiga system headers** - NDK3.2R4 `Include_H` compile smoke with host AC as `__SASC` (`make test-ndk`; skips GCC `inline/`; one known NDK gap: missing `clib/listview_protos.h`)
 - [ ] **Legacy Amiga programs** - Test with existing Amiga C programs
 
 ## Documentation Updates
@@ -825,7 +860,8 @@ Dropbear can build closer to C89 if post-quantum options are off.
 
 ### C99 Compliance
 - [ ] Passes 90% of GCC C99 compliance tests
-- [ ] Supports all C99 language features
+- [x] **Practical C99 subset for BearSSL/AmiTLS** - `long long`, `inline`/`restrict` no-ops, mixed decls, auto brace aggregates, large static inits, `__STDC_VERSION__` 199901
+- [ ] Supports all C99 language features (designators, compound literals, VLAs, …)
 - [ ] Complete C99 standard library
 - [ ] Maintains Amiga compatibility
 - [ ] Full SAS/C Amiga-specific feature support
