@@ -78,6 +78,37 @@ static int      errno[MAX_ERRORS];
 static char    *errxx[MAX_ERRORS];
 
 static int      numerrs;
+
+/*
+ * One-token pushback for sizeof() disambiguation (type vs unary expr).
+ * Stores the current token; the next getsym() restores it.
+ */
+static int      unget_valid = 0;
+static int      unget_st;
+static long     unget_ival;
+static long     unget_ival_hi;
+static int      unget_ival_unsigned;
+static int      unget_rval_float_suffix;
+static double   unget_rval;
+static char     unget_lastid[MAX_IDP1];
+static char     unget_laststr[MAX_STLP1];
+
+void
+ungetsym()
+{
+    if (unget_valid)
+        return;
+    unget_st = lastst;
+    unget_ival = ival;
+    unget_ival_hi = ival_hi;
+    unget_ival_unsigned = ival_unsigned;
+    unget_rval_float_suffix = rval_float_suffix;
+    unget_rval = rval;
+    strcpy(unget_lastid, lastid);
+    strcpy(unget_laststr, laststr);
+    unget_valid = 1;
+}
+
 char            in_line[1024];
 int             in_line_used;
 int             in_comment = FALSE;
@@ -174,13 +205,17 @@ install_defines()
     setdefine("__TIME__", __timebuf);
     setdefine("__FUNC__", __funcbuf);
     setdefine("__STDC__", " 1 ");
-    /* No L suffix: some #if paths historically left L as a stray id token. */
-    setdefine("__STDC_VERSION__", " 199409 ");
+    /*
+     * C99 subset is intentional (long long, inline, //, mixed decls, …).
+     * No L suffix: some #if paths historically left L as a stray id token.
+     */
+    setdefine("__STDC_VERSION__", " 199901 ");
     /* Freestanding / unsupported C11+ features on Amiga AC */
     setdefine("__STDC_NO_ATOMICS__", " 1 ");
     setdefine("__STDC_NO_THREADS__", " 1 ");
     setdefine("__STDC_NO_COMPLEX__", " 1 ");
     setdefine("__STDC_NO_VLA__", " 1 ");
+    setdefine("__AC__", " 1 ");
     setdefine("__PDC__", " 1 ");
     setdefine("pdc", " 1 ");
     setdefine("amiga", " 1 ");
@@ -1048,6 +1083,19 @@ getsym()
     register int    i, j;
     unsigned char  *loc;
     SYM            *sp;
+
+    if (unget_valid) {
+        lastst = unget_st;
+        ival = unget_ival;
+        ival_hi = unget_ival_hi;
+        ival_unsigned = unget_ival_unsigned;
+        rval_float_suffix = unget_rval_float_suffix;
+        rval = unget_rval;
+        strcpy(lastid, unget_lastid);
+        strcpy(laststr, unget_laststr);
+        unget_valid = 0;
+        return;
+    }
 
 restart:            /* we come back here after comments */
 

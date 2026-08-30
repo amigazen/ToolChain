@@ -13,7 +13,7 @@
 #include    "Cglbdec.h"
 #include    "FrontEnd.h"
 
-extern char     outfile[40];
+extern char     outfile[AC_PATHMAX];
 extern char    *progname;
 extern void     usage();
 

@@ -66,6 +66,9 @@ icon16(v)
  * dooper must not fold address arithmetic into en_icon values outside the
  * 680x0 (d16,An) range.  opt0 still calls dooper for en_lsh/en_rsh/en_and
  * (192<<11 -> 393216) and for en_div/en_mod without icons_fold_* guards.
+ *
+ * Bitwise/shift folds are full 32-bit (BearSSL BR_HASHDESC_* etc.).  Add/sub
+ * /mul stay 16-bit here; address emitters must still validate (d16,An).
  */
 static int
 icon_fold_result(r)
@@ -74,11 +77,21 @@ icon_fold_result(r)
     return r >= -32768L && r <= 32767L;
 }
 
+/* Data/init constant fold: any 32-bit long result is fine. */
+static int
+icon_fold_data(r)
+    long r;
+{
+    (void)r;
+    return 1;
+}
+
 void            dooper();
 
 /*
  * opt0 calls dooper on dual-en_icon trees for several opcodes.  Guard here
- * so a folded result outside (d16,An) range is never stored as en_icon.
+ * so a folded add/sub/mul result outside (d16,An) range is never stored as
+ * en_icon; shifts and bitwise ops may be full 32-bit.
  */
 static void
 icons_fold_dooper(node)
@@ -86,10 +99,12 @@ icons_fold_dooper(node)
 {
     struct enode   *ep;
     long            r;
+    int             dataok;
 
     ep = *node;
     if (ep->v.p[0]->nodetype != en_icon || ep->v.p[1]->nodetype != en_icon)
         return;
+    dataok = 0;
     switch (ep->nodetype) {
     case en_add:
         r = ICON16L(ep->v.p[0]->v.i) + ICON16L(ep->v.p[1]->v.i);
@@ -108,6 +123,7 @@ icons_fold_dooper(node)
         break;
     case en_lsh:
         r = ep->v.p[0]->v.i << ep->v.p[1]->v.i;
+        dataok = 1;
         break;
     case en_rsh:
         if (ep->signedflag == 0)
@@ -115,21 +131,28 @@ icons_fold_dooper(node)
                 >> (int) ep->v.p[1]->v.i);
         else
             r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
+        dataok = 1;
         break;
     case en_and:
         r = ep->v.p[0]->v.i & ep->v.p[1]->v.i;
+        dataok = 1;
         break;
     case en_or:
         r = ep->v.p[0]->v.i | ep->v.p[1]->v.i;
+        dataok = 1;
         break;
     case en_xor:
         r = ep->v.p[0]->v.i ^ ep->v.p[1]->v.i;
+        dataok = 1;
         break;
     default:
         dooper(node);
         return;
     }
-    if (!icon_fold_result(r))
+    if (dataok) {
+        if (!icon_fold_data(r))
+            return;
+    } else if (!icon_fold_result(r))
         return;
     dooper(node);
 }
@@ -263,7 +286,7 @@ dooper(node)
             long r;
 
             r = ~ep->v.p[0]->v.i;
-            if (!icon_fold_result(r))
+            if (!icon_fold_data(r))
                 break;
             ep->nodetype = en_icon;
             ep->v.i = r;
@@ -318,7 +341,7 @@ dooper(node)
             long r;
 
             r = ep->v.p[0]->v.i << ep->v.p[1]->v.i;
-            if (!icon_fold_result(r))
+            if (!icon_fold_data(r))
                 break;
             ep->nodetype = en_icon;
             ep->v.i = r;
@@ -333,7 +356,7 @@ dooper(node)
                     >> (int) ep->v.p[1]->v.i);
             else
                 r = ep->v.p[0]->v.i >> ep->v.p[1]->v.i;
-            if (!icon_fold_result(r))
+            if (!icon_fold_data(r))
                 break;
             ep->nodetype = en_icon;
             ep->v.i = r;
@@ -344,7 +367,7 @@ dooper(node)
             long r;
 
             r = ep->v.p[0]->v.i & ep->v.p[1]->v.i;
-            if (!icon_fold_result(r))
+            if (!icon_fold_data(r))
                 break;
             ep->nodetype = en_icon;
             ep->v.i = r;
@@ -355,7 +378,7 @@ dooper(node)
             long r;
 
             r = ep->v.p[0]->v.i | ep->v.p[1]->v.i;
-            if (!icon_fold_result(r))
+            if (!icon_fold_data(r))
                 break;
             ep->nodetype = en_icon;
             ep->v.i = r;
@@ -366,7 +389,7 @@ dooper(node)
             long r;
 
             r = ep->v.p[0]->v.i ^ ep->v.p[1]->v.i;
-            if (!icon_fold_result(r))
+            if (!icon_fold_data(r))
                 break;
             ep->nodetype = en_icon;
             ep->v.i = r;

@@ -187,7 +187,8 @@ char *HelpMsg[] = {
 
 
 
-char            infile[40], listfile[40], outfile[40], prefile[40];
+char            infile[AC_PATHMAX], listfile[AC_PATHMAX], outfile[AC_PATHMAX],
+                prefile[AC_PATHMAX];
 char           *progname;
 int             mainflag;
 extern TABLE    tagtable;

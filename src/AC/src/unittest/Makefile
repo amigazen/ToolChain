@@ -44,6 +44,7 @@ PASS_TESTS = \
 	test_interrupt \
 	test_c23_types \
 	test_saveds \
+	test_bearssl_patterns \
 	ac_tests
 
 FAIL_SRC = $(DEMODIR)/test_static_assert_fail.c

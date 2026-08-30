@@ -53,6 +53,9 @@ extern char    *itoa();
 extern char    *litlate();
 extern char    *xalloc();
 extern struct enode *makenode();
+extern void     dodecl();
+extern int      blockdeclbegin();
+extern int      castbegin();
 
 int             dbxfile = FALSE;/* Is this the first # 1 "file" command */
 int             dbxincl = 0;    /* Are we in an include file */
@@ -505,6 +508,16 @@ switchstmt()
         error(ERR_EXPREXPECT, NULL);
     needpunc(closepa);
     needpunc(begin);
+    /*
+     * C89 compound-statement: declarations may appear before the first
+     * case/default (BearSSL ec_prime_i15 run_code, x509 T0 engines).
+     */
+    while (blockdeclbegin()) {
+        dodecl(sc_auto);
+        if (lc_auto > lc2_auto)
+            lc2_auto = lc_auto;
+        autohead = autotail = NULL;
+    }
     head = NULL;
 
     while (lastst != end) {

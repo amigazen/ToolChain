@@ -38,12 +38,12 @@
 #include    "Cglbdec.h"
 
 /*
- * Cap padding loops when type sizes are corrupt during self-host bootstrap.
+ * Safety caps against corrupt type sizes during self-host bootstrap.
+ * BearSSL T0 bytecode tables are several thousand bytes; keep headroom.
  */
-#define MAX_INIT_PAD 8192
-#define MAX_INIT_ELEMS 512
+#define MAX_INIT_PAD 65536
+#define MAX_INIT_ELEMS 16384
 
-extern SYM     *gsearch();
 extern SYM     *gsearch();
 extern TYP     *exprnc(), *asforcefit(), *deref();
 extern void     opt4();
@@ -497,6 +497,127 @@ doinit(sp)
 }
 
 
+/*
+ * Emit seed = rhs as an auto init statement (st_expr assignment).
+ * base_off is the frame offset of the object (like sp->value.i).
+ */
+static void
+auto_assign_scalar(base_off, tp, ep_rhs, tp_rhs)
+    long            base_off;
+    TYP            *tp;
+    struct enode   *ep_rhs;
+    TYP            *tp_rhs;
+{
+    struct enode   *ep1;
+    struct snode   *snp;
+
+    if (tp == NULL || ep_rhs == NULL)
+        return;
+    snp = (struct snode *) xalloc(sizeof(struct snode));
+    snp->stype = st_expr;
+    ep1 = makenode(en_autocon, icon_unpoison(base_off), NULL);
+    ep1->constflag = 0;
+    tp = deref(&ep1, tp);
+    if (tp_rhs == NULL || !lvalue(ep1))
+        error(ERR_LVALUE, NULL);
+    else {
+        asforcefit(&ep1, tp, &ep_rhs, tp_rhs);
+        snp->exp = makenode(en_assign, ep1, ep_rhs);
+        snp->next = NULL;
+        addauto(snp);
+    }
+}
+
+/*
+ * C99: brace initializer for an automatic aggregate (array/struct).
+ * Walks '{' ... '}' and emits per-member/element assignments.
+ */
+static void
+doinitauto_brace(base_off, tp)
+    long            base_off;
+    TYP            *tp;
+{
+    int             seen;
+    int             n;
+    long            elsz;
+    SYM            *msp;
+    TYP            *tp2;
+    struct enode   *ep2;
+
+    if (tp == NULL)
+        return;
+    seen = 0;
+    if (lastst == begin) {
+        seen = 1;
+        getsym();
+    }
+
+    if (tp->type == bt_pointer && tp->val_flag != 0) {
+        /* array */
+        elsz = (long) type_size(tp->btp);
+        if (elsz <= 0)
+            elsz = 4;
+        n = 0;
+        while (lastst != end && lastst != eof) {
+            if (n > MAX_INIT_ELEMS) {
+                error(ERR_SYNTAX, NULL);
+                break;
+            }
+            if (lastst == begin
+                || (tp->btp != NULL
+                    && (tp->btp->type == bt_struct
+                        || tp->btp->type == bt_union
+                        || (tp->btp->type == bt_pointer
+                            && tp->btp->val_flag != 0))))
+                doinitauto_brace(base_off + n * elsz, tp->btp);
+            else {
+                tp2 = exprnc(&ep2);
+                auto_assign_scalar(base_off + n * elsz, tp->btp, ep2, tp2);
+            }
+            n++;
+            if (lastst == comma)
+                getsym();
+            else if (lastst != end)
+                break;
+        }
+    }
+    else if (tp->type == bt_struct || tp->type == bt_union) {
+        msp = tp->lst.head;
+        n = 0;
+        while (msp != NULL && lastst != end && lastst != eof) {
+            if (++n > MAX_INIT_ELEMS)
+                break;
+            if (lastst == begin
+                || (msp->tp != NULL
+                    && (msp->tp->type == bt_struct
+                        || msp->tp->type == bt_union
+                        || (msp->tp->type == bt_pointer
+                            && msp->tp->val_flag != 0))))
+                doinitauto_brace(base_off + (long) msp->value.i, msp->tp);
+            else {
+                tp2 = exprnc(&ep2);
+                auto_assign_scalar(base_off + (long) msp->value.i,
+                    msp->tp, ep2, tp2);
+            }
+            msp = msp->next;
+            if (lastst == comma)
+                getsym();
+            else if (lastst != end)
+                break;
+        }
+    }
+    else {
+        tp2 = exprnc(&ep2);
+        auto_assign_scalar(base_off, tp, ep2, tp2);
+    }
+
+    if (seen) {
+        if (lastst == comma)
+            getsym();
+        needpunc(end);
+    }
+}
+
 void
 doinitauto(sp)
     SYM            *sp;
@@ -508,7 +629,17 @@ doinitauto(sp)
     if (lastst != assign || sp->storage_class != sc_auto)
         return;
 
-    getsym();       /* We found an auto initilized variable */
+    getsym();       /* We found an auto initialized variable */
+
+    /*
+     * C99: local aggregate brace initializers (BearSSL PRF seed chunks).
+     */
+    if (lastst == begin && sp->tp != NULL
+        && (sp->tp->type == bt_struct || sp->tp->type == bt_union
+            || (sp->tp->type == bt_pointer && sp->tp->val_flag != 0))) {
+        doinitauto_brace((long) sp->value.i, sp->tp);
+        return;
+    }
 
     snp = (struct snode *) xalloc(sizeof(struct snode));
     snp->stype = st_expr;

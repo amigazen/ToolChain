@@ -17,6 +17,19 @@
 #endif
 #endif
 
+/*
+ * Path buffers for infile/outfile/-I names.  Classic Amiga kept these at 40;
+ * host builds need room for absolute SDK and project paths (Mac fortify
+ * aborts on strcpy past the old 40-byte arrays).
+ */
+#ifndef AC_PATHMAX
+#ifdef AC_HOST_POSIX
+#define AC_PATHMAX 512
+#else
+#define AC_PATHMAX 40
+#endif
+#endif
+
 #ifdef AC_HOST_POSIX
 void open_stdio(void);
 void close_stdio(void);

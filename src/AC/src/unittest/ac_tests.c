@@ -1179,6 +1179,145 @@ test_c99_features()
     }
 }
 
+/*
+ * Regressions from compiling AmiTLS BearSSL with AC (see also
+ * test_bearssl_patterns.c for large T0 tables / offsetof-style macros).
+ */
+typedef unsigned long br_u32;
+
+typedef struct {
+    unsigned char pad[32];
+    int x;
+} br_eng;
+
+#define BR_ENG(p) ((br_eng *)(void *)(p))
+
+#define BR_T0_FBYTE(x, n) (unsigned char)(((br_u32)(x) >> (n)) & 0x7F)
+#define BR_T0_VBYTE(x, n) \
+    (unsigned char)((((br_u32)(x) >> (n)) & 0x7F) | 0x80)
+#define BR_T0_INT1(x) BR_T0_FBYTE(x, 0)
+#define BR_T0_INT2(x) BR_T0_VBYTE(x, 7), BR_T0_FBYTE(x, 0)
+
+#define BR_KT_RSA  1
+#define BR_KT_KEYX 0x10
+#define BR_KT_SIGN 0x20
+#define BR_BUF_SIG 512
+
+#define BR_HASHDESC(id, out, state, blen) \
+    (((br_u32)(id)) \
+     | (((br_u32)(out)) << 8) \
+     | (((br_u32)(state)) << 16) \
+     | (((br_u32)(blen)) << 24))
+
+typedef struct {
+    const void *data;
+    unsigned long len;
+} br_seed_chunk;
+
+static void
+br_hs_cb(ctx)
+    void *ctx;
+{
+    (void) ctx;
+}
+
+static int
+br_switch_decl(v)
+    int v;
+{
+    switch (v) {
+        int y;
+    case 0:
+        y = 11;
+        return y;
+    case 1:
+        y = 22;
+        return y;
+    default:
+        return -1;
+    }
+}
+
+static const unsigned char br_t0_small[] = {
+    BR_T0_INT1(BR_KT_SIGN),
+    BR_T0_INT1(BR_KT_RSA | BR_KT_KEYX),
+    BR_T0_INT2(BR_BUF_SIG)
+};
+
+static void
+test_bearssl_regress()
+{
+    br_eng eng;
+    void *p;
+    void (*fp)(void *);
+    br_seed_chunk seed[2];
+    br_u32 hd;
+    int n;
+
+    p = (void *) &eng;
+    eng.x = 7;
+
+    /* 32-bit const fold: shifts/OR must not be clipped to 16-bit icons. */
+    expect_long("bearssl/fold/shl_15", (long) (1L << 15), 32768L);
+    expect_long("bearssl/fold/shl_20", (long) (1L << 20), 1048576L);
+    hd = BR_HASHDESC(6, 32, 32, 64);
+    expect_long("bearssl/fold/hashdesc_lo", (long) (hd & 0xFFFFUL),
+                (long) (6UL | (32UL << 8)));
+    expect_long("bearssl/fold/hashdesc_hi", (long) (hd >> 16),
+                (long) (32UL | (64UL << 8)));
+
+    /* sizeof on cast-macro member (ENG->pad). */
+    expect_long("bearssl/sizeof/cast_macro_pad",
+                (long) sizeof BR_ENG(p)->pad, 32L);
+    expect_long("bearssl/sizeof/cast_macro_x",
+                (long) sizeof BR_ENG(p)->x, 4L);
+
+    /* Declarations before the first case label. */
+    expect_long("bearssl/switch/decl_case0", (long) br_switch_decl(0), 11L);
+    expect_long("bearssl/switch/decl_case1", (long) br_switch_decl(1), 22L);
+
+    /* Function designator assignable to void (*)(void *). */
+    fp = br_hs_cb;
+    fp(p);
+    expect_true("bearssl/fn/designator_assign", fp != 0);
+
+    /* C99 auto aggregate brace init (PRF seed chunks). */
+    {
+        br_seed_chunk local[2] = {
+            { p, sizeof eng.pad },
+            { p, sizeof(int) }
+        };
+
+        expect_true("bearssl/init/seed0_data", local[0].data == p);
+        expect_long("bearssl/init/seed0_len", (long) local[0].len, 32L);
+        expect_true("bearssl/init/seed1_data", local[1].data == p);
+        expect_long("bearssl/init/seed1_len", (long) local[1].len, 4L);
+        seed[0] = local[0];
+        seed[1] = local[1];
+        n = (int) seed[0].len + (int) seed[1].len;
+        expect_long("bearssl/init/seed_sum", (long) n, 36L);
+    }
+
+    /* T0_INT1(OR) and T0_INT2(512) -> 0x84, 0x00 (7-bit encoding). */
+    expect_long("bearssl/t0/int1_sign", (long) br_t0_small[0],
+                (long) BR_KT_SIGN);
+    expect_long("bearssl/t0/int1_rsa_keyx", (long) br_t0_small[1],
+                (long) (BR_KT_RSA | BR_KT_KEYX));
+    expect_long("bearssl/t0/int2_hi", (long) br_t0_small[2], 0x84L);
+    expect_long("bearssl/t0/int2_lo", (long) br_t0_small[3], 0x00L);
+
+#if defined(__AC__)
+    dejagnu_pass("bearssl/macro/AC");
+#else
+    dejagnu_fail("bearssl/macro/AC");
+#endif
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)
+    dejagnu_pass("bearssl/macro/STDC_VERSION_c99");
+#else
+    dejagnu_fail("bearssl/macro/STDC_VERSION_c99");
+#endif
+}
+
 static void
 test_c89_storage()
 {
@@ -1250,6 +1389,7 @@ test_compile_only_notes()
     dejagnu_untested("compile/test_c99_bool.c");
     dejagnu_untested("compile/test_c99_inline_restrict.c");
     dejagnu_untested("compile/test_c99_pp.c");
+    dejagnu_untested("compile/test_bearssl_patterns.c");
     dejagnu_untested("compile/test_sasc_compiler_specific.c");
 }
 
@@ -1320,6 +1460,7 @@ main(void)
     test_c89_pp_value();
     test_c89_edge();
     test_c99_features();
+    test_bearssl_regress();
     test_compile_only_notes();
 
     print_summary();

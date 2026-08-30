@@ -7,6 +7,7 @@
 #   make test-unittest    Compile unittest/ smokes + ac_tests
 #   make test-demo        Legacy alias for test-unittest
 #   make test-feature     Legacy ac_feature_demo.c (needs Amiga headers)
+#   make test-bearssl     Compile AmiTLS BearSSL BROBJS + smoke_core with host AC
 #   make bootstrap        AC compiles its own sources to build/bootstrap/*.s
 #   make bootstrap-self   gen-2: AC recompiles all sources (self-host regression)
 #   make selfhost           mac + gen-1 + gen-2 + poison validation (run before Amiga)
@@ -99,7 +100,7 @@ AMIGA_OBJECTS = $(CSOURCES:%.c=$(AMIGA_OBJDIR)/%.o)
 BOOT_ASM = $(CSOURCES:%.c=$(BOOTDIR)/%.s)
 BOOT_ASM_GEN2 = $(CSOURCES:%.c=$(BOOTDIR)/gen2/%.s)
 
-.PHONY: all mac amiga clean test test-demo test-unittest test-demo-suite test-feature bootstrap bootstrap-report bootstrap-self selfhost check-bootstrap check-selfhost validate-asm validate-selfhost
+.PHONY: all mac amiga clean test test-demo test-unittest test-demo-suite test-feature bootstrap bootstrap-report bootstrap-self selfhost check-bootstrap check-selfhost validate-asm validate-selfhost test-bearssl
 
 all: mac
 
@@ -126,6 +127,10 @@ $(AMIGA_OBJDIR)/%.o: $(SRCDIR)/%.c | $(AMIGA_OBJDIR)
 	$(AMIGA_CC) $(AMIGA_CFLAGS) -c -o $@ $<
 
 test: mac test-unittest
+
+# AmiTLS BearSSL BROBJS compile smoke (host AC -> m68k .s).
+test-bearssl: $(BINDIR)/AC
+	python3 scripts/bearssl_amitls_smoke.py
 
 # Unit test suite (same smokes Amiga make demo-ac / demo-self / demo-self2 run).
 test-unittest test-demo-suite test-demo: $(BINDIR)/AC

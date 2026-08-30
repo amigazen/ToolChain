@@ -485,6 +485,7 @@ DEMO_COMPILE = \
 	test_c99_bool \
 	test_c99_inline_restrict \
 	test_c99_pp \
+	test_bearssl_patterns \
 	test_sasc_compiler_specific \
 	test_calling_conventions \
 	test_sasc_pragmas \

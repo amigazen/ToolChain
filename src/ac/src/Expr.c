@@ -294,6 +294,20 @@ types_compatible(tp1, tp2)
         return (TRUE);
     if (is_pointer(tp2) && tp1->type == bt_void)
         return (TRUE);
+    /*
+     * Function designator vs pointer-to-function (C89 3.2.2.1 / 3.3.2.2).
+     * BearSSL passes hs_init/hs_run into br_ssl_engine_hs_reset().
+     */
+    if ((tp1->type == bt_func || tp1->type == bt_ifunc)
+        && is_pointer(tp2) && tp2->btp != NULL
+        && (tp2->btp->type == bt_func || tp2->btp->type == bt_ifunc
+            || tp2->btp->type == bt_void))
+        return (TRUE);
+    if ((tp2->type == bt_func || tp2->type == bt_ifunc)
+        && is_pointer(tp1) && tp1->btp != NULL
+        && (tp1->btp->type == bt_func || tp1->btp->type == bt_ifunc
+            || tp1->btp->type == bt_void))
+        return (TRUE);
     return (FALSE);
 }
 
@@ -970,6 +984,10 @@ unary(node)
     long            i;
 
     flag = 0;
+    ep1 = NULL;
+    ep2 = NULL;
+    ep3 = NULL;
+    tp = NULL;
     switch (lastst) {
     case autodec:
         flag = 1;
@@ -1102,22 +1120,43 @@ unary(node)
         break;
     case kw_sizeof:
         getsym();
-        if (seen = (lastst == openpa))
-            needpunc(openpa);
-        if (castbegin(lastst)) {
-            decl(NULL);
-            decl1();
-            if (head != NULL)
-                ep1 = makenode(en_icon, (long)type_size(head), NULL);
+        if (lastst == openpa) {
+            getsym();
+            if (castbegin(lastst)) {
+                /*
+                 * sizeof ( type-name )
+                 */
+                decl(NULL);
+                decl1();
+                if (head != NULL)
+                    ep1 = makenode(en_icon, (long) type_size(head), NULL);
+                else {
+                    error(ERR_IDEXPECT, NULL);
+                    ep1 = makenode(en_icon, 1L, NULL);
+                }
+                needpunc(closepa);
+            }
             else {
-                error(ERR_IDEXPECT, NULL);
-                ep1 = makenode(en_icon, 1L, NULL);
+                /*
+                 * Not a type: '(' begins a unary-expression (e.g. BearSSL
+                 * sizeof ENG->pad with ENG expanding to ((type *)...)).
+                 * Push the peeked token back, restore openpa, parse unary.
+                 */
+                ungetsym();
+                lastst = openpa;
+                tp1 = unary(&ep2);
+                if (tp1 != NULL)
+                    ep1 = makenode(en_icon, (long) type_size(tp1), NULL);
+                else {
+                    error(ERR_IDEXPECT, NULL);
+                    ep1 = makenode(en_icon, 1L, NULL);
+                }
             }
         }
         else {
-            head = exprnc(&ep2);
-            if (head != NULL)
-                ep1 = makenode(en_icon, (long)type_size(head), NULL);
+            tp1 = unary(&ep2);
+            if (tp1 != NULL)
+                ep1 = makenode(en_icon, (long) type_size(tp1), NULL);
             else {
                 error(ERR_IDEXPECT, NULL);
                 ep1 = makenode(en_icon, 1L, NULL);
@@ -1125,8 +1164,6 @@ unary(node)
         }
         ep1->constflag = 1;
         tp = &stdint;
-        if (seen)
-            needpunc(closepa);
         break;
     case kw_alignof:
         /*
@@ -1163,55 +1200,57 @@ unary(node)
 
     default:
         tp = primary(&ep1);
-        if (tp != NULL) {
-            if (tp->type == bt_pointer)
-                i = pointer_stride(tp->btp);
+        if (tp == NULL) {
+            *node = ep1;
+            return NULL;
+        }
+        if (tp->type == bt_pointer)
+            i = pointer_stride(tp->btp);
+        else
+            i = 1;
+        if (lastst == autoinc) {
+            if (lvalue(ep1)) {
+                ep2 = makenode( en_icon, (long) i, NULL );
+                switch (tp->type) {
+                case bt_float:
+                    ep2 = makenode( en_clf, ep2, NULL );
+                    ep1 = makenode( en_faincs, ep1, ep2 );
+                    break;
+                case bt_double:
+                    ep2 = makenode( en_cld, ep2, NULL );
+                    ep1 = makenode( en_faincd, ep1, ep2 );
+                    break;
+                default:
+                    ep1 = makenode( en_ainc, ep1, ep2 );
+                    break;
+                }
+            }
             else
-                i = 1;
-            if (lastst == autoinc) {
-                if (lvalue(ep1)) {
-                    ep2 = makenode( en_icon, (long) i, NULL );
-                    switch (tp->type) {
-                    case bt_float:
-                        ep2 = makenode( en_clf, ep2, NULL );
-                        ep1 = makenode( en_faincs, ep1, ep2 );
-                        break;
-                    case bt_double:
-                        ep2 = makenode( en_cld, ep2, NULL );
-                        ep1 = makenode( en_faincd, ep1, ep2 );
-                        break;
-                    default:
-                        ep1 = makenode( en_ainc, ep1, ep2 );
-                        break;
-                    }
+                error(ERR_LVALUE, NULL);
+            getsym();
+        }
+        else if (lastst == autodec) {
+            if (lvalue(ep1)) {
+                ep2 = makenode( en_icon, (long) i, NULL );
+                switch (tp->type) {
+                case bt_float:
+                    ep2 = makenode( en_uminus, ep2, NULL );
+                    ep2 = makenode( en_clf, ep2, NULL );
+                    ep1 = makenode( en_faincs, ep1, ep2 );
+                    break;
+                case bt_double:
+                    ep2 = makenode( en_uminus, ep2, NULL );
+                    ep2 = makenode( en_cld, ep2, NULL );
+                    ep1 = makenode( en_faincd, ep1, ep2 );
+                    break;
+                default:
+                    ep1 = makenode( en_adec, ep1, ep2 );
+                    break;
                 }
-                else
-                    error(ERR_LVALUE, NULL);
-                getsym();
             }
-            else if (lastst == autodec) {
-                if (lvalue(ep1)) {
-                    ep2 = makenode( en_icon, (long) i, NULL );
-                    switch (tp->type) {
-                    case bt_float:
-                        ep2 = makenode( en_uminus, ep2, NULL );
-                        ep2 = makenode( en_clf, ep2, NULL );
-                        ep1 = makenode( en_faincs, ep1, ep2 );
-                        break;
-                    case bt_double:
-                        ep2 = makenode( en_uminus, ep2, NULL );
-                        ep2 = makenode( en_cld, ep2, NULL );
-                        ep1 = makenode( en_faincd, ep1, ep2 );
-                        break;
-                    default:
-                        ep1 = makenode( en_adec, ep1, ep2 );
-                        break;
-                    }
-                }
-                else
-                    error(ERR_LVALUE, NULL);
-                getsym();
-            }
+            else
+                error(ERR_LVALUE, NULL);
+            getsym();
         }
         break;
     }
